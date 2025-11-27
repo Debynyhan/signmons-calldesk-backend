@@ -1,0 +1,157 @@
+import {
+  Injectable,
+  InternalServerErrorException,
+  HttpException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { CALLDESK_TOOLS } from './tools/toolSchemas';
+
+@Injectable()
+export class AiService {
+  private client: OpenAI | null;
+  private systemPrompt: string | null;
+  private readonly defaultModel = 'gpt-4o-mini';
+  private readonly previewModel = 'gpt-5.1-codex';
+
+  constructor(private readonly configService: ConfigService) {
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    this.client = apiKey ? new OpenAI({ apiKey }) : null;
+
+    if (!this.client) {
+      console.warn('[AiService] OPENAI_API_KEY missing. AI responses disabled.');
+    }
+
+    try {
+      const promptPath = join(
+        process.cwd(),
+        'src',
+        'ai',
+        'prompts',
+        'calldeskSystemPrompt.txt',
+      );
+      this.systemPrompt = readFileSync(promptPath, 'utf8');
+    } catch (error) {
+      console.error('[AiService] Failed to load system prompt:', error);
+      this.systemPrompt = null;
+    }
+  }
+
+  async triage(tenantId: string, userMessage: string) {
+    if (!this.client || !this.systemPrompt) {
+      throw new InternalServerErrorException(
+        'AI is not configured on the server.',
+      );
+    }
+
+    try {
+      const tenantContext = `You are handling calls for tenantId=${tenantId}. The business is a licensed HVAC/Plumbing/Electrical contractor. Always act as a professional dispatcher.`;
+      const messages: OpenAI.ChatCompletionMessageParam[] = [
+        { role: 'system', content: this.systemPrompt },
+        { role: 'system', content: tenantContext },
+        { role: 'user', content: userMessage },
+      ];
+
+      const model = this.selectModel();
+      const response = await this.createCompletion(messages, model);
+      const choice = response.choices[0];
+      const { message } = choice;
+
+      if (message.tool_calls?.length) {
+        const toolCall = message.tool_calls[0];
+        if (toolCall.type === 'function' && toolCall.function?.name) {
+          return this.handleToolCall(
+            toolCall.function.name,
+            toolCall.function.arguments,
+          );
+        }
+
+        return {
+          status: 'tool_called',
+          toolName: toolCall.type,
+          rawArgs: toolCall.function?.arguments ?? null,
+        };
+      }
+
+      return {
+        status: 'reply',
+        reply: message.content,
+      };
+    } catch (error) {
+      const status = (error as { status?: number })?.status;
+      const code = (error as { code?: string })?.code;
+      if (status === 429 || code === 'insufficient_quota') {
+        console.warn('[AiService] Rate limited/insufficient quota:', error);
+        throw new HttpException(
+          'AI is temporarily rate limited. Try again soon.',
+          429,
+        );
+      }
+
+      console.error('[AiService] Triage failed:', error);
+      throw new InternalServerErrorException('AI triage failed.');
+    }
+  }
+
+  private async createCompletion(
+    messages: OpenAI.ChatCompletionMessageParam[],
+    model: string,
+  ) {
+    try {
+      return await this.client!.chat.completions.create({
+        model,
+        messages,
+        tools: CALLDESK_TOOLS,
+        tool_choice: 'auto',
+      });
+    } catch (error: any) {
+      const unavailable = error?.message?.includes('not found');
+      if (model === this.previewModel && unavailable) {
+        console.warn(
+          `[AiService] Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
+        );
+        return this.client!.chat.completions.create({
+          model: this.defaultModel,
+          messages,
+          tools: CALLDESK_TOOLS,
+          tool_choice: 'auto',
+        });
+      }
+      throw error;
+    }
+  }
+
+  private handleToolCall(name: string, rawArgs?: string) {
+    if (name !== 'create_job') {
+      return {
+        status: 'unsupported_tool',
+        toolName: name,
+        rawArgs,
+      };
+    }
+
+    let args: Record<string, any> = {};
+    try {
+      args = rawArgs ? JSON.parse(rawArgs) : {};
+    } catch (error) {
+      console.error('[AiService] Failed to parse tool arguments:', error);
+    }
+
+    const stubJobId = `job_${Date.now()}`;
+    return {
+      status: 'job_created',
+      jobId: stubJobId,
+      jobPayload: args,
+      message: 'Job creation stub. Replace with persistence later.',
+    };
+  }
+
+  private selectModel(): string {
+    const enablePreview =
+      this.configService.get<string>('ENABLE_GPT5_1_CODEX')?.toLowerCase() ===
+      'true';
+    return enablePreview ? this.previewModel : this.defaultModel;
+  }
+}
