@@ -1,23 +1,13 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { AiService } from './ai.service';
+import { Body, Controller, Post } from "@nestjs/common";
+import { AiService } from "./ai.service";
+import { TriageDto } from "./dto/triage.dto";
 
-class TriageRequestDto {
-  tenantId!: string;
-  message!: string;
-}
-
-@Controller('ai')
+@Controller("ai")
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
-  @Post('triage')
-  async triage(@Body() body: TriageRequestDto) {
-    const { tenantId, message } = body;
-
-    if (!tenantId || !message) {
-      return { error: 'tenantId and message are required' };
-    }
-
+  @Post("triage")
+  async triage(@Body() { tenantId, message }: TriageDto) {
     return this.aiService.triage(tenantId, message);
   }
 }

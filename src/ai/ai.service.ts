@@ -1,40 +1,47 @@
 import {
+  BadRequestException,
+  HttpException,
+  Inject,
   Injectable,
   InternalServerErrorException,
-  HttpException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { CALLDESK_TOOLS } from './tools/toolSchemas';
+  Logger,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import OpenAI from "openai";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { CALLDESK_TOOLS } from "./tools/toolSchemas";
+import { OPENAI_CLIENT } from "./ai.constants";
 
 @Injectable()
 export class AiService {
-  private client: OpenAI | null;
-  private systemPrompt: string | null;
-  private readonly defaultModel = 'gpt-4o-mini';
-  private readonly previewModel = 'gpt-5.1-codex';
+  private readonly systemPrompt: string | null;
+  private readonly defaultModel = "gpt-4o-mini";
+  private readonly previewModel = "gpt-5.1-codex";
+  private readonly logger = new Logger(AiService.name);
 
-  constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    this.client = apiKey ? new OpenAI({ apiKey }) : null;
-
+  constructor(
+    @Inject(OPENAI_CLIENT) private readonly client: OpenAI | null,
+    private readonly configService: ConfigService
+  ) {
     if (!this.client) {
-      console.warn('[AiService] OPENAI_API_KEY missing. AI responses disabled.');
+      this.logger.warn("OPENAI_API_KEY missing. AI responses disabled.");
     }
 
     try {
       const promptPath = join(
         process.cwd(),
-        'src',
-        'ai',
-        'prompts',
-        'calldeskSystemPrompt.txt',
+        "src",
+        "ai",
+        "prompts",
+        "calldeskSystemPrompt.txt"
       );
-      this.systemPrompt = readFileSync(promptPath, 'utf8');
+      this.systemPrompt = readFileSync(promptPath, "utf8");
     } catch (error) {
-      console.error('[AiService] Failed to load system prompt:', error);
+      this.logger.error(
+        "Failed to load system prompt.",
+        error instanceof Error ? error.stack : String(error)
+      );
       this.systemPrompt = null;
     }
   }
@@ -42,16 +49,27 @@ export class AiService {
   async triage(tenantId: string, userMessage: string) {
     if (!this.client || !this.systemPrompt) {
       throw new InternalServerErrorException(
-        'AI is not configured on the server.',
+        "AI is not configured on the server."
       );
     }
 
     try {
-      const tenantContext = `You are handling calls for tenantId=${tenantId}. The business is a licensed HVAC/Plumbing/Electrical contractor. Always act as a professional dispatcher.`;
+      const safeTenantId = this.sanitizeIdentifier(tenantId);
+      const safeUserMessage = this.sanitizeText(userMessage);
+
+      if (!safeTenantId) {
+        throw new BadRequestException("Invalid tenant identifier.");
+      }
+
+      if (!safeUserMessage) {
+        throw new BadRequestException("Message must contain text.");
+      }
+
+      const tenantContext = `You are handling calls for tenantId=${safeTenantId}. The business is a licensed HVAC/Plumbing/Electrical contractor. Always act as a professional dispatcher.`;
       const messages: OpenAI.ChatCompletionMessageParam[] = [
-        { role: 'system', content: this.systemPrompt },
-        { role: 'system', content: tenantContext },
-        { role: 'user', content: userMessage },
+        { role: "system", content: this.systemPrompt },
+        { role: "system", content: tenantContext },
+        { role: "user", content: safeUserMessage },
       ];
 
       const model = this.selectModel();
@@ -61,62 +79,85 @@ export class AiService {
 
       if (message.tool_calls?.length) {
         const toolCall = message.tool_calls[0];
-        if (toolCall.type === 'function' && toolCall.function?.name) {
+        if (toolCall.type === "function" && toolCall.function?.name) {
           return this.handleToolCall(
             toolCall.function.name,
-            toolCall.function.arguments,
+            toolCall.function.arguments
           );
         }
 
         return {
-          status: 'tool_called',
+          status: "tool_called",
           toolName: toolCall.type,
           rawArgs: toolCall.function?.arguments ?? null,
         };
       }
 
       return {
-        status: 'reply',
+        status: "reply",
         reply: message.content,
       };
     } catch (error) {
-      const status = (error as { status?: number })?.status;
+      const status =
+        error instanceof HttpException
+          ? error.getStatus()
+          : (error as { status?: number })?.status;
       const code = (error as { code?: string })?.code;
-      if (status === 429 || code === 'insufficient_quota') {
-        console.warn('[AiService] Rate limited/insufficient quota:', error);
+      if (status === 429 || code === "insufficient_quota") {
+        this.logger.warn(
+          `Rate limited or insufficient quota reported by OpenAI: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
         throw new HttpException(
-          'AI is temporarily rate limited. Try again soon.',
-          429,
+          "AI is temporarily rate limited. Try again soon.",
+          429
         );
       }
 
-      console.error('[AiService] Triage failed:', error);
-      throw new InternalServerErrorException('AI triage failed.');
+      if (error instanceof BadRequestException) {
+        this.logger.warn(`Rejected triage request: ${error.message}`);
+        throw error;
+      }
+
+      if (error instanceof HttpException) {
+        this.logger.error(
+          `AI provider returned an error: ${error.message}`,
+          error.stack
+        );
+        throw error;
+      }
+
+      this.logger.error(
+        "Triage failed.",
+        error instanceof Error ? error.stack : String(error)
+      );
+      throw new InternalServerErrorException("AI triage failed.");
     }
   }
 
   private async createCompletion(
     messages: OpenAI.ChatCompletionMessageParam[],
-    model: string,
+    model: string
   ) {
     try {
       return await this.client!.chat.completions.create({
         model,
         messages,
         tools: CALLDESK_TOOLS,
-        tool_choice: 'auto',
+        tool_choice: "auto",
       });
     } catch (error: any) {
-      const unavailable = error?.message?.includes('not found');
+      const unavailable = error?.message?.includes("not found");
       if (model === this.previewModel && unavailable) {
-        console.warn(
-          `[AiService] Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
+        this.logger.warn(
+          `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`
         );
         return this.client!.chat.completions.create({
           model: this.defaultModel,
           messages,
           tools: CALLDESK_TOOLS,
-          tool_choice: 'auto',
+          tool_choice: "auto",
         });
       }
       throw error;
@@ -124,9 +165,9 @@ export class AiService {
   }
 
   private handleToolCall(name: string, rawArgs?: string) {
-    if (name !== 'create_job') {
+    if (name !== "create_job") {
       return {
-        status: 'unsupported_tool',
+        status: "unsupported_tool",
         toolName: name,
         rawArgs,
       };
@@ -136,22 +177,39 @@ export class AiService {
     try {
       args = rawArgs ? JSON.parse(rawArgs) : {};
     } catch (error) {
-      console.error('[AiService] Failed to parse tool arguments:', error);
+      this.logger.error(
+        "Failed to parse tool arguments.",
+        error instanceof Error ? error.stack : String(error)
+      );
     }
 
     const stubJobId = `job_${Date.now()}`;
     return {
-      status: 'job_created',
+      status: "job_created",
       jobId: stubJobId,
       jobPayload: args,
-      message: 'Job creation stub. Replace with persistence later.',
+      message: "Job creation stub. Replace with persistence later.",
     };
   }
 
   private selectModel(): string {
     const enablePreview =
-      this.configService.get<string>('ENABLE_GPT5_1_CODEX')?.toLowerCase() ===
-      'true';
+      this.configService.get<string>("ENABLE_GPT5_1_CODEX")?.toLowerCase() ===
+      "true";
     return enablePreview ? this.previewModel : this.defaultModel;
+  }
+
+  private sanitizeText(value: string): string {
+    return value
+      .replace(/[\u0000-\u001F\u007F]/g, "")
+      .replace(/<[^>]*>/g, "")
+      .trim();
+  }
+
+  private sanitizeIdentifier(value: string): string {
+    return value
+      .replace(/[\u0000-\u001F\u007F]/g, "")
+      .replace(/[^A-Za-z0-9_-]/g, "")
+      .trim();
   }
 }
