@@ -7,7 +7,6 @@ import {
 import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { CALLDESK_TOOLS } from "./tools/toolSchemas";
 import { AiProviderService } from "./providers/ai-provider.service";
 import { JOBS_SERVICE } from "../jobs/jobs.constants";
 import type { JobsService } from "../jobs/interfaces/jobs-service.interface";
@@ -22,6 +21,7 @@ import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { ToolRegistryService } from "./tools/tool.provider";
 
 @Injectable()
 export class AiService {
@@ -32,6 +32,7 @@ export class AiService {
     private readonly errorHandler: AiErrorHandler,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
+    private readonly toolRegistry: ToolRegistryService,
     @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
   ) {
@@ -88,9 +89,10 @@ export class AiService {
         { role: "user", content: safeUserMessage },
       ];
 
+      const tools = this.toolRegistry.getTools();
       const response = await this.aiProviderService.createCompletion({
         messages,
-        tools: CALLDESK_TOOLS,
+        tools: tools.length ? tools : undefined,
       });
       openAIResponseId = response.id;
       const choice = response.choices[0];
