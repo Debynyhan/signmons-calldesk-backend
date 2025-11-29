@@ -1,17 +1,24 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import {
-  CreateJobRequest,
+  CreateJobFromToolCallRequest,
+  CreateJobPayload,
   JobRecord,
   JobsService,
 } from "./interfaces/jobs-service.interface";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { plainToInstance } from "class-transformer";
+import { validateSync } from "class-validator";
+import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 
 @Injectable()
 export class InMemoryJobsService implements JobsService {
   constructor(private readonly sanitizationService: SanitizationService) {}
 
-  async createJob(request: CreateJobRequest): Promise<JobRecord> {
-    const sanitizedPayload = this.sanitizePayload(request.payload);
+  async createJobFromToolCall(
+    request: CreateJobFromToolCallRequest
+  ): Promise<JobRecord> {
+    const payload = this.parsePayload(request.rawArgs);
+    const sanitizedPayload = this.sanitizePayload(payload);
     const jobId = `job_${Date.now()}`;
     return {
       id: jobId,
@@ -22,7 +29,28 @@ export class InMemoryJobsService implements JobsService {
     };
   }
 
-  private sanitizePayload(payload: CreateJobRequest["payload"]) {
+  private parsePayload(rawArgs?: string): CreateJobPayload {
+    let args: unknown;
+    try {
+      args = rawArgs ? JSON.parse(rawArgs) : null;
+    } catch (error) {
+      throw new BadRequestException("Invalid job creation payload.");
+    }
+
+    if (!args) {
+      throw new BadRequestException("Job payload missing.");
+    }
+
+    const dto = plainToInstance(CreateJobPayloadDto, args);
+    const errors = validateSync(dto, { whitelist: true });
+    if (errors.length) {
+      throw new BadRequestException("Job payload validation failed.");
+    }
+
+    return dto;
+  }
+
+  private sanitizePayload(payload: CreateJobPayload): CreateJobPayload {
     return {
       ...payload,
       customerName: this.sanitizationService.sanitizeText(

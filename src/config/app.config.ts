@@ -6,6 +6,7 @@ export interface AppConfig {
   environment: NodeEnvironment;
   openAiApiKey: string;
   enablePreviewModel: boolean;
+  enabledTools: string[];
 }
 
 export default registerAs(
@@ -15,5 +16,9 @@ export default registerAs(
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
     enablePreviewModel:
       (process.env.ENABLE_GPT5_1_CODEX ?? "false").toLowerCase() === "true",
+    enabledTools: (process.env.ENABLED_TOOLS ?? "create_job")
+      .split(",")
+      .map((tool) => tool.trim())
+      .filter(Boolean),
   })
 );

@@ -13,6 +13,11 @@ export interface CreateJobRequest {
   payload: CreateJobPayload;
 }
 
+export interface CreateJobFromToolCallRequest {
+  tenantId: string;
+  rawArgs?: string;
+}
+
 export interface JobRecord {
   id: string;
   tenantId: string;
@@ -22,5 +27,7 @@ export interface JobRecord {
 }
 
 export interface JobsService {
-  createJob(request: CreateJobRequest): Promise<JobRecord>;
+  createJobFromToolCall(
+    request: CreateJobFromToolCallRequest
+  ): Promise<JobRecord>;
 }

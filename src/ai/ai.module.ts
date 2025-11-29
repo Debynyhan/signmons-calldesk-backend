@@ -13,6 +13,7 @@ import { AiProviderService } from "./providers/ai-provider.service";
 import { JobsModule } from "../jobs/jobs.module";
 import { TenantsModule } from "../tenants/tenants.module";
 import { ToolRegistryService } from "./tools/tool.provider";
+import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
 
 @Module({
@@ -36,6 +37,7 @@ import { AiErrorHandler } from "./ai-error.handler";
       useClass: OpenAiProvider,
     },
     AiProviderService,
+    ToolSelectorService,
     AiErrorHandler,
     AiService,
   ],

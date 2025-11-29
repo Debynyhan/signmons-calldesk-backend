@@ -12,16 +12,12 @@ import { JOBS_SERVICE } from "../jobs/jobs.constants";
 import type { JobsService } from "../jobs/interfaces/jobs-service.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type {
-  TenantContext,
   TenantsService,
 } from "../tenants/interfaces/tenants-service.interface";
-import { plainToInstance } from "class-transformer";
-import { validateSync } from "class-validator";
-import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
-import { ToolRegistryService } from "./tools/tool.provider";
+import { ToolSelectorService } from "./tools/tool-selector.service";
 
 @Injectable()
 export class AiService {
@@ -32,7 +28,7 @@ export class AiService {
     private readonly errorHandler: AiErrorHandler,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
-    private readonly toolRegistry: ToolRegistryService,
+    private readonly toolSelector: ToolSelectorService,
     @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
   ) {
@@ -82,14 +78,15 @@ export class AiService {
       const tenantContext = await this.tenantsService.getTenantContext(
         safeTenantId
       );
-      const tenantContextPrompt = this.buildTenantContextPrompt(tenantContext);
+      const tenantContextPrompt = tenantContext.prompt;
       const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: this.systemPrompt },
         { role: "system", content: tenantContextPrompt },
         { role: "user", content: safeUserMessage },
       ];
 
-      const tools = this.toolRegistry.getTools();
+      const tools =
+        this.toolSelector.getEnabledToolsForTenant(safeTenantId);
       const response = await this.aiProviderService.createCompletion({
         messages,
         tools: tools.length ? tools : undefined,
@@ -143,10 +140,9 @@ export class AiService {
     }
 
     try {
-      const dto = this.sanitizeJobPayload(this.transformJobPayload(rawArgs));
-      const job = await this.jobsService.createJob({
+      const job = await this.jobsService.createJobFromToolCall({
         tenantId,
-        payload: dto,
+        rawArgs,
       });
       return {
         status: "job_created",
@@ -165,46 +161,4 @@ export class AiService {
       });
     }
   }
-
-  private transformJobPayload(rawArgs?: string) {
-    let args: unknown;
-    try {
-      args = rawArgs ? JSON.parse(rawArgs) : null;
-    } catch (error) {
-      throw new BadRequestException("Invalid job creation payload.");
-    }
-
-    if (!args) {
-      throw new BadRequestException("Job payload missing.");
-    }
-
-    const dto = plainToInstance(CreateJobPayloadDto, args);
-    const errors = validateSync(dto, { whitelist: true });
-    if (errors.length) {
-      throw new BadRequestException("Job payload validation failed.");
-    }
-    return dto;
-  }
-
-  private sanitizeJobPayload(dto: CreateJobPayloadDto): CreateJobPayloadDto {
-    return {
-      ...dto,
-      customerName: this.sanitizationService.sanitizeText(dto.customerName),
-      phone: this.sanitizationService.normalizeWhitespace(dto.phone),
-      address: dto.address
-        ? this.sanitizationService.sanitizeText(dto.address)
-        : undefined,
-      description: dto.description
-        ? this.sanitizationService.sanitizeText(dto.description)
-        : undefined,
-      preferredTime: dto.preferredTime
-        ? this.sanitizationService.normalizeWhitespace(dto.preferredTime)
-        : undefined,
-    };
-  }
-
-  private buildTenantContextPrompt(context: TenantContext): string {
-    return `You are handling calls for tenantId=${context.tenantId} (${context.displayName}). ${context.instructions}`;
-  }
-
 }
