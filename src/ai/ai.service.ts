@@ -12,9 +12,7 @@ import type { IAiProvider } from "./interfaces/ai-provider.interface";
 import { JOB_REPOSITORY } from "../jobs/jobs.constants";
 import type { IJobRepository } from "../jobs/interfaces/job-repository.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
-import type {
-  TenantsService,
-} from "../tenants/interfaces/tenants-service.interface";
+import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
@@ -31,7 +29,7 @@ export class AiService {
     private readonly sanitizationService: SanitizationService,
     private readonly toolSelector: ToolSelectorService,
     @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
-    @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
+    @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
   ) {
     try {
       const promptPath = join(
@@ -39,14 +37,14 @@ export class AiService {
         "src",
         "ai",
         "prompts",
-        "calldeskSystemPrompt.txt"
+        "calldeskSystemPrompt.txt",
       );
       this.systemPrompt = readFileSync(promptPath, "utf8");
     } catch (error) {
       this.loggingService.error(
         "Failed to load system prompt.",
         error instanceof Error ? error : undefined,
-        AiService.name
+        AiService.name,
       );
       this.systemPrompt = null;
     }
@@ -55,7 +53,7 @@ export class AiService {
   async triage(tenantId: string, userMessage: string) {
     if (!this.systemPrompt) {
       throw new InternalServerErrorException(
-        "AI is not configured on the server."
+        "AI is not configured on the server.",
       );
     }
 
@@ -64,9 +62,8 @@ export class AiService {
     const incomingMessageLength = userMessage?.length ?? 0;
     try {
       safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
-      const safeUserMessage = this.sanitizationService.sanitizeText(
-        userMessage
-      );
+      const safeUserMessage =
+        this.sanitizationService.sanitizeText(userMessage);
 
       if (!safeTenantId) {
         throw new BadRequestException("Invalid tenant identifier.");
@@ -76,9 +73,8 @@ export class AiService {
         throw new BadRequestException("Message must contain text.");
       }
 
-      const tenantContext = await this.tenantsService.getTenantContext(
-        safeTenantId
-      );
+      const tenantContext =
+        await this.tenantsService.getTenantContext(safeTenantId);
       const tenantContextPrompt = tenantContext.prompt;
       const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: this.systemPrompt },
@@ -86,8 +82,7 @@ export class AiService {
         { role: "user", content: safeUserMessage },
       ];
 
-      const tools =
-        this.toolSelector.getEnabledToolsForTenant(safeTenantId);
+      const tools = this.toolSelector.getEnabledToolsForTenant(safeTenantId);
       const response = await this.aiProviderService.createCompletion({
         messages,
         tools: tools.length ? tools : undefined,
@@ -102,7 +97,7 @@ export class AiService {
           return this.handleToolCall(
             safeTenantId,
             toolCall.function.name,
-            toolCall.function.arguments
+            toolCall.function.arguments,
           );
         }
 
@@ -130,7 +125,7 @@ export class AiService {
   private async handleToolCall(
     tenantId: string,
     name: string,
-    rawArgs?: string
+    rawArgs?: string,
   ) {
     if (name !== "create_job") {
       return {

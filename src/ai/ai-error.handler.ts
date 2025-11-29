@@ -6,9 +6,15 @@ import {
 } from "@nestjs/common";
 import { LoggingService } from "../logging/logging.service";
 
+type AiStage =
+  | "triage"
+  | "tool_call"
+  | "completion"
+  | (string & { readonly __aiStageBrand?: never });
+
 export interface AiErrorContext {
   tenantId?: string;
-  stage: "triage" | "tool_call" | "completion" | string;
+  stage: AiStage;
   toolName?: string;
   metadata?: Record<string, unknown>;
   messageLength?: number;
@@ -30,18 +36,18 @@ export class AiErrorHandler {
     if (status === 429 || code === "insufficient_quota") {
       this.loggingService.warn(
         `Rate limited or insufficient quota reported by AI provider. Context=${meta}`,
-        AiErrorHandler.name
+        AiErrorHandler.name,
       );
       throw new HttpException(
         "AI is temporarily rate limited. Try again soon.",
-        429
+        429,
       );
     }
 
     if (error instanceof BadRequestException) {
       this.loggingService.warn(
         `Rejected AI request: ${error.message}. Context=${meta}`,
-        AiErrorHandler.name
+        AiErrorHandler.name,
       );
       throw error;
     }
@@ -50,7 +56,7 @@ export class AiErrorHandler {
       this.loggingService.error(
         `AI provider returned an error: ${error.message}. Context=${meta}`,
         error,
-        AiErrorHandler.name
+        AiErrorHandler.name,
       );
       throw error;
     }
@@ -58,14 +64,14 @@ export class AiErrorHandler {
     this.loggingService.error(
       `Unhandled AI error. Context=${meta}`,
       error instanceof Error ? error : undefined,
-      AiErrorHandler.name
+      AiErrorHandler.name,
     );
     throw new InternalServerErrorException("AI triage failed.");
   }
 
   private formatContext(context: AiErrorContext): string {
-    const filtered = Object.entries(context).filter(([, value]) =>
-      value !== undefined && value !== null
+    const filtered = Object.entries(context).filter(
+      ([, value]) => value !== undefined && value !== null,
     );
     return JSON.stringify(Object.fromEntries(filtered));
   }

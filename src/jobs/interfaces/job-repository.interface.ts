@@ -28,6 +28,6 @@ export interface JobRecord {
 
 export interface IJobRepository {
   createJobFromToolCall(
-    request: CreateJobFromToolCallRequest
+    request: CreateJobFromToolCallRequest,
   ): Promise<JobRecord>;
 }

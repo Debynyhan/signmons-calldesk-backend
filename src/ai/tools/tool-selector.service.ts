@@ -9,10 +9,12 @@ export class ToolSelectorService {
   constructor(
     private readonly toolRegistry: ToolRegistryService,
     @Inject(appConfig.KEY)
-    private readonly config: ConfigType<typeof appConfig>
+    private readonly config: ConfigType<typeof appConfig>,
   ) {}
 
-  getEnabledToolsForTenant(_tenantId: string): ChatCompletionTool[] {
+  getEnabledToolsForTenant(tenantId: string): ChatCompletionTool[] {
+    // tenantId is reserved for future tenant-specific tool policies
+    void tenantId;
     const enabled = new Set(this.config.enabledTools);
     return this.toolRegistry
       .getTools()

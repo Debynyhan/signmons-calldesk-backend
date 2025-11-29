@@ -12,13 +12,19 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
+      forbidUnknownValues: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
-    })
+      validateCustomDecorators: true,
+      stopAtFirstError: true,
+    }),
   );
   app.useGlobalFilters(new SanitizedExceptionFilter(loggingService));
   await app.listen(port);
   console.log(`[bootstrap] Signmons CallDesk API listening on port ${port}`);
 }
 
-bootstrap();
+void bootstrap().catch((error) => {
+  console.error("[bootstrap] Failed to initialize application.", error);
+  process.exitCode = 1;
+});

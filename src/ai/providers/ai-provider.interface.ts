@@ -4,7 +4,5 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 export type CompletionRequest = ChatCompletionCreateParamsNonStreaming;
 
 export interface IAiProviderClient {
-  createCompletion(
-    params: CompletionRequest
-  ): Promise<OpenAI.ChatCompletion>;
+  createCompletion(params: CompletionRequest): Promise<OpenAI.ChatCompletion>;
 }

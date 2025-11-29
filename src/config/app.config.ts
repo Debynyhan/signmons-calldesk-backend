@@ -20,5 +20,5 @@ export default registerAs(
       .split(",")
       .map((tool) => tool.trim())
       .filter(Boolean),
-  })
+  }),
 );

@@ -1,5 +1,14 @@
 import { Injectable } from "@nestjs/common";
 
+const CONTROL_CHAR_PATTERN = "[\\u0000-\\u001F\\u007F]";
+const LOGGING_CONTROL_CHAR_PATTERN = "[\\u0000-\\u001F]";
+const CONTROL_CHAR_REGEX = new RegExp(CONTROL_CHAR_PATTERN, "g");
+const LOGGING_CONTROL_CHAR_REGEX = new RegExp(
+  LOGGING_CONTROL_CHAR_PATTERN,
+  "g",
+);
+const HTML_TAG_REGEX = /<[^>]*>/g;
+
 @Injectable()
 export class SanitizationService {
   sanitizeText(value: string): string {
@@ -7,11 +16,10 @@ export class SanitizationService {
       return "";
     }
 
-    return this.normalizeWhitespace(
-      value
-        .replace(/[\u0000-\u001F\u007F]/g, "")
-        .replace(/<[^>]*>/g, "")
-    );
+    const stripped = value
+      .replace(CONTROL_CHAR_REGEX, "")
+      .replace(HTML_TAG_REGEX, "");
+    return this.normalizeWhitespace(stripped);
   }
 
   sanitizeIdentifier(value: string): string {
@@ -31,6 +39,6 @@ export class SanitizationService {
       return "";
     }
 
-    return value.replace(/[\u0000-\u001F]/g, "");
+    return value.replace(LOGGING_CONTROL_CHAR_REGEX, "");
   }
 }

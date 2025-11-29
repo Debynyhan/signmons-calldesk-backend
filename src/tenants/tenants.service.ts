@@ -9,25 +9,26 @@ import { SanitizationService } from "../sanitization/sanitization.service";
 export class StaticTenantsService implements TenantsService {
   constructor(private readonly sanitizationService: SanitizationService) {}
 
-  async getTenantContext(tenantId: string): Promise<TenantContext> {
+  getTenantContext(tenantId: string): Promise<TenantContext> {
     const sanitizedTenantId =
       this.sanitizationService.sanitizeIdentifier(tenantId);
     const displayName = "Licensed HVAC/Plumbing/Electrical contractor";
     const instructions = this.sanitizationService.sanitizeText(
-      "Always act as a professional dispatcher for this contractor. Collect caller details, classify the issue, and follow booking procedures."
+      "Always act as a professional dispatcher for this contractor. Collect caller details, classify the issue, and follow booking procedures.",
     );
-    return {
+    const context: TenantContext = {
       tenantId: sanitizedTenantId,
       displayName,
       instructions,
       prompt: this.buildPrompt(sanitizedTenantId, displayName, instructions),
     };
+    return Promise.resolve(context);
   }
 
   private buildPrompt(
     tenantId: string,
     displayName: string,
-    instructions: string
+    instructions: string,
   ): string {
     return `You are handling calls for tenantId=${tenantId} (${displayName}). ${instructions}`;
   }

@@ -29,13 +29,13 @@ export class SanitizedExceptionFilter implements ExceptionFilter {
     this.loggingService.error(
       `HTTP exception at ${request?.method ?? "unknown"} ${request?.url ?? "unknown"}`,
       err,
-      SanitizedExceptionFilter.name
+      SanitizedExceptionFilter.name,
     );
 
     response.status(status).json({ statusCode: status, message });
   }
 
-  private normalizeMessage(responseBody: any): string {
+  private normalizeMessage(responseBody: unknown): string {
     if (!responseBody) {
       return "Request failed.";
     }
@@ -48,10 +48,21 @@ export class SanitizedExceptionFilter implements ExceptionFilter {
       return String(responseBody[0]);
     }
 
-    if (typeof responseBody === "object" && responseBody.message) {
-      return Array.isArray(responseBody.message)
-        ? String(responseBody.message[0])
-        : String(responseBody.message);
+    if (
+      typeof responseBody === "object" &&
+      responseBody !== null &&
+      "message" in responseBody
+    ) {
+      const { message } = responseBody as { message?: unknown };
+      if (Array.isArray(message) && message.length > 0) {
+        return String(message[0]);
+      }
+      if (typeof message === "string") {
+        return message;
+      }
+      if (typeof message === "number" || typeof message === "boolean") {
+        return String(message);
+      }
     }
 
     return "Request failed.";

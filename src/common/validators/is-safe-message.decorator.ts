@@ -7,6 +7,8 @@ import {
 } from "class-validator";
 
 const MAX_MESSAGE_LENGTH = 500;
+const CONTROL_CHAR_PATTERN = "[\\u0000-\\u001F\\u007F]";
+const CONTROL_CHAR_REGEX = new RegExp(CONTROL_CHAR_PATTERN);
 
 @ValidatorConstraint({ name: "safeMessage", async: false })
 export class SafeMessageConstraint implements ValidatorConstraintInterface {
@@ -20,8 +22,7 @@ export class SafeMessageConstraint implements ValidatorConstraintInterface {
       return false;
     }
 
-    const hasControlChars = /[\u0000-\u001F\u007F]/.test(trimmed);
-    return !hasControlChars;
+    return !CONTROL_CHAR_REGEX.test(trimmed);
   }
 
   defaultMessage(args: ValidationArguments): string {

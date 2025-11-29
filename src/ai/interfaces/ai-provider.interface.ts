@@ -12,6 +12,6 @@ export interface CompletionRequestOptions {
 
 export interface IAiProvider {
   createCompletion(
-    options: CompletionRequestOptions
+    options: CompletionRequestOptions,
   ): Promise<OpenAI.ChatCompletion>;
 }

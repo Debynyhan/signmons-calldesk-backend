@@ -14,26 +14,27 @@ import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 export class InMemoryJobRepository implements IJobRepository {
   constructor(private readonly sanitizationService: SanitizationService) {}
 
-  async createJobFromToolCall(
-    request: CreateJobFromToolCallRequest
+  createJobFromToolCall(
+    request: CreateJobFromToolCallRequest,
   ): Promise<JobRecord> {
     const payload = this.parsePayload(request.rawArgs);
     const sanitizedPayload = this.sanitizePayload(payload);
     const jobId = `job_${Date.now()}`;
-    return {
+    const job: JobRecord = {
       id: jobId,
       tenantId: this.sanitizationService.sanitizeIdentifier(request.tenantId),
       payload: sanitizedPayload,
       status: "pending",
       message: "Job creation stub. Replace with persistence later.",
     };
+    return Promise.resolve(job);
   }
 
   private parsePayload(rawArgs?: string): CreateJobPayload {
     let args: unknown;
     try {
       args = rawArgs ? JSON.parse(rawArgs) : null;
-    } catch (error) {
+    } catch {
       throw new BadRequestException("Invalid job creation payload.");
     }
 
@@ -53,9 +54,7 @@ export class InMemoryJobRepository implements IJobRepository {
   private sanitizePayload(payload: CreateJobPayload): CreateJobPayload {
     return {
       ...payload,
-      customerName: this.sanitizationService.sanitizeText(
-        payload.customerName
-      ),
+      customerName: this.sanitizationService.sanitizeText(payload.customerName),
       phone: this.sanitizationService.normalizeWhitespace(payload.phone),
       address: payload.address
         ? this.sanitizationService.sanitizeText(payload.address)

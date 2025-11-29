@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ConfigType } from "@nestjs/config";
+import type OpenAI from "openai";
 import appConfig from "../../config/app.config";
 import { AI_COMPLETION_PROVIDER } from "../ai.constants";
 import type { IAiProviderClient } from "./ai-provider.interface";
@@ -20,10 +21,12 @@ export class AiProviderService implements IAiProvider {
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
     private readonly errorHandler: AiErrorHandler,
-    private readonly loggingService: LoggingService
+    private readonly loggingService: LoggingService,
   ) {}
 
-  async createCompletion(options: CompletionRequestOptions) {
+  async createCompletion(
+    options: CompletionRequestOptions,
+  ): Promise<OpenAI.ChatCompletion> {
     const model = this.selectModel();
     try {
       return await this.client.createCompletion({
@@ -32,13 +35,13 @@ export class AiProviderService implements IAiProvider {
         tools: options.tools,
         tool_choice: options.toolChoice ?? "auto",
       });
-    } catch (error: any) {
+    } catch (error) {
       const shouldFallback =
         model === this.previewModel && this.isPreviewUnavailable(error);
       if (shouldFallback) {
         this.loggingService.warn(
           `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
-          AiProviderService.name
+          AiProviderService.name,
         );
         try {
           return await this.client.createCompletion({
@@ -61,15 +64,22 @@ export class AiProviderService implements IAiProvider {
       : this.defaultModel;
   }
 
-  private isPreviewUnavailable(error: any): boolean {
-    const message: string | undefined = error?.message;
-    return Boolean(message?.includes("not found"));
+  private isPreviewUnavailable(error: unknown): boolean {
+    if (typeof error !== "object" || error === null) {
+      return false;
+    }
+
+    const maybeMessage =
+      "message" in error ? (error as { message?: unknown }).message : undefined;
+    return (
+      typeof maybeMessage === "string" && maybeMessage.includes("not found")
+    );
   }
 
   private handleProviderError(
     error: unknown,
     options: CompletionRequestOptions,
-    model: string
+    model: string,
   ): never {
     this.errorHandler.handle(error, {
       stage: "completion",
