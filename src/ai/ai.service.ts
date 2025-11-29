@@ -21,6 +21,7 @@ import { validateSync } from "class-validator";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
+import { SanitizationService } from "../sanitization/sanitization.service";
 
 @Injectable()
 export class AiService {
@@ -30,6 +31,7 @@ export class AiService {
     private readonly aiProviderService: AiProviderService,
     private readonly errorHandler: AiErrorHandler,
     private readonly loggingService: LoggingService,
+    private readonly sanitizationService: SanitizationService,
     @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
   ) {
@@ -63,8 +65,10 @@ export class AiService {
     let openAIResponseId: string | undefined;
     const incomingMessageLength = userMessage?.length ?? 0;
     try {
-      safeTenantId = this.sanitizeIdentifier(tenantId);
-      const safeUserMessage = this.sanitizeText(userMessage);
+      safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
+      const safeUserMessage = this.sanitizationService.sanitizeText(
+        userMessage
+      );
 
       if (!safeTenantId) {
         throw new BadRequestException("Invalid tenant identifier.");
@@ -137,7 +141,7 @@ export class AiService {
     }
 
     try {
-      const dto = this.transformJobPayload(rawArgs);
+      const dto = this.sanitizeJobPayload(this.transformJobPayload(rawArgs));
       const job = await this.jobsService.createJob({
         tenantId,
         payload: dto,
@@ -180,21 +184,25 @@ export class AiService {
     return dto;
   }
 
+  private sanitizeJobPayload(dto: CreateJobPayloadDto): CreateJobPayloadDto {
+    return {
+      ...dto,
+      customerName: this.sanitizationService.sanitizeText(dto.customerName),
+      phone: this.sanitizationService.normalizeWhitespace(dto.phone),
+      address: dto.address
+        ? this.sanitizationService.sanitizeText(dto.address)
+        : undefined,
+      description: dto.description
+        ? this.sanitizationService.sanitizeText(dto.description)
+        : undefined,
+      preferredTime: dto.preferredTime
+        ? this.sanitizationService.normalizeWhitespace(dto.preferredTime)
+        : undefined,
+    };
+  }
+
   private buildTenantContextPrompt(context: TenantContext): string {
     return `You are handling calls for tenantId=${context.tenantId} (${context.displayName}). ${context.instructions}`;
   }
 
-  private sanitizeText(value: string): string {
-    return value
-      .replace(/[\u0000-\u001F\u007F]/g, "")
-      .replace(/<[^>]*>/g, "")
-      .trim();
-  }
-
-  private sanitizeIdentifier(value: string): string {
-    return value
-      .replace(/[\u0000-\u001F\u007F]/g, "")
-      .replace(/[^A-Za-z0-9_-]/g, "")
-      .trim();
-  }
 }

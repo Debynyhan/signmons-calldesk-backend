@@ -8,6 +8,7 @@ import { AiModule } from "./ai/ai.module";
 import appConfig from "./config/app.config";
 import { envValidationSchema } from "./config/env.validation";
 import { LoggingModule } from "./logging/logging.module";
+import { SanitizationModule } from "./sanitization/sanitization.module";
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { LoggingModule } from "./logging/logging.module";
       validationSchema: envValidationSchema,
     }),
     LoggingModule,
+    SanitizationModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60,
