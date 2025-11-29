@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  HttpException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -21,6 +20,7 @@ import type {
 import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
+import { AiErrorHandler } from "./ai-error.handler";
 
 @Injectable()
 export class AiService {
@@ -29,6 +29,7 @@ export class AiService {
 
   constructor(
     private readonly aiProviderService: AiProviderService,
+    private readonly errorHandler: AiErrorHandler,
     @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
   ) {
@@ -57,8 +58,9 @@ export class AiService {
       );
     }
 
+    let safeTenantId: string | undefined;
     try {
-      const safeTenantId = this.sanitizeIdentifier(tenantId);
+      safeTenantId = this.sanitizeIdentifier(tenantId);
       const safeUserMessage = this.sanitizeText(userMessage);
 
       if (!safeTenantId) {
@@ -108,41 +110,10 @@ export class AiService {
         reply: message.content,
       };
     } catch (error) {
-      const status =
-        error instanceof HttpException
-          ? error.getStatus()
-          : (error as { status?: number })?.status;
-      const code = (error as { code?: string })?.code;
-      if (status === 429 || code === "insufficient_quota") {
-        this.logger.warn(
-          `Rate limited or insufficient quota reported by OpenAI: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-        throw new HttpException(
-          "AI is temporarily rate limited. Try again soon.",
-          429
-        );
-      }
-
-      if (error instanceof BadRequestException) {
-        this.logger.warn(`Rejected triage request: ${error.message}`);
-        throw error;
-      }
-
-      if (error instanceof HttpException) {
-        this.logger.error(
-          `AI provider returned an error: ${error.message}`,
-          error.stack
-        );
-        throw error;
-      }
-
-      this.logger.error(
-        "Triage failed.",
-        error instanceof Error ? error.stack : String(error)
-      );
-      throw new InternalServerErrorException("AI triage failed.");
+      this.errorHandler.handle(error, {
+        tenantId: safeTenantId ?? tenantId,
+        stage: "triage",
+      });
     }
   }
 
@@ -159,14 +130,32 @@ export class AiService {
       };
     }
 
+    try {
+      const dto = this.transformJobPayload(rawArgs);
+      const job = await this.jobsService.createJob({
+        tenantId,
+        payload: dto,
+      });
+      return {
+        status: "job_created",
+        jobId: job.id,
+        jobPayload: job.payload,
+        message: job.message,
+      };
+    } catch (error) {
+      this.errorHandler.handle(error, {
+        tenantId,
+        toolName: name,
+        stage: "tool_call",
+      });
+    }
+  }
+
+  private transformJobPayload(rawArgs?: string) {
     let args: unknown;
     try {
       args = rawArgs ? JSON.parse(rawArgs) : null;
     } catch (error) {
-      this.logger.error(
-        "Failed to parse tool arguments.",
-        error instanceof Error ? error.stack : String(error)
-      );
       throw new BadRequestException("Invalid job creation payload.");
     }
 
@@ -179,17 +168,7 @@ export class AiService {
     if (errors.length) {
       throw new BadRequestException("Job payload validation failed.");
     }
-
-    const job = await this.jobsService.createJob({
-      tenantId,
-      payload: dto,
-    });
-    return {
-      status: "job_created",
-      jobId: job.id,
-      jobPayload: job.payload,
-      message: job.message,
-    };
+    return dto;
   }
 
   private buildTenantContextPrompt(context: TenantContext): string {

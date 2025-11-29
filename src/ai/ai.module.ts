@@ -12,6 +12,7 @@ import { OpenAiProvider } from "./providers/openai.provider";
 import { AiProviderService } from "./providers/ai-provider.service";
 import { JobsModule } from "../jobs/jobs.module";
 import { TenantsModule } from "../tenants/tenants.module";
+import { AiErrorHandler } from "./ai-error.handler";
 
 @Module({
   imports: [JobsModule, TenantsModule],
@@ -34,6 +35,7 @@ import { TenantsModule } from "../tenants/tenants.module";
       useClass: OpenAiProvider,
     },
     AiProviderService,
+    AiErrorHandler,
     AiService,
   ],
 })
