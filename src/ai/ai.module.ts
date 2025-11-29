@@ -3,8 +3,9 @@ import { ConfigType } from "@nestjs/config";
 import OpenAI from "openai";
 import { AiController } from "./ai.controller";
 import { AiService } from "./ai.service";
-import { OPENAI_CLIENT } from "./ai.constants";
+import { AI_COMPLETION_PROVIDER, OPENAI_CLIENT } from "./ai.constants";
 import appConfig from "../config/app.config";
+import { OpenAiProvider } from "./providers/openai.provider";
 
 @Module({
   controllers: [AiController],
@@ -20,6 +21,10 @@ import appConfig from "../config/app.config";
         return new OpenAI({ apiKey: config.openAiApiKey });
       },
       inject: [appConfig.KEY],
+    },
+    {
+      provide: AI_COMPLETION_PROVIDER,
+      useClass: OpenAiProvider,
     },
     AiService,
   ],

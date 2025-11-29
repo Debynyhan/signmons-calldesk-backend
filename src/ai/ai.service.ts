@@ -11,8 +11,9 @@ import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { CALLDESK_TOOLS } from "./tools/toolSchemas";
-import { OPENAI_CLIENT } from "./ai.constants";
+import { AI_COMPLETION_PROVIDER } from "./ai.constants";
 import appConfig from "../config/app.config";
+import type { AiProvider } from "./providers/ai-provider.interface";
 
 @Injectable()
 export class AiService {
@@ -22,7 +23,7 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   constructor(
-    @Inject(OPENAI_CLIENT) private readonly client: OpenAI,
+    @Inject(AI_COMPLETION_PROVIDER) private readonly aiProvider: AiProvider,
     @Inject(appConfig.KEY)
     private readonly appConfiguration: ConfigType<typeof appConfig>
   ) {
@@ -139,7 +140,7 @@ export class AiService {
     model: string
   ) {
     try {
-      return await this.client.chat.completions.create({
+      return await this.aiProvider.createCompletion({
         model,
         messages,
         tools: CALLDESK_TOOLS,
@@ -151,7 +152,7 @@ export class AiService {
         this.logger.warn(
           `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`
         );
-        return this.client.chat.completions.create({
+        return this.aiProvider.createCompletion({
           model: this.defaultModel,
           messages,
           tools: CALLDESK_TOOLS,
