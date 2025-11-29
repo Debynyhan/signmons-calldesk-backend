@@ -6,12 +6,13 @@ import {
   InternalServerErrorException,
   Logger,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { ConfigType } from "@nestjs/config";
 import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { CALLDESK_TOOLS } from "./tools/toolSchemas";
 import { OPENAI_CLIENT } from "./ai.constants";
+import appConfig from "../config/app.config";
 
 @Injectable()
 export class AiService {
@@ -21,13 +22,10 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   constructor(
-    @Inject(OPENAI_CLIENT) private readonly client: OpenAI | null,
-    private readonly configService: ConfigService
+    @Inject(OPENAI_CLIENT) private readonly client: OpenAI,
+    @Inject(appConfig.KEY)
+    private readonly appConfiguration: ConfigType<typeof appConfig>
   ) {
-    if (!this.client) {
-      this.logger.warn("OPENAI_API_KEY missing. AI responses disabled.");
-    }
-
     try {
       const promptPath = join(
         process.cwd(),
@@ -47,7 +45,7 @@ export class AiService {
   }
 
   async triage(tenantId: string, userMessage: string) {
-    if (!this.client || !this.systemPrompt) {
+    if (!this.systemPrompt) {
       throw new InternalServerErrorException(
         "AI is not configured on the server."
       );
@@ -141,7 +139,7 @@ export class AiService {
     model: string
   ) {
     try {
-      return await this.client!.chat.completions.create({
+      return await this.client.chat.completions.create({
         model,
         messages,
         tools: CALLDESK_TOOLS,
@@ -153,7 +151,7 @@ export class AiService {
         this.logger.warn(
           `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`
         );
-        return this.client!.chat.completions.create({
+        return this.client.chat.completions.create({
           model: this.defaultModel,
           messages,
           tools: CALLDESK_TOOLS,
@@ -193,10 +191,9 @@ export class AiService {
   }
 
   private selectModel(): string {
-    const enablePreview =
-      this.configService.get<string>("ENABLE_GPT5_1_CODEX")?.toLowerCase() ===
-      "true";
-    return enablePreview ? this.previewModel : this.defaultModel;
+    return this.appConfiguration.enablePreviewModel
+      ? this.previewModel
+      : this.defaultModel;
   }
 
   private sanitizeText(value: string): string {

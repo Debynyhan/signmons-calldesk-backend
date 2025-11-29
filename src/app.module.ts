@@ -5,10 +5,17 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AppService } from "./app.service";
 import { AppController } from "./app.controller";
 import { AiModule } from "./ai/ai.module";
+import appConfig from "./config/app.config";
+import { envValidationSchema } from "./config/env.validation";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      load: [appConfig],
+      validationSchema: envValidationSchema,
+    }),
     ThrottlerModule.forRoot([
       {
         ttl: 60,
