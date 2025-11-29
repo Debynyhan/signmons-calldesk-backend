@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { ConfigType } from "@nestjs/config";
 import type OpenAI from "openai";
 import type {
@@ -9,6 +9,7 @@ import appConfig from "../../config/app.config";
 import { AI_COMPLETION_PROVIDER } from "../ai.constants";
 import type { AiProvider } from "./ai-provider.interface";
 import { AiErrorHandler } from "../ai-error.handler";
+import { LoggingService } from "../../logging/logging.service";
 
 export interface CompletionRequestOptions {
   messages: ChatCompletionMessageParam[];
@@ -20,13 +21,13 @@ export interface CompletionRequestOptions {
 export class AiProviderService {
   private readonly defaultModel = "gpt-4o-mini";
   private readonly previewModel = "gpt-5.1-codex";
-  private readonly logger = new Logger(AiProviderService.name);
 
   constructor(
     @Inject(AI_COMPLETION_PROVIDER) private readonly client: AiProvider,
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
-    private readonly errorHandler: AiErrorHandler
+    private readonly errorHandler: AiErrorHandler,
+    private readonly loggingService: LoggingService
   ) {}
 
   async createCompletion(options: CompletionRequestOptions) {
@@ -42,8 +43,9 @@ export class AiProviderService {
       const shouldFallback =
         model === this.previewModel && this.isPreviewUnavailable(error);
       if (shouldFallback) {
-        this.logger.warn(
-          `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`
+        this.loggingService.warn(
+          `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
+          AiProviderService.name
         );
         try {
           return await this.client.createCompletion({

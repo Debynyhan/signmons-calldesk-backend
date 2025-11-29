@@ -3,8 +3,8 @@ import {
   HttpException,
   Injectable,
   InternalServerErrorException,
-  Logger,
 } from "@nestjs/common";
+import { LoggingService } from "../logging/logging.service";
 
 export interface AiErrorContext {
   tenantId?: string;
@@ -17,7 +17,7 @@ export interface AiErrorContext {
 
 @Injectable()
 export class AiErrorHandler {
-  private readonly logger = new Logger(AiErrorHandler.name);
+  constructor(private readonly loggingService: LoggingService) {}
 
   handle(error: unknown, context: AiErrorContext): never {
     const status =
@@ -28,8 +28,9 @@ export class AiErrorHandler {
     const meta = this.formatContext(context);
 
     if (status === 429 || code === "insufficient_quota") {
-      this.logger.warn(
-        `Rate limited or insufficient quota reported by AI provider. Context=${meta}`
+      this.loggingService.warn(
+        `Rate limited or insufficient quota reported by AI provider. Context=${meta}`,
+        AiErrorHandler.name
       );
       throw new HttpException(
         "AI is temporarily rate limited. Try again soon.",
@@ -38,23 +39,26 @@ export class AiErrorHandler {
     }
 
     if (error instanceof BadRequestException) {
-      this.logger.warn(
-        `Rejected AI request: ${error.message}. Context=${meta}`
+      this.loggingService.warn(
+        `Rejected AI request: ${error.message}. Context=${meta}`,
+        AiErrorHandler.name
       );
       throw error;
     }
 
     if (error instanceof HttpException) {
-      this.logger.error(
+      this.loggingService.error(
         `AI provider returned an error: ${error.message}. Context=${meta}`,
-        error.stack
+        error,
+        AiErrorHandler.name
       );
       throw error;
     }
 
-    this.logger.error(
+    this.loggingService.error(
       `Unhandled AI error. Context=${meta}`,
-      error instanceof Error ? error.stack : String(error)
+      error instanceof Error ? error : undefined,
+      AiErrorHandler.name
     );
     throw new InternalServerErrorException("AI triage failed.");
   }

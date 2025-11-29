@@ -3,7 +3,6 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
-  Logger,
 } from "@nestjs/common";
 import OpenAI from "openai";
 import { readFileSync } from "fs";
@@ -21,15 +20,16 @@ import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 import { AiErrorHandler } from "./ai-error.handler";
+import { LoggingService } from "../logging/logging.service";
 
 @Injectable()
 export class AiService {
   private readonly systemPrompt: string | null;
-  private readonly logger = new Logger(AiService.name);
 
   constructor(
     private readonly aiProviderService: AiProviderService,
     private readonly errorHandler: AiErrorHandler,
+    private readonly loggingService: LoggingService,
     @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
   ) {
@@ -43,9 +43,10 @@ export class AiService {
       );
       this.systemPrompt = readFileSync(promptPath, "utf8");
     } catch (error) {
-      this.logger.error(
+      this.loggingService.error(
         "Failed to load system prompt.",
-        error instanceof Error ? error.stack : String(error)
+        error instanceof Error ? error : undefined,
+        AiService.name
       );
       this.systemPrompt = null;
     }

@@ -7,6 +7,7 @@ import { AppController } from "./app.controller";
 import { AiModule } from "./ai/ai.module";
 import appConfig from "./config/app.config";
 import { envValidationSchema } from "./config/env.validation";
+import { LoggingModule } from "./logging/logging.module";
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { envValidationSchema } from "./config/env.validation";
       load: [appConfig],
       validationSchema: envValidationSchema,
     }),
+    LoggingModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60,
