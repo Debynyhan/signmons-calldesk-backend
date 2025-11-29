@@ -59,6 +59,8 @@ export class AiService {
     }
 
     let safeTenantId: string | undefined;
+    let openAIResponseId: string | undefined;
+    const incomingMessageLength = userMessage?.length ?? 0;
     try {
       safeTenantId = this.sanitizeIdentifier(tenantId);
       const safeUserMessage = this.sanitizeText(userMessage);
@@ -85,6 +87,7 @@ export class AiService {
         messages,
         tools: CALLDESK_TOOLS,
       });
+      openAIResponseId = response.id;
       const choice = response.choices[0];
       const { message } = choice;
 
@@ -113,6 +116,8 @@ export class AiService {
       this.errorHandler.handle(error, {
         tenantId: safeTenantId ?? tenantId,
         stage: "triage",
+        messageLength: incomingMessageLength,
+        openAIResponseId,
       });
     }
   }
@@ -147,6 +152,9 @@ export class AiService {
         tenantId,
         toolName: name,
         stage: "tool_call",
+        metadata: {
+          rawArgsLength: rawArgs?.length ?? 0,
+        },
       });
     }
   }

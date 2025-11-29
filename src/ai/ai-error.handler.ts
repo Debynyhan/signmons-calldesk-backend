@@ -11,6 +11,8 @@ export interface AiErrorContext {
   stage: "triage" | "tool_call" | "completion" | string;
   toolName?: string;
   metadata?: Record<string, unknown>;
+  messageLength?: number;
+  openAIResponseId?: string;
 }
 
 @Injectable()
