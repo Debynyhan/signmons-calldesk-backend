@@ -7,6 +7,7 @@ export interface AppConfig {
   openAiApiKey: string;
   enablePreviewModel: boolean;
   enabledTools: string[];
+  port: number;
 }
 
 export default registerAs(
@@ -20,5 +21,6 @@ export default registerAs(
       .split(",")
       .map((tool) => tool.trim())
       .filter(Boolean),
+    port: Number(process.env.PORT ?? 3000),
   }),
 );
