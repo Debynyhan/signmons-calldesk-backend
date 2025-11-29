@@ -3,9 +3,13 @@ import { ConfigType } from "@nestjs/config";
 import OpenAI from "openai";
 import { AiController } from "./ai.controller";
 import { AiService } from "./ai.service";
-import { AI_COMPLETION_PROVIDER, OPENAI_CLIENT } from "./ai.constants";
+import {
+  AI_COMPLETION_PROVIDER,
+  OPENAI_CLIENT,
+} from "./ai.constants";
 import appConfig from "../config/app.config";
 import { OpenAiProvider } from "./providers/openai.provider";
+import { AiProviderService } from "./providers/ai-provider.service";
 
 @Module({
   controllers: [AiController],
@@ -26,6 +30,7 @@ import { OpenAiProvider } from "./providers/openai.provider";
       provide: AI_COMPLETION_PROVIDER,
       useClass: OpenAiProvider,
     },
+    AiProviderService,
     AiService,
   ],
 })

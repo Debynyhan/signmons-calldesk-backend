@@ -1,32 +1,22 @@
 import {
   BadRequestException,
   HttpException,
-  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
 import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { CALLDESK_TOOLS } from "./tools/toolSchemas";
-import { AI_COMPLETION_PROVIDER } from "./ai.constants";
-import appConfig from "../config/app.config";
-import type { AiProvider } from "./providers/ai-provider.interface";
+import { AiProviderService } from "./providers/ai-provider.service";
 
 @Injectable()
 export class AiService {
   private readonly systemPrompt: string | null;
-  private readonly defaultModel = "gpt-4o-mini";
-  private readonly previewModel = "gpt-5.1-codex";
   private readonly logger = new Logger(AiService.name);
 
-  constructor(
-    @Inject(AI_COMPLETION_PROVIDER) private readonly aiProvider: AiProvider,
-    @Inject(appConfig.KEY)
-    private readonly appConfiguration: ConfigType<typeof appConfig>
-  ) {
+  constructor(private readonly aiProviderService: AiProviderService) {
     try {
       const promptPath = join(
         process.cwd(),
@@ -71,8 +61,10 @@ export class AiService {
         { role: "user", content: safeUserMessage },
       ];
 
-      const model = this.selectModel();
-      const response = await this.createCompletion(messages, model);
+      const response = await this.aiProviderService.createCompletion({
+        messages,
+        tools: CALLDESK_TOOLS,
+      });
       const choice = response.choices[0];
       const { message } = choice;
 
@@ -135,34 +127,6 @@ export class AiService {
     }
   }
 
-  private async createCompletion(
-    messages: OpenAI.ChatCompletionMessageParam[],
-    model: string
-  ) {
-    try {
-      return await this.aiProvider.createCompletion({
-        model,
-        messages,
-        tools: CALLDESK_TOOLS,
-        tool_choice: "auto",
-      });
-    } catch (error: any) {
-      const unavailable = error?.message?.includes("not found");
-      if (model === this.previewModel && unavailable) {
-        this.logger.warn(
-          `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`
-        );
-        return this.aiProvider.createCompletion({
-          model: this.defaultModel,
-          messages,
-          tools: CALLDESK_TOOLS,
-          tool_choice: "auto",
-        });
-      }
-      throw error;
-    }
-  }
-
   private handleToolCall(name: string, rawArgs?: string) {
     if (name !== "create_job") {
       return {
@@ -189,12 +153,6 @@ export class AiService {
       jobPayload: args,
       message: "Job creation stub. Replace with persistence later.",
     };
-  }
-
-  private selectModel(): string {
-    return this.appConfiguration.enablePreviewModel
-      ? this.previewModel
-      : this.defaultModel;
   }
 
   private sanitizeText(value: string): string {
