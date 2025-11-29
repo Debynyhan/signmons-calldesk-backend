@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   HttpException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -10,13 +11,27 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { CALLDESK_TOOLS } from "./tools/toolSchemas";
 import { AiProviderService } from "./providers/ai-provider.service";
+import { JOBS_SERVICE } from "../jobs/jobs.constants";
+import type {
+  CreateJobPayload,
+  JobsService,
+} from "../jobs/interfaces/jobs-service.interface";
+import { TENANTS_SERVICE } from "../tenants/tenants.constants";
+import type {
+  TenantContext,
+  TenantsService,
+} from "../tenants/interfaces/tenants-service.interface";
 
 @Injectable()
 export class AiService {
   private readonly systemPrompt: string | null;
   private readonly logger = new Logger(AiService.name);
 
-  constructor(private readonly aiProviderService: AiProviderService) {
+  constructor(
+    private readonly aiProviderService: AiProviderService,
+    @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
+    @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
+  ) {
     try {
       const promptPath = join(
         process.cwd(),
@@ -54,10 +69,13 @@ export class AiService {
         throw new BadRequestException("Message must contain text.");
       }
 
-      const tenantContext = `You are handling calls for tenantId=${safeTenantId}. The business is a licensed HVAC/Plumbing/Electrical contractor. Always act as a professional dispatcher.`;
+      const tenantContext = await this.tenantsService.getTenantContext(
+        safeTenantId
+      );
+      const tenantContextPrompt = this.buildTenantContextPrompt(tenantContext);
       const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: this.systemPrompt },
-        { role: "system", content: tenantContext },
+        { role: "system", content: tenantContextPrompt },
         { role: "user", content: safeUserMessage },
       ];
 
@@ -72,6 +90,7 @@ export class AiService {
         const toolCall = message.tool_calls[0];
         if (toolCall.type === "function" && toolCall.function?.name) {
           return this.handleToolCall(
+            safeTenantId,
             toolCall.function.name,
             toolCall.function.arguments
           );
@@ -127,7 +146,11 @@ export class AiService {
     }
   }
 
-  private handleToolCall(name: string, rawArgs?: string) {
+  private async handleToolCall(
+    tenantId: string,
+    name: string,
+    rawArgs?: string
+  ) {
     if (name !== "create_job") {
       return {
         status: "unsupported_tool",
@@ -136,23 +159,35 @@ export class AiService {
       };
     }
 
-    let args: Record<string, any> = {};
+    let args: CreateJobPayload | null = null;
     try {
-      args = rawArgs ? JSON.parse(rawArgs) : {};
+      args = rawArgs ? JSON.parse(rawArgs) : null;
     } catch (error) {
       this.logger.error(
         "Failed to parse tool arguments.",
         error instanceof Error ? error.stack : String(error)
       );
+      throw new BadRequestException("Invalid job creation payload.");
     }
 
-    const stubJobId = `job_${Date.now()}`;
+    if (!args) {
+      throw new BadRequestException("Job payload missing.");
+    }
+
+    const job = await this.jobsService.createJob({
+      tenantId,
+      payload: args,
+    });
     return {
       status: "job_created",
-      jobId: stubJobId,
-      jobPayload: args,
-      message: "Job creation stub. Replace with persistence later.",
+      jobId: job.id,
+      jobPayload: job.payload,
+      message: job.message,
     };
+  }
+
+  private buildTenantContextPrompt(context: TenantContext): string {
+    return `You are handling calls for tenantId=${context.tenantId} (${context.displayName}). ${context.instructions}`;
   }
 
   private sanitizeText(value: string): string {

@@ -10,8 +10,11 @@ import {
 import appConfig from "../config/app.config";
 import { OpenAiProvider } from "./providers/openai.provider";
 import { AiProviderService } from "./providers/ai-provider.service";
+import { JobsModule } from "../jobs/jobs.module";
+import { TenantsModule } from "../tenants/tenants.module";
 
 @Module({
+  imports: [JobsModule, TenantsModule],
   controllers: [AiController],
   providers: [
     {
