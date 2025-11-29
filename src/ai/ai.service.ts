@@ -7,9 +7,10 @@ import {
 import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { AiProviderService } from "./providers/ai-provider.service";
-import { JOBS_SERVICE } from "../jobs/jobs.constants";
-import type { JobsService } from "../jobs/interfaces/jobs-service.interface";
+import { AI_PROVIDER } from "./ai.constants";
+import type { IAiProvider } from "./interfaces/ai-provider.interface";
+import { JOB_REPOSITORY } from "../jobs/jobs.constants";
+import type { IJobRepository } from "../jobs/interfaces/job-repository.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type {
   TenantsService,
@@ -24,12 +25,12 @@ export class AiService {
   private readonly systemPrompt: string | null;
 
   constructor(
-    private readonly aiProviderService: AiProviderService,
+    @Inject(AI_PROVIDER) private readonly aiProviderService: IAiProvider,
     private readonly errorHandler: AiErrorHandler,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly toolSelector: ToolSelectorService,
-    @Inject(JOBS_SERVICE) private readonly jobsService: JobsService,
+    @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService
   ) {
     try {
@@ -140,7 +141,7 @@ export class AiService {
     }
 
     try {
-      const job = await this.jobsService.createJobFromToolCall({
+      const job = await this.jobsRepository.createJobFromToolCall({
         tenantId,
         rawArgs,
       });

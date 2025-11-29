@@ -1,16 +1,16 @@
 import { Module } from "@nestjs/common";
-import { JOBS_SERVICE } from "./jobs.constants";
-import { InMemoryJobsService } from "./jobs.service";
+import { JOB_REPOSITORY } from "./jobs.constants";
+import { InMemoryJobRepository } from "./jobs.service";
 import { JobsToolRegistrar } from "./tools/jobs-tool.registrar";
 
 @Module({
   providers: [
     {
-      provide: JOBS_SERVICE,
-      useClass: InMemoryJobsService,
+      provide: JOB_REPOSITORY,
+      useClass: InMemoryJobRepository,
     },
     JobsToolRegistrar,
   ],
-  exports: [JOBS_SERVICE],
+  exports: [JOB_REPOSITORY],
 })
 export class JobsModule {}

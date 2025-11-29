@@ -26,7 +26,7 @@ export interface JobRecord {
   message?: string;
 }
 
-export interface JobsService {
+export interface IJobRepository {
   createJobFromToolCall(
     request: CreateJobFromToolCallRequest
   ): Promise<JobRecord>;

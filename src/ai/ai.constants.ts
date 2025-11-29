@@ -1,2 +1,3 @@
 export const OPENAI_CLIENT = Symbol("OPENAI_CLIENT");
 export const AI_COMPLETION_PROVIDER = Symbol("AI_COMPLETION_PROVIDER");
+export const AI_PROVIDER = Symbol("AI_PROVIDER");

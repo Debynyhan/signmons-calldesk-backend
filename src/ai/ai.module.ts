@@ -3,10 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import { AiController } from "./ai.controller";
 import { AiService } from "./ai.service";
-import {
-  AI_COMPLETION_PROVIDER,
-  OPENAI_CLIENT,
-} from "./ai.constants";
+import { AI_COMPLETION_PROVIDER, AI_PROVIDER, OPENAI_CLIENT } from "./ai.constants";
 import { OpenAiProvider } from "./providers/openai.provider";
 import { AiProviderService } from "./providers/ai-provider.service";
 import { JobsModule } from "../jobs/jobs.module";
@@ -36,7 +33,10 @@ import { AiErrorHandler } from "./ai-error.handler";
       provide: AI_COMPLETION_PROVIDER,
       useClass: OpenAiProvider,
     },
-    AiProviderService,
+    {
+      provide: AI_PROVIDER,
+      useClass: AiProviderService,
+    },
     ToolSelectorService,
     AiErrorHandler,
     AiService,

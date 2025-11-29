@@ -1,1 +1,1 @@
-export const JOBS_SERVICE = Symbol("JOBS_SERVICE");
+export const JOB_REPOSITORY = Symbol("JOB_REPOSITORY");

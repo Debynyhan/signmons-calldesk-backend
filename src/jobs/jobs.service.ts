@@ -2,16 +2,16 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   CreateJobFromToolCallRequest,
   CreateJobPayload,
+  IJobRepository,
   JobRecord,
-  JobsService,
-} from "./interfaces/jobs-service.interface";
+} from "./interfaces/job-repository.interface";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 
 @Injectable()
-export class InMemoryJobsService implements JobsService {
+export class InMemoryJobRepository implements IJobRepository {
   constructor(private readonly sanitizationService: SanitizationService) {}
 
   async createJobFromToolCall(

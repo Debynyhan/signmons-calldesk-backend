@@ -1,29 +1,22 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ConfigType } from "@nestjs/config";
-import type OpenAI from "openai";
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
 import appConfig from "../../config/app.config";
 import { AI_COMPLETION_PROVIDER } from "../ai.constants";
-import type { AiProvider } from "./ai-provider.interface";
+import type { IAiProviderClient } from "./ai-provider.interface";
+import type {
+  CompletionRequestOptions,
+  IAiProvider,
+} from "../interfaces/ai-provider.interface";
 import { AiErrorHandler } from "../ai-error.handler";
 import { LoggingService } from "../../logging/logging.service";
 
-export interface CompletionRequestOptions {
-  messages: ChatCompletionMessageParam[];
-  tools?: ChatCompletionTool[];
-  toolChoice?: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
-}
-
 @Injectable()
-export class AiProviderService {
+export class AiProviderService implements IAiProvider {
   private readonly defaultModel = "gpt-4o-mini";
   private readonly previewModel = "gpt-5.1-codex";
 
   constructor(
-    @Inject(AI_COMPLETION_PROVIDER) private readonly client: AiProvider,
+    @Inject(AI_COMPLETION_PROVIDER) private readonly client: IAiProviderClient,
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
     private readonly errorHandler: AiErrorHandler,
