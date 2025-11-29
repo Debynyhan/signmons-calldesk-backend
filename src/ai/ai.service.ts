@@ -12,15 +12,15 @@ import { join } from "path";
 import { CALLDESK_TOOLS } from "./tools/toolSchemas";
 import { AiProviderService } from "./providers/ai-provider.service";
 import { JOBS_SERVICE } from "../jobs/jobs.constants";
-import type {
-  CreateJobPayload,
-  JobsService,
-} from "../jobs/interfaces/jobs-service.interface";
+import type { JobsService } from "../jobs/interfaces/jobs-service.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type {
   TenantContext,
   TenantsService,
 } from "../tenants/interfaces/tenants-service.interface";
+import { plainToInstance } from "class-transformer";
+import { validateSync } from "class-validator";
+import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 
 @Injectable()
 export class AiService {
@@ -159,7 +159,7 @@ export class AiService {
       };
     }
 
-    let args: CreateJobPayload | null = null;
+    let args: unknown;
     try {
       args = rawArgs ? JSON.parse(rawArgs) : null;
     } catch (error) {
@@ -174,9 +174,15 @@ export class AiService {
       throw new BadRequestException("Job payload missing.");
     }
 
+    const dto = plainToInstance(CreateJobPayloadDto, args);
+    const errors = validateSync(dto, { whitelist: true });
+    if (errors.length) {
+      throw new BadRequestException("Job payload validation failed.");
+    }
+
     const job = await this.jobsService.createJob({
       tenantId,
-      payload: args,
+      payload: dto,
     });
     return {
       status: "job_created",
