@@ -1,11 +1,10 @@
-import { IsString, Length } from "class-validator";
+import { IsUUID } from "class-validator";
+import { IsSafeMessage } from "../../common/validators/is-safe-message.decorator";
 
 export class TriageDto {
-  @IsString()
-  @Length(1, 100)
+  @IsUUID("4", { message: "tenantId must be a valid UUID (v4)." })
   tenantId!: string;
 
-  @IsString()
-  @Length(1, 1000)
+  @IsSafeMessage()
   message!: string;
 }
