@@ -9,6 +9,7 @@ export interface AppConfig {
   enabledTools: string[];
   port: number;
   databaseUrl: string;
+  adminApiToken: string;
 }
 
 const DEFAULT_DATABASE_URL =
@@ -27,5 +28,6 @@ export default registerAs(
       .filter(Boolean),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
+    adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
   }),
 );

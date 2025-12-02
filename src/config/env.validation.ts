@@ -10,6 +10,7 @@ export const envValidationSchema = Joi.object({
     .default(
       "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk",
     ),
+  ADMIN_API_TOKEN: Joi.string().min(12).default("changeme-admin-token"),
   ENABLE_GPT5_1_CODEX: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),

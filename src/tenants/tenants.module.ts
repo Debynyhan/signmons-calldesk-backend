@@ -1,12 +1,19 @@
 import { Module } from "@nestjs/common";
 import { TENANTS_SERVICE } from "./tenants.constants";
-import { StaticTenantsService } from "./tenants.service";
+import { PrismaTenantsService } from "./tenants.service";
+import { TenantsController } from "./tenants.controller";
+import { SanitizationModule } from "../sanitization/sanitization.module";
+import { AdminApiGuard } from "../common/guards/admin-api.guard";
 
 @Module({
+  imports: [SanitizationModule],
+  controllers: [TenantsController],
   providers: [
+    PrismaTenantsService,
+    AdminApiGuard,
     {
       provide: TENANTS_SERVICE,
-      useClass: StaticTenantsService,
+      useExisting: PrismaTenantsService,
     },
   ],
   exports: [TENANTS_SERVICE],

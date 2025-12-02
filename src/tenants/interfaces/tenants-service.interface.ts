@@ -5,6 +5,13 @@ export interface TenantContext {
   prompt: string;
 }
 
+export interface CreateTenantInput {
+  name: string;
+  displayName: string;
+  instructions: string;
+}
+
 export interface TenantsService {
   getTenantContext(tenantId: string): Promise<TenantContext>;
+  createTenant(input: CreateTenantInput): Promise<TenantContext>;
 }
