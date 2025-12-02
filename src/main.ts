@@ -5,6 +5,7 @@ import { AppModule } from "./app.module";
 import { SanitizedExceptionFilter } from "./common/filters/sanitized-exception.filter";
 import { LoggingService } from "./logging/logging.service";
 import appConfig from "./config/app.config";
+import { PrismaService } from "./prisma/prisma.service";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -23,6 +24,8 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new SanitizedExceptionFilter(loggingService));
+  const prismaService = app.get(PrismaService);
+  prismaService.enableShutdownHooks(app);
   await app.listen(port);
   console.log(`[bootstrap] Signmons CallDesk API listening on port ${port}`);
 }

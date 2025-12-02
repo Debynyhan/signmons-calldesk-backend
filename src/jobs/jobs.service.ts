@@ -1,33 +1,54 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validateSync } from "class-validator";
+import type { Job as PrismaJob } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import { SanitizationService } from "../sanitization/sanitization.service";
+import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 import {
   CreateJobFromToolCallRequest,
   CreateJobPayload,
   IJobRepository,
   JobRecord,
 } from "./interfaces/job-repository.interface";
-import { SanitizationService } from "../sanitization/sanitization.service";
-import { plainToInstance } from "class-transformer";
-import { validateSync } from "class-validator";
-import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 
 @Injectable()
-export class InMemoryJobRepository implements IJobRepository {
-  constructor(private readonly sanitizationService: SanitizationService) {}
+export class JobsService implements IJobRepository {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sanitizationService: SanitizationService,
+  ) {}
 
-  createJobFromToolCall(
+  async createJobFromToolCall(
     request: CreateJobFromToolCallRequest,
   ): Promise<JobRecord> {
+    const tenantId = this.sanitizeTenantId(request.tenantId);
     const payload = this.parsePayload(request.rawArgs);
     const sanitizedPayload = this.sanitizePayload(payload);
-    const jobId = `job_${Date.now()}`;
-    const job: JobRecord = {
-      id: jobId,
-      tenantId: this.sanitizationService.sanitizeIdentifier(request.tenantId),
-      payload: sanitizedPayload,
-      status: "pending",
-      message: "Job creation stub. Replace with persistence later.",
-    };
-    return Promise.resolve(job);
+
+    const job = await this.prisma.job.create({
+      data: {
+        tenantId,
+        customerName: sanitizedPayload.customerName,
+        phone: sanitizedPayload.phone,
+        address: sanitizedPayload.address,
+        issueCategory: sanitizedPayload.issueCategory,
+        urgency: sanitizedPayload.urgency,
+        description: sanitizedPayload.description,
+        preferredTime: sanitizedPayload.preferredTime,
+      },
+    });
+
+    return this.mapJob(job);
+  }
+
+  async listJobs(tenantId: string): Promise<JobRecord[]> {
+    const sanitizedTenantId = this.sanitizeTenantId(tenantId);
+    const jobs = await this.prisma.job.findMany({
+      where: { tenantId: sanitizedTenantId },
+      orderBy: { createdAt: "desc" },
+    });
+    return jobs.map((job) => this.mapJob(job));
   }
 
   private parsePayload(rawArgs?: string): CreateJobPayload {
@@ -51,6 +72,14 @@ export class InMemoryJobRepository implements IJobRepository {
     return dto;
   }
 
+  private sanitizeTenantId(tenantId: string): string {
+    const sanitized = this.sanitizationService.sanitizeIdentifier(tenantId);
+    if (!sanitized) {
+      throw new BadRequestException("Invalid tenant identifier.");
+    }
+    return sanitized;
+  }
+
   private sanitizePayload(payload: CreateJobPayload): CreateJobPayload {
     return {
       ...payload,
@@ -65,6 +94,23 @@ export class InMemoryJobRepository implements IJobRepository {
       preferredTime: payload.preferredTime
         ? this.sanitizationService.normalizeWhitespace(payload.preferredTime)
         : undefined,
+    };
+  }
+
+  private mapJob(job: PrismaJob): JobRecord {
+    return {
+      id: job.id,
+      tenantId: job.tenantId,
+      customerName: job.customerName,
+      phone: job.phone,
+      address: job.address ?? undefined,
+      issueCategory: job.issueCategory,
+      urgency: job.urgency,
+      description: job.description ?? undefined,
+      preferredTime: job.preferredTime ?? undefined,
+      status: job.status,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     };
   }
 }

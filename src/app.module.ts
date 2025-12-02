@@ -10,6 +10,7 @@ import { envValidationSchema } from "./config/env.validation";
 import { LoggingModule } from "./logging/logging.module";
 import { SanitizationModule } from "./sanitization/sanitization.module";
 import { ToolRegistryModule } from "./ai/tools/tool-registry.module";
+import { PrismaModule } from "./prisma/prisma.module";
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ToolRegistryModule } from "./ai/tools/tool-registry.module";
     LoggingModule,
     SanitizationModule,
     ToolRegistryModule,
+    PrismaModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60,

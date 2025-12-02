@@ -142,9 +142,8 @@ export class AiService {
       });
       return {
         status: "job_created",
-        jobId: job.id,
-        jobPayload: job.payload,
-        message: job.message,
+        job,
+        message: "Job created successfully.",
       };
     } catch (error) {
       this.errorHandler.handle(error, {

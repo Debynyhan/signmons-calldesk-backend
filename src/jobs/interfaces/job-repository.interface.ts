@@ -18,16 +18,27 @@ export interface CreateJobFromToolCallRequest {
   rawArgs?: string;
 }
 
+export type JobStatus = "PENDING" | "SCHEDULED" | "COMPLETED" | "CANCELLED";
+
 export interface JobRecord {
   id: string;
   tenantId: string;
-  payload: CreateJobPayload;
-  status: string;
-  message?: string;
+  customerName: string;
+  phone: string;
+  address?: string;
+  issueCategory: string;
+  urgency: string;
+  description?: string;
+  preferredTime?: string;
+  status: JobStatus;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface IJobRepository {
   createJobFromToolCall(
     request: CreateJobFromToolCallRequest,
   ): Promise<JobRecord>;
+
+  listJobs(tenantId: string): Promise<JobRecord[]>;
 }

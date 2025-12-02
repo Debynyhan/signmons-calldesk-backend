@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id            String    @id @default(uuid())
+  name          String
+  displayName   String
+  instructions  String?
+  prompt        String
+  phoneNumber   String?
+  jobs          Job[]
+  callLogs      CallLog[]
+  featureFlags  Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([name])
+}
+
+model Job {
+  id            String     @id @default(uuid())
+  tenantId      String
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerName  String
+  phone         String
+  address       String?
+  issueCategory String
+  urgency       String
+  description   String?
+  preferredTime String?
+  status        JobStatus  @default(PENDING)
+  metadata      Json?
+  callLogs      CallLog[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model CallLog {
+  id            String        @id @default(uuid())
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  jobId         String?
+  job           Job?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  direction     CallDirection @default(INBOUND)
+  customerPhone String?
+  transcript    String
+  aiResponse    String?
+  outcome       CallOutcome   @default(UNKNOWN)
+  notes         String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+
+  @@index([tenantId])
+  @@index([jobId])
+}
+
+enum JobStatus {
+  PENDING
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallOutcome {
+  UNKNOWN
+  JOB_CREATED
+  ESCALATED
+  FAILED
+}

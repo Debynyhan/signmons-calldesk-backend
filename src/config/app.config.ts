@@ -8,7 +8,11 @@ export interface AppConfig {
   enablePreviewModel: boolean;
   enabledTools: string[];
   port: number;
+  databaseUrl: string;
 }
+
+const DEFAULT_DATABASE_URL =
+  "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk";
 
 export default registerAs(
   "app",
@@ -22,5 +26,6 @@ export default registerAs(
       .map((tool) => tool.trim())
       .filter(Boolean),
     port: Number(process.env.PORT ?? 3000),
+    databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
   }),
 );
