@@ -15,6 +15,7 @@ export interface CreateJobRequest {
 
 export interface CreateJobFromToolCallRequest {
   tenantId: string;
+  sessionId: string;
   rawArgs?: string;
 }
 

@@ -17,6 +17,7 @@ import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
+import { CallLogService } from "../logging/call-log.service";
 
 @Injectable()
 export class AiService {
@@ -30,6 +31,7 @@ export class AiService {
     private readonly toolSelector: ToolSelectorService,
     @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
+    private readonly callLogService: CallLogService,
   ) {
     try {
       const promptPath = join(
@@ -50,7 +52,7 @@ export class AiService {
     }
   }
 
-  async triage(tenantId: string, userMessage: string) {
+  async triage(tenantId: string, sessionId: string, userMessage: string) {
     if (!this.systemPrompt) {
       throw new InternalServerErrorException(
         "AI is not configured on the server.",
@@ -58,15 +60,21 @@ export class AiService {
     }
 
     let safeTenantId: string | undefined;
+    let safeSessionId: string | undefined;
     let openAIResponseId: string | undefined;
     const incomingMessageLength = userMessage?.length ?? 0;
     try {
       safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
       const safeUserMessage =
         this.sanitizationService.sanitizeText(userMessage);
+      safeSessionId = this.sanitizationService.sanitizeIdentifier(sessionId);
 
       if (!safeTenantId) {
         throw new BadRequestException("Invalid tenant identifier.");
+      }
+
+      if (!safeSessionId) {
+        throw new BadRequestException("Invalid session identifier.");
       }
 
       if (!safeUserMessage) {
@@ -76,9 +84,20 @@ export class AiService {
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);
       const tenantContextPrompt = tenantContext.prompt;
+      const recentMessages = await this.callLogService.getRecentMessages(
+        safeTenantId,
+        safeSessionId,
+        10,
+      );
+      const conversationHistory: OpenAI.ChatCompletionMessageParam[] =
+        recentMessages.map((entry) => ({
+          role: entry.role,
+          content: entry.content,
+        }));
       const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: this.systemPrompt },
         { role: "system", content: tenantContextPrompt },
+        ...conversationHistory,
         { role: "user", content: safeUserMessage },
       ];
 
@@ -96,6 +115,7 @@ export class AiService {
         if (toolCall.type === "function" && toolCall.function?.name) {
           return this.handleToolCall(
             safeTenantId,
+            safeSessionId,
             toolCall.function.name,
             toolCall.function.arguments,
           );
@@ -108,13 +128,39 @@ export class AiService {
         };
       }
 
-      return {
-        status: "reply",
-        reply: message.content,
+      const replyPayload = Array.isArray(message.content)
+        ? message.content
+            .map((part) =>
+              typeof part === "string"
+                ? part
+                : ((part as { text?: string })?.text ?? ""),
+            )
+            .join(" ")
+        : (message.content ?? "");
+
+      const reply = {
+        status: "reply" as const,
+        reply: replyPayload,
       };
+
+      await this.callLogService.createLog({
+        tenantId: safeTenantId,
+        sessionId: safeSessionId,
+        transcript: userMessage,
+        aiResponse: replyPayload,
+        metadata: {
+          sessionId: safeSessionId,
+          openAIResponseId,
+        },
+      });
+
+      return reply;
     } catch (error) {
       this.errorHandler.handle(error, {
         tenantId: safeTenantId ?? tenantId,
+        metadata: {
+          sessionId: safeSessionId ?? sessionId,
+        },
         stage: "triage",
         messageLength: incomingMessageLength,
         openAIResponseId,
@@ -124,6 +170,7 @@ export class AiService {
 
   private async handleToolCall(
     tenantId: string,
+    sessionId: string,
     name: string,
     rawArgs?: string,
   ) {
@@ -138,8 +185,18 @@ export class AiService {
     try {
       const job = await this.jobsRepository.createJobFromToolCall({
         tenantId,
+        sessionId,
         rawArgs,
       });
+      await this.callLogService.createLog({
+        tenantId,
+        sessionId,
+        jobId: job.id,
+        transcript: rawArgs ?? "",
+        aiResponse: JSON.stringify(job),
+        metadata: { toolName: name, sessionId },
+      });
+      await this.callLogService.clearSession(tenantId, sessionId);
       return {
         status: "job_created",
         job,

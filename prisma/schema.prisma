@@ -58,6 +58,7 @@ model CallLog {
   notes         String?
   metadata      Json?
   createdAt     DateTime      @default(now())
+  sessionClosedAt DateTime?
 
   @@index([tenantId])
   @@index([jobId])
