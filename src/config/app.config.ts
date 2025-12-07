@@ -10,14 +10,21 @@ export interface AppConfig {
   port: number;
   databaseUrl: string;
   adminApiToken: string;
+  corsOrigins: string[];
 }
 
 const DEFAULT_DATABASE_URL =
   "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk";
+const DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:3101"];
 
-export default registerAs(
-  "app",
-  (): AppConfig => ({
+export default registerAs("app", (): AppConfig => {
+  const rawOrigins =
+    process.env.FRONTEND_ORIGINS?.split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
+  const corsOrigins = rawOrigins.length > 0 ? rawOrigins : DEFAULT_CORS_ORIGINS;
+
+  return {
     environment: (process.env.NODE_ENV as NodeEnvironment) ?? "development",
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
     enablePreviewModel:
@@ -29,5 +36,6 @@ export default registerAs(
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
-  }),
-);
+    corsOrigins,
+  };
+});

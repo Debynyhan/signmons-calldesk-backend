@@ -19,5 +19,7 @@
     "incremental": true,
     "lib": ["ES2021"],
     "types": ["node", "jest"]
-  }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist", "ui"]
 }
