@@ -32,5 +32,12 @@ export default tseslint.config(
       "@typescript-eslint/no-floating-promises": "error",
       "prettier/prettier": "error",
     },
+  },
+  {
+    files: ["src/**/*.spec.ts", "test/**/*.spec.ts"],
+    rules: {
+      "@typescript-eslint/unbound-method": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+    },
   }
 );
