@@ -6,8 +6,10 @@ import {
   ValidatorConstraintInterface,
 } from "class-validator";
 
-const MAX_MESSAGE_LENGTH = 500;
-const CONTROL_CHAR_PATTERN = "[\\u0000-\\u001F\\u007F]";
+const MAX_MESSAGE_LENGTH = 1000;
+
+const CONTROL_CHAR_PATTERN =
+  "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]"; // allows newline/carriage return/tab
 const CONTROL_CHAR_REGEX = new RegExp(CONTROL_CHAR_PATTERN);
 
 @ValidatorConstraint({ name: "safeMessage", async: false })

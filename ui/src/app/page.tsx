@@ -18,7 +18,7 @@ type ConversationEntry = {
 };
 
 const defaultInstructions =
-  "Act as their dispatcher; gather contact info, capture the issue, upsell priority service when safety is a concern, and confirm next steps before ending the call.";
+  "Greet callers with a warm \"Thanks for calling Demo HVAC, this is your dispatcher\" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.";
 
 const formatAssistantResponse = (payload: TriageResponse): string => {
   if (payload && typeof payload === "object" && "status" in payload) {
