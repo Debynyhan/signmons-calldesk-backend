@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import { LoggingService } from "../logging/logging.service";
+import { AlertingService } from "../logging/alerting.service";
 
 type AiStage =
   | "triage"
@@ -23,7 +24,10 @@ export interface AiErrorContext {
 
 @Injectable()
 export class AiErrorHandler {
-  constructor(private readonly loggingService: LoggingService) {}
+  constructor(
+    private readonly loggingService: LoggingService,
+    private readonly alertingService: AlertingService,
+  ) {}
 
   handle(error: unknown, context: AiErrorContext): never {
     const status =
@@ -53,6 +57,13 @@ export class AiErrorHandler {
     }
 
     if (error instanceof HttpException) {
+      if (status && status >= 500) {
+        this.alertingService.notifyCritical({
+          message: `AI provider returned status ${status}`,
+          context: AiErrorHandler.name,
+          metadata: { meta, status },
+        });
+      }
       this.loggingService.error(
         `AI provider returned an error: ${error.message}. Context=${meta}`,
         error,
@@ -66,6 +77,11 @@ export class AiErrorHandler {
       error instanceof Error ? error : undefined,
       AiErrorHandler.name,
     );
+    this.alertingService.notifyCritical({
+      message: "Unhandled AI error occurred.",
+      context: AiErrorHandler.name,
+      metadata: { meta },
+    });
     throw new InternalServerErrorException("AI triage failed.");
   }
 

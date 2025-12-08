@@ -8,7 +8,7 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post("triage")
-  @Throttle({ default: { limit: 5, ttl: 60 } })
+  @Throttle({ default: { limit: 15, ttl: 60 } })
   async triage(@Body() { tenantId, sessionId, message }: TriageDto) {
     return this.aiService.triage(tenantId, sessionId, message);
   }
