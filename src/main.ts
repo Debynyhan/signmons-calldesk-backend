@@ -2,6 +2,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ConfigType } from "@nestjs/config";
 import type { NextFunction, Request, Response } from "express";
+import type { CorsOptions } from "@nestjs/common/interfaces/external/cors-options.interface";
 import { AppModule } from "./app.module";
 import { SanitizedExceptionFilter } from "./common/filters/sanitized-exception.filter";
 import { LoggingService } from "./logging/logging.service";
@@ -15,6 +16,38 @@ async function bootstrap() {
   const loggingService = app.get(LoggingService);
   const corsOrigins = config?.corsOrigins ?? [];
   const allowAllOrigins = corsOrigins.includes("*");
+  const wildcardOrigins = corsOrigins.filter(
+    (origin) => origin !== "*" && origin.includes("*"),
+  );
+  const exactOrigins = corsOrigins.filter(
+    (origin) => origin === "*" || !origin.includes("*"),
+  );
+  const wildcardRegexes = wildcardOrigins.map((pattern) => {
+    const escaped = pattern.replace(/[-/\\^$+?.()|[\]{}]/g, "\\$&");
+    const regexPattern = `^${escaped.replace(/\\\*/g, ".*")}$`;
+    return new RegExp(regexPattern);
+  });
+  const isOriginAllowed = (origin?: string) => {
+    if (!origin) {
+      return true;
+    }
+    if (allowAllOrigins) {
+      return true;
+    }
+    if (exactOrigins.includes(origin)) {
+      return true;
+    }
+    return wildcardRegexes.some((regex) => regex.test(origin));
+  };
+  const resolveResponseOrigin = (origin?: string) => {
+    if (allowAllOrigins) {
+      return origin ?? "*";
+    }
+    if (!origin) {
+      return corsOrigins[0] ?? "*";
+    }
+    return origin;
+  };
   loggingService.log(
     `CORS origins: ${
       allowAllOrigins ? "*" : corsOrigins.join(", ") || "(none)"
@@ -22,24 +55,31 @@ async function bootstrap() {
     "Bootstrap",
   );
 
-  app.enableCors({
-    origin: allowAllOrigins ? true : corsOrigins,
+  const corsOptions: CorsOptions = {
+    origin: (requestOrigin, callback) => {
+      if (isOriginAllowed(requestOrigin ?? undefined)) {
+        callback(null, resolveResponseOrigin(requestOrigin ?? undefined));
+      } else {
+        callback(new Error("Origin not allowed by CORS"));
+      }
+    },
     methods: ["POST", "OPTIONS", "GET"],
     allowedHeaders: ["Content-Type", "x-admin-token"],
     maxAge: 3600,
-  });
+  };
+
+  app.enableCors(corsOptions);
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin ?? undefined;
-    const isAllowed =
-      allowAllOrigins || (origin !== undefined && corsOrigins.includes(origin));
+    const isAllowed = isOriginAllowed(origin);
 
     if (!isAllowed) {
       next();
       return;
     }
 
-    const responseOrigin = origin ?? corsOrigins[0] ?? "*";
+    const responseOrigin = resolveResponseOrigin(origin);
 
     res.header("Access-Control-Allow-Origin", responseOrigin);
     res.header("Access-Control-Allow-Headers", "Content-Type, x-admin-token");

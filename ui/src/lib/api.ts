@@ -1,4 +1,4 @@
-const DEFAULT_API_URL = "http://localhost:3000";
+const DEFAULT_API_URL = "/api";
 
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? DEFAULT_API_URL;

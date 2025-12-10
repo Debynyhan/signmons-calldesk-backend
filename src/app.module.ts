@@ -3,6 +3,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { TenantThrottleGuard } from "./common/guards/tenant-throttle.guard";
+import { TenantsModule } from "./tenants/tenants.module";
 import { AppService } from "./app.service";
 import { AppController } from "./app.controller";
 import { AiModule } from "./ai/ai.module";
@@ -22,6 +23,7 @@ import { HealthController } from "./health/health.controller";
       load: [appConfig],
       validationSchema: envValidationSchema,
     }),
+    TenantsModule,
     LoggingModule,
     SanitizationModule,
     ToolRegistryModule,
