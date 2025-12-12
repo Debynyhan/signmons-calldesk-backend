@@ -20,6 +20,14 @@ type ConversationEntry = {
 const defaultInstructions =
   "Greet callers with a warm \"Thanks for calling Demo HVAC, this is your dispatcher\" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.";
 
+const availableTools = [
+  { id: "create_job", label: "Create job" },
+  { id: "request_more_info", label: "Request more info" },
+  { id: "mark_emergency", label: "Mark emergency" },
+  { id: "lookup_price_range", label: "Lookup price range" },
+  { id: "update_customer_profile", label: "Update customer profile" },
+];
+
 const formatAssistantResponse = (payload: TriageResponse): string => {
   if (payload && typeof payload === "object" && "status" in payload) {
     if (payload.status === "reply") {
@@ -51,6 +59,7 @@ export default function Home() {
     displayName: "Demo HVAC Contractor",
     instructions: defaultInstructions,
     adminToken: "",
+    allowedTools: availableTools.map((tool) => tool.id),
   });
   const [tenantLoading, setTenantLoading] = useState(false);
   const [tenantError, setTenantError] = useState<string | null>(null);
@@ -80,6 +89,18 @@ export default function Home() {
 
   const addConversationEntry = (entry: ConversationEntry) => {
     setConversation((prev) => [...prev, entry]);
+  };
+
+  const toggleAllowedTool = (toolId: string) => {
+    setTenantForm((prev) => {
+      const set = new Set(prev.allowedTools);
+      if (set.has(toolId)) {
+        set.delete(toolId);
+      } else {
+        set.add(toolId);
+      }
+      return { ...prev, allowedTools: Array.from(set) };
+    });
   };
 
   const handleTenantSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -235,6 +256,25 @@ export default function Home() {
               />
             </label>
 
+            <div className={styles.fieldset}>
+              <p className={styles.label}>Allowed AI tools</p>
+              <div className={styles.checkboxGrid}>
+                {availableTools.map((tool) => (
+                  <label key={tool.id} className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={tenantForm.allowedTools.includes(tool.id)}
+                      onChange={() => toggleAllowedTool(tool.id)}
+                    />
+                    <span>{tool.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className={styles.hint}>
+                Uncheck any tools you are not ready to enable for this tenant.
+              </p>
+            </div>
+
             <label className={styles.label}>
               Admin token
               <input
@@ -282,6 +322,12 @@ export default function Home() {
                   <li>
                     <strong>Display:</strong> {tenantResult.displayName}
                   </li>
+                  {tenantResult.allowedTools?.length ? (
+                    <li>
+                      <strong>Tools:</strong>{" "}
+                      {tenantResult.allowedTools.join(", ")}
+                    </li>
+                  ) : null}
                 </ul>
               </div>
             )}

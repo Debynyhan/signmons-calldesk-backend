@@ -3,12 +3,14 @@ export interface TenantContext {
   displayName: string;
   instructions: string;
   prompt: string;
+  allowedTools: string[];
 }
 
 export interface CreateTenantInput {
   name: string;
   displayName: string;
   instructions: string;
+  allowedTools?: string[];
 }
 
 export interface TenantsService {

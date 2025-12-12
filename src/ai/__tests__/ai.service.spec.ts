@@ -22,7 +22,7 @@ jest.mock("fs", () => ({
 
 class ToolSelectorStub {
   getEnabledToolsForTenant = jest
-    .fn<(tenantId: string) => unknown[]>()
+    .fn<(allowedTools?: string[]) => unknown[]>()
     .mockReturnValue([]);
 }
 
@@ -67,6 +67,7 @@ describe("AiService", () => {
       displayName: "Demo Contractor",
       instructions: "Collect caller details and determine urgency.",
       prompt: "You are acting for Demo Contractor.",
+      allowedTools: ["create_job"],
     });
     callLogService = {
       createLog: jest.fn(),

@@ -10,6 +10,7 @@ export interface TenantRequest {
   displayName: string;
   instructions: string;
   adminToken: string;
+  allowedTools?: string[];
 }
 
 export interface TenantResponse {
@@ -17,6 +18,7 @@ export interface TenantResponse {
   displayName: string;
   instructions: string;
   prompt: string;
+  allowedTools: string[];
 }
 
 export interface TriageRequest {

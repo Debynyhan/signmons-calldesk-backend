@@ -17,6 +17,7 @@ model Tenant {
   jobs          Job[]
   callLogs      CallLog[]
   featureFlags  Json?
+  allowedTools  Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

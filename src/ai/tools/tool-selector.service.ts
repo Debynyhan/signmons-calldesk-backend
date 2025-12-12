@@ -12,10 +12,11 @@ export class ToolSelectorService {
     private readonly config: ConfigType<typeof appConfig>,
   ) {}
 
-  getEnabledToolsForTenant(tenantId: string): ChatCompletionTool[] {
-    // tenantId is reserved for future tenant-specific tool policies
-    void tenantId;
-    const enabled = new Set(this.config.enabledTools);
+  getEnabledToolsForTenant(allowedTools?: string[]): ChatCompletionTool[] {
+    const fallback = this.config.enabledTools ?? [];
+    const effectiveTools =
+      allowedTools && allowedTools.length > 0 ? allowedTools : fallback;
+    const enabled = new Set(effectiveTools);
     return this.toolRegistry
       .getTools()
       .filter((tool) => enabled.has(tool.function?.name ?? ""));

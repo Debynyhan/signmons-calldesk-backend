@@ -84,6 +84,7 @@ export class AiService {
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);
       const tenantContextPrompt = tenantContext.prompt;
+      const tenantAllowedTools = tenantContext.allowedTools;
       const recentMessages = await this.callLogService.getRecentMessages(
         safeTenantId,
         safeSessionId,
@@ -101,7 +102,8 @@ export class AiService {
         { role: "user", content: safeUserMessage },
       ];
 
-      const tools = this.toolSelector.getEnabledToolsForTenant(safeTenantId);
+      const tools =
+        this.toolSelector.getEnabledToolsForTenant(tenantAllowedTools);
       const response = await this.aiProviderService.createCompletion({
         messages,
         tools: tools.length ? tools : undefined,
