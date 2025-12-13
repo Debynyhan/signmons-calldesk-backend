@@ -183,6 +183,103 @@ describe("AiService", () => {
     );
   });
 
+  it("returns unsupported_tool when provider invokes an unknown tool", async () => {
+    const toolArguments = JSON.stringify({
+      field: "value",
+    });
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-unsupported",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call-unsupported",
+                type: "function",
+                function: {
+                  name: "update_customer_profile",
+                  arguments: toolArguments,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    } as never);
+
+    const response = await service.triage(
+      tenantId,
+      sessionId,
+      "Call the update_customer_profile tool.",
+    );
+
+    expect(response).toEqual({
+      status: "unsupported_tool",
+      toolName: "update_customer_profile",
+      rawArgs: toolArguments,
+    });
+    expect(jobsRepository.createJobFromToolCall).not.toHaveBeenCalled();
+    expect(callLogService.createLog).not.toHaveBeenCalled();
+  });
+
+  it("sends recent conversation history and tenant prompt to the AI provider", async () => {
+    callLogService.getRecentMessages.mockResolvedValue([
+      {
+        role: "user",
+        content: "Previous caller message.",
+        createdAt: new Date(),
+      },
+      {
+        role: "assistant",
+        content: "Previous assistant reply.",
+        createdAt: new Date(),
+      },
+    ]);
+
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-history",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: "Let me help you.",
+          },
+        },
+      ],
+    } as never);
+
+    await service.triage(
+      tenantId,
+      sessionId,
+      "Here is the next caller message.",
+    );
+
+    expect(aiProvider.createCompletion).toHaveBeenCalledWith({
+      messages: [
+        { role: "system", content: "System prompt" },
+        {
+          role: "system",
+          content: "You are acting for Demo Contractor.",
+        },
+        { role: "user", content: "Previous caller message." },
+        { role: "assistant", content: "Previous assistant reply." },
+        { role: "user", content: "Here is the next caller message." },
+      ],
+      tools: undefined,
+    });
+    expect(callLogService.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId,
+        sessionId,
+        transcript: "Here is the next caller message.",
+        aiResponse: "Let me help you.",
+        metadata: expect.objectContaining({ openAIResponseId: "resp-history" }),
+      }),
+    );
+  });
+
   it("delegates provider errors to the AiErrorHandler", async () => {
     aiProvider.createCompletion.mockRejectedValue(new Error("network"));
     await service.triage(tenantId, sessionId, "Hello");
