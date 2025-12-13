@@ -14,6 +14,7 @@ import { AiProviderService } from "../providers/ai-provider.service";
 import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
+import { TenantAnalyticsService } from "../../analytics/tenant-analytics.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -38,6 +39,7 @@ describe("AiService", () => {
   let jobsRepository: jest.Mocked<IJobRepository>;
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
+  let tenantAnalytics: jest.Mocked<TenantAnalyticsService>;
   let service: AiService;
 
   beforeEach(() => {
@@ -74,6 +76,9 @@ describe("AiService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
+    tenantAnalytics = {
+      incrementCallCount: jest.fn(),
+    } as unknown as jest.Mocked<TenantAnalyticsService>;
 
     service = new AiService(
       aiProvider,
@@ -84,6 +89,7 @@ describe("AiService", () => {
       jobsRepository,
       tenantsService,
       callLogService,
+      tenantAnalytics,
     );
   });
 
@@ -104,6 +110,7 @@ describe("AiService", () => {
     );
 
     expect(response).toEqual({ status: "reply", reply: "Hello there!" });
+    expect(tenantAnalytics.incrementCallCount).toHaveBeenCalledWith(tenantId);
     expect(callLogService.createLog).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId,

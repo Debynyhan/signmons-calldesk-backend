@@ -18,6 +18,7 @@ import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
+import { TenantAnalyticsService } from "../analytics/tenant-analytics.service";
 
 @Injectable()
 export class AiService {
@@ -32,6 +33,7 @@ export class AiService {
     @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
+    private readonly tenantAnalytics: TenantAnalyticsService,
   ) {
     try {
       const promptPath = join(
@@ -80,6 +82,8 @@ export class AiService {
       if (!safeUserMessage) {
         throw new BadRequestException("Message must contain text.");
       }
+
+      await this.tenantAnalytics.incrementCallCount(safeTenantId);
 
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);

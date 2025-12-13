@@ -14,6 +14,7 @@ import { JobsModule } from "../jobs/jobs.module";
 import { TenantsModule } from "../tenants/tenants.module";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
+import { TenantAnalyticsService } from "../analytics/tenant-analytics.service";
 
 @Module({
   imports: [JobsModule, TenantsModule],
@@ -42,6 +43,7 @@ import { AiErrorHandler } from "./ai-error.handler";
     },
     ToolSelectorService,
     AiErrorHandler,
+    TenantAnalyticsService,
     AiService,
   ],
 })

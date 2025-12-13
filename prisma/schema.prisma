@@ -17,6 +17,7 @@ model Tenant {
   jobs          Job[]
   callLogs      CallLog[]
   featureFlags  Json?
+  analytics     TenantAnalytics?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -62,6 +63,18 @@ model CallLog {
 
   @@index([tenantId])
   @@index([jobId])
+}
+
+model TenantAnalytics {
+  tenantId             String   @id
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  callCount            Int      @default(0)
+  jobsCreated          Int      @default(0)
+  toolUsage            Json?
+  totalInfoCollectionMs BigInt  @default(0)
+  completedSessions    Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
 enum JobStatus {
