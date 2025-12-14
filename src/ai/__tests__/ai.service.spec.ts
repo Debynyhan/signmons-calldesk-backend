@@ -74,8 +74,10 @@ describe("AiService", () => {
       createLog: jest.fn(),
       getRecentMessages: jest.fn(),
       clearSession: jest.fn(),
+      getSessionStartTime: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
+    callLogService.getSessionStartTime.mockResolvedValue(null);
     tenantAnalytics = {
       incrementCallCount: jest.fn(),
       recordToolUsage: jest.fn(),
@@ -166,9 +168,7 @@ describe("AiService", () => {
     };
     jobsRepository.createJobFromToolCall.mockResolvedValue(jobRecord);
     const startTime = new Date(jobRecord.createdAt.getTime() - 1000);
-    callLogService.getRecentMessages.mockResolvedValue([
-      { role: "user", content: "Hi", createdAt: startTime },
-    ]);
+    callLogService.getSessionStartTime.mockResolvedValue(startTime);
 
     const response = await service.triage(tenantId, sessionId, "Create job.");
 

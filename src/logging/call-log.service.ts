@@ -35,6 +35,11 @@ export class CallLogService {
       sessionId: input.sessionId,
     };
 
+    const sessionStartedAt = await this.resolveSessionStart(
+      input.tenantId,
+      input.sessionId,
+    );
+
     return this.prisma.callLog.create({
       data: {
         tenantId: input.tenantId,
@@ -43,6 +48,7 @@ export class CallLogService {
         transcript: sanitizedTranscript,
         aiResponse: sanitizedResponse,
         metadata: metadataPayload,
+        sessionStartedAt,
       },
     });
   }
@@ -101,18 +107,41 @@ export class CallLogService {
 
   async clearSession(tenantId: string, sessionId: string): Promise<void> {
     await this.prisma.callLog.updateMany({
-      where: {
-        tenantId,
-        metadata: {
-          path: ["sessionId"],
-          equals: sessionId,
-        },
-        sessionClosedAt: null,
-      },
+      where: this.buildSessionQuery(tenantId, sessionId),
       data: {
         sessionClosedAt: new Date(),
       },
     });
+  }
+
+  async getSessionStartTime(
+    tenantId: string,
+    sessionId: string,
+  ): Promise<Date | null> {
+    const existing = await this.prisma.callLog.findFirst({
+      where: this.buildSessionQuery(tenantId, sessionId),
+      orderBy: { sessionStartedAt: "asc" },
+    });
+    return existing?.sessionStartedAt ?? null;
+  }
+
+  private async resolveSessionStart(tenantId: string, sessionId: string) {
+    const existing = await this.prisma.callLog.findFirst({
+      where: this.buildSessionQuery(tenantId, sessionId),
+      orderBy: { sessionStartedAt: "asc" },
+    });
+    return existing?.sessionStartedAt ?? new Date();
+  }
+
+  private buildSessionQuery(tenantId: string, sessionId: string) {
+    return {
+      tenantId,
+      metadata: {
+        path: ["sessionId"],
+        equals: sessionId,
+      },
+      sessionClosedAt: null,
+    };
   }
 
   private obfuscatePii(value: string): string {

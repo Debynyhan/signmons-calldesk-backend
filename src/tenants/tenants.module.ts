@@ -4,6 +4,7 @@ import { PrismaTenantsService } from "./tenants.service";
 import { TenantsController } from "./tenants.controller";
 import { SanitizationModule } from "../sanitization/sanitization.module";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
+import { TenantAnalyticsService } from "../analytics/tenant-analytics.service";
 
 @Module({
   imports: [SanitizationModule],
@@ -11,6 +12,7 @@ import { AdminApiGuard } from "../common/guards/admin-api.guard";
   providers: [
     PrismaTenantsService,
     AdminApiGuard,
+    TenantAnalyticsService,
     {
       provide: TENANTS_SERVICE,
       useExisting: PrismaTenantsService,

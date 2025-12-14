@@ -128,4 +128,42 @@ describe("TenantAnalyticsService", () => {
       }),
     );
   });
+
+  it("returns analytics snapshot with averages", async () => {
+    const findUnique = jest.fn().mockResolvedValue({
+      callCount: 5,
+      jobsCreated: 2,
+      toolUsage: { create_job: 2 },
+      totalInfoCollectionMs: BigInt(4000),
+      completedSessions: 2,
+    });
+    const service = new TenantAnalyticsService({
+      tenantAnalytics: { findUnique },
+    } as never);
+
+    const snapshot = await service.getAnalyticsSnapshot("tenant-snap");
+
+    expect(snapshot).toEqual({
+      callCount: 5,
+      jobsCreated: 2,
+      toolUsage: { create_job: 2 },
+      averageInfoCollectionMs: 2000,
+    });
+  });
+
+  it("returns zeros when no analytics exist", async () => {
+    const findUnique = jest.fn().mockResolvedValue(null);
+    const service = new TenantAnalyticsService({
+      tenantAnalytics: { findUnique },
+    } as never);
+
+    const snapshot = await service.getAnalyticsSnapshot("tenant-empty");
+
+    expect(snapshot).toEqual({
+      callCount: 0,
+      jobsCreated: 0,
+      toolUsage: {},
+      averageInfoCollectionMs: 0,
+    });
+  });
 });

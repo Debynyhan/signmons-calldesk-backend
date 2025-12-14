@@ -202,11 +202,14 @@ export class AiService {
         aiResponse: JSON.stringify(job),
         metadata: { toolName: name, sessionId },
       });
-      const sessionStart = await this.getSessionStartTime(
+      const sessionStart = await this.callLogService.getSessionStartTime(
         tenantId,
         sessionId,
       );
-      const durationMs = job.createdAt.getTime() - sessionStart;
+      const durationMs =
+        sessionStart instanceof Date
+          ? Math.max(job.createdAt.getTime() - sessionStart.getTime(), 0)
+          : 0;
       await this.callLogService.clearSession(tenantId, sessionId);
       await this.tenantAnalytics.incrementJobsCreated(tenantId);
       await this.tenantAnalytics.recordInfoCollectionDuration(
@@ -230,12 +233,4 @@ export class AiService {
     }
   }
 
-  private async getSessionStartTime(tenantId: string, sessionId: string) {
-    const recentMessages = await this.callLogService.getRecentMessages(
-      tenantId,
-      sessionId,
-      1,
-    );
-    return recentMessages[0]?.createdAt.getTime() ?? Date.now();
-  }
 }

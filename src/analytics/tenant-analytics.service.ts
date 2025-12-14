@@ -76,6 +76,27 @@ export class TenantAnalyticsService {
     });
   }
 
+  async getAnalyticsSnapshot(tenantId: string) {
+    const analytics = await this.prisma.tenantAnalytics.findUnique({
+      where: { tenantId },
+    });
+    const toolUsage = this.normalizeToolUsage(analytics?.toolUsage);
+    const totalMs =
+      analytics?.totalInfoCollectionMs !== undefined
+        ? Number(analytics.totalInfoCollectionMs)
+        : 0;
+    const sessions = analytics?.completedSessions ?? 0;
+    const averageInfoCollectionMs =
+      sessions > 0 ? Math.round(totalMs / sessions) : 0;
+
+    return {
+      callCount: analytics?.callCount ?? 0,
+      jobsCreated: analytics?.jobsCreated ?? 0,
+      toolUsage,
+      averageInfoCollectionMs,
+    };
+  }
+
   private normalizeToolUsage(value: unknown): ToolUsageMap {
     if (!value || typeof value !== "object") {
       return {};
