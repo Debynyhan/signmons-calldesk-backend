@@ -78,6 +78,9 @@ describe("AiService", () => {
     callLogService.getRecentMessages.mockResolvedValue([]);
     tenantAnalytics = {
       incrementCallCount: jest.fn(),
+      recordToolUsage: jest.fn(),
+      incrementJobsCreated: jest.fn(),
+      recordInfoCollectionDuration: jest.fn(),
     } as unknown as jest.Mocked<TenantAnalyticsService>;
 
     service = new AiService(
@@ -162,6 +165,10 @@ describe("AiService", () => {
       updatedAt: new Date(),
     };
     jobsRepository.createJobFromToolCall.mockResolvedValue(jobRecord);
+    const startTime = new Date(jobRecord.createdAt.getTime() - 1000);
+    callLogService.getRecentMessages.mockResolvedValue([
+      { role: "user", content: "Hi", createdAt: startTime },
+    ]);
 
     const response = await service.triage(tenantId, sessionId, "Create job.");
 
@@ -175,6 +182,16 @@ describe("AiService", () => {
       sessionId,
       rawArgs: expect.any(String),
     });
+    expect(tenantAnalytics.recordToolUsage).toHaveBeenCalledWith(
+      tenantId,
+      "create_job",
+    );
+    expect(tenantAnalytics.incrementJobsCreated).toHaveBeenCalledWith(
+      tenantId,
+    );
+    expect(
+      tenantAnalytics.recordInfoCollectionDuration,
+    ).toHaveBeenCalledWith(tenantId, 1000);
     expect(callLogService.createLog).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId,
@@ -187,6 +204,47 @@ describe("AiService", () => {
       tenantId,
       sessionId,
     );
+  });
+
+  it("records tool usage even when the tool is unsupported", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-unsupported",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call-unsupported",
+                type: "function",
+                function: {
+                  name: "mark_emergency",
+                  arguments: "{}",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    } as never);
+
+    const response = await service.triage(
+      tenantId,
+      sessionId,
+      "Caller says it's smoking.",
+    );
+
+    expect(response).toEqual({
+      status: "unsupported_tool",
+      toolName: "mark_emergency",
+      rawArgs: "{}",
+    });
+    expect(tenantAnalytics.recordToolUsage).toHaveBeenCalledWith(
+      tenantId,
+      "mark_emergency",
+    );
+    expect(tenantAnalytics.incrementJobsCreated).not.toHaveBeenCalled();
   });
 
   it("delegates provider errors to the AiErrorHandler", async () => {

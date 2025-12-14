@@ -178,6 +178,8 @@ export class AiService {
     name: string,
     rawArgs?: string,
   ) {
+    await this.tenantAnalytics.recordToolUsage(tenantId, name);
+
     if (name !== "create_job") {
       return {
         status: "unsupported_tool",
@@ -200,7 +202,17 @@ export class AiService {
         aiResponse: JSON.stringify(job),
         metadata: { toolName: name, sessionId },
       });
+      const sessionStart = await this.getSessionStartTime(
+        tenantId,
+        sessionId,
+      );
+      const durationMs = job.createdAt.getTime() - sessionStart;
       await this.callLogService.clearSession(tenantId, sessionId);
+      await this.tenantAnalytics.incrementJobsCreated(tenantId);
+      await this.tenantAnalytics.recordInfoCollectionDuration(
+        tenantId,
+        durationMs,
+      );
       return {
         status: "job_created",
         job,
@@ -216,5 +228,14 @@ export class AiService {
         },
       });
     }
+  }
+
+  private async getSessionStartTime(tenantId: string, sessionId: string) {
+    const recentMessages = await this.callLogService.getRecentMessages(
+      tenantId,
+      sessionId,
+      1,
+    );
+    return recentMessages[0]?.createdAt.getTime() ?? Date.now();
   }
 }
