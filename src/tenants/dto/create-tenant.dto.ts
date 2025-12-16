@@ -26,7 +26,7 @@ export class CreateTenantDto {
   @Transform(trim)
   @IsString()
   @MinLength(10)
-  @MaxLength(500)
+  @MaxLength(1000)
   instructions!: string;
 
   @IsOptional()

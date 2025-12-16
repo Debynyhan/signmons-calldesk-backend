@@ -29,12 +29,9 @@ export class AiProviderService implements IAiProvider {
   ): Promise<OpenAI.ChatCompletion> {
     const model = this.selectModel();
     try {
-      return await this.client.createCompletion({
-        model,
-        messages: options.messages,
-        tools: options.tools,
-        tool_choice: options.toolChoice ?? "auto",
-      });
+      return await this.client.createCompletion(
+        this.buildCompletionRequest(model, options),
+      );
     } catch (error) {
       const shouldFallback =
         model === this.previewModel && this.isPreviewUnavailable(error);
@@ -44,18 +41,32 @@ export class AiProviderService implements IAiProvider {
           AiProviderService.name,
         );
         try {
-          return await this.client.createCompletion({
-            model: this.defaultModel,
-            messages: options.messages,
-            tools: options.tools,
-            tool_choice: options.toolChoice ?? "auto",
-          });
+          return await this.client.createCompletion(
+            this.buildCompletionRequest(this.defaultModel, options),
+          );
         } catch (fallbackError) {
           this.handleProviderError(fallbackError, options, this.defaultModel);
         }
       }
       this.handleProviderError(error, options, model);
     }
+  }
+
+  private buildCompletionRequest(
+    model: string,
+    options: CompletionRequestOptions,
+  ) {
+    return {
+      model,
+      messages: options.messages,
+      tools: options.tools,
+      tool_choice: options.toolChoice ?? "auto",
+      temperature: this.config.aiTemperature,
+      top_p: this.config.aiTopP,
+      presence_penalty: this.config.aiPresencePenalty,
+      frequency_penalty: this.config.aiFrequencyPenalty,
+      max_tokens: this.config.aiMaxTokens,
+    };
   }
 
   private selectModel(): string {

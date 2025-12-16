@@ -27,11 +27,24 @@ const availableTools = [
   { id: "update_customer_profile", label: "Update customer profile" },
 ];
 
-const defaultInstructions =
-  "Greet callers with a warm \"Thanks for calling Demo HVAC, this is your dispatcher\" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.";
+const defaultInstructions = [
+  "You are the dispatcher for Demo HVAC.",
+  "Greet callers warmly, collect contact information, classify their issue, and reassure them that our team handles everything.",
+  "Always disclose our $99 diagnostic/service fee and explain that it is credited toward repairs if approved within 24 hours.",
+  "Do not troubleshoot or diagnose.",
+  "Focus on scheduling, clarity, and confidence.",
+  "Offer maintenance plans or priority service only after understanding the customer’s issue.",
+  "Close every interaction with a short summary and clear next steps.",
+].join(" ");
+
+const isStructuredResponse = (
+  payload: TriageResponse | null,
+): payload is Extract<TriageResponse, { status: string }> => {
+  return Boolean(payload && typeof payload === "object" && "status" in payload);
+};
 
 const formatAssistantResponse = (payload: TriageResponse): string => {
-  if (payload && typeof payload === "object" && "status" in payload) {
+  if (isStructuredResponse(payload)) {
     if (payload.status === "reply") {
       return payload.reply ?? "";
     }
@@ -86,12 +99,7 @@ export default function Home() {
   const [lastResponse, setLastResponse] = useState<TriageResponse | null>(null);
 
   const lastJob = useMemo(() => {
-    if (
-      lastResponse &&
-      typeof lastResponse === "object" &&
-      "status" in lastResponse &&
-      lastResponse.status === "job_created"
-    ) {
+    if (isStructuredResponse(lastResponse) && lastResponse.status === "job_created") {
       return lastResponse.job;
     }
     return null;
@@ -348,7 +356,6 @@ export default function Home() {
                 className={styles.input}
                 name="adminToken"
                 type="password"
-                autoComplete="current-password"
                 value={tenantForm.adminToken}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
@@ -356,7 +363,6 @@ export default function Home() {
                     adminToken: event.target.value,
                   }))
                 }
-                autoComplete="off"
                 placeholder="Enter token at runtime"
                 required
               />

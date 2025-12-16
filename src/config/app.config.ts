@@ -7,6 +7,11 @@ export interface AppConfig {
   openAiApiKey: string;
   enablePreviewModel: boolean;
   enabledTools: string[];
+  aiTemperature: number;
+  aiTopP: number;
+  aiPresencePenalty: number;
+  aiFrequencyPenalty: number;
+  aiMaxTokens: number;
   port: number;
   databaseUrl: string;
   adminApiToken: string;
@@ -33,6 +38,11 @@ export default registerAs("app", (): AppConfig => {
       .split(",")
       .map((tool) => tool.trim())
       .filter(Boolean),
+    aiTemperature: Number(process.env.AI_TEMPERATURE ?? 0.3),
+    aiTopP: Number(process.env.AI_TOP_P ?? 1),
+    aiPresencePenalty: Number(process.env.AI_PRESENCE_PENALTY ?? 0),
+    aiFrequencyPenalty: Number(process.env.AI_FREQUENCY_PENALTY ?? 0),
+    aiMaxTokens: Number(process.env.AI_MAX_TOKENS ?? 220),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
