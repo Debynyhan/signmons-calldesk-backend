@@ -1,7 +1,9 @@
 const DEFAULT_API_URL = "http://localhost:3000";
 
 const apiBase =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? DEFAULT_API_URL;
+  process.env.NEXT_PUBLIC_BACKEND_API_URL?.replace(/\/$/, "") ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  DEFAULT_API_URL;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -10,6 +12,7 @@ export interface TenantRequest {
   displayName: string;
   instructions: string;
   adminToken: string;
+  allowedTools: string[];
 }
 
 export interface TenantResponse {
@@ -17,6 +20,13 @@ export interface TenantResponse {
   displayName: string;
   instructions: string;
   prompt: string;
+}
+
+export interface TenantAnalyticsSnapshot {
+  callCount: number;
+  jobsCreated: number;
+  toolUsage: Record<string, number>;
+  averageInfoCollectionMs: number;
 }
 
 export interface TriageRequest {
@@ -104,6 +114,35 @@ export async function sendTriage(
   input: TriageRequest,
 ): Promise<TriageResponse> {
   return postJson<TriageResponse>("/ai/triage", input);
+}
+
+export async function getTenantAnalytics(
+  tenantId: string,
+  adminToken: string,
+): Promise<TenantAnalyticsSnapshot> {
+  const response = await fetch(`${apiBase}/tenants/${tenantId}/analytics`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-token": adminToken.trim(),
+    },
+    cache: "no-store",
+  });
+
+  const isJson = response.headers
+    .get("content-type")
+    ?.includes("application/json");
+  const payload = isJson ? await response.json() : await response.text();
+
+  if (!response.ok) {
+    const message =
+      typeof payload === "string"
+        ? payload
+        : (payload?.message as string) ?? "Request failed";
+    throw new ApiError(message, response.status);
+  }
+
+  return payload as TenantAnalyticsSnapshot;
 }
 
 export function getApiBaseUrl(): string {

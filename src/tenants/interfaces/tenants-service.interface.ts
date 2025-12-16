@@ -9,6 +9,7 @@ export interface CreateTenantInput {
   name: string;
   displayName: string;
   instructions: string;
+  allowedTools?: string[];
 }
 
 export interface TenantsService {

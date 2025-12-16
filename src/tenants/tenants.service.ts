@@ -49,6 +49,13 @@ export class PrismaTenantsService implements TenantsService {
 
     const prompt = this.buildPrompt(tenantId, displayName, instructions);
 
+    const allowedToolsArray = Array.isArray(input.allowedTools)
+      ? input.allowedTools.filter(
+          (tool): tool is string =>
+            typeof tool === "string" && tool.trim().length > 0,
+        )
+      : [];
+
     const tenant = await this.prisma.tenant.create({
       data: {
         id: tenantId,
@@ -56,6 +63,8 @@ export class PrismaTenantsService implements TenantsService {
         displayName,
         instructions,
         prompt,
+        allowedTools:
+          allowedToolsArray.length > 0 ? allowedToolsArray : undefined,
       },
     });
 

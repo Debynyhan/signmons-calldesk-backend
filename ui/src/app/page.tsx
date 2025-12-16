@@ -1,13 +1,15 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
 import {
   ApiError,
   TenantResponse,
   TriageResponse,
+  TenantAnalyticsSnapshot,
   createTenant,
   getApiBaseUrl,
+  getTenantAnalytics,
   sendTriage,
 } from "@/lib/api";
 
@@ -16,6 +18,14 @@ type ConversationEntry = {
   content: string;
   timestamp: string;
 };
+
+const availableTools = [
+  { id: "create_job", label: "Create job" },
+  { id: "request_more_info", label: "Request more info" },
+  { id: "mark_emergency", label: "Mark emergency" },
+  { id: "lookup_price_range", label: "Lookup price range" },
+  { id: "update_customer_profile", label: "Update customer profile" },
+];
 
 const defaultInstructions =
   "Greet callers with a warm \"Thanks for calling Demo HVAC, this is your dispatcher\" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.";
@@ -51,10 +61,19 @@ export default function Home() {
     displayName: "Demo HVAC Contractor",
     instructions: defaultInstructions,
     adminToken: "",
+    allowedTools: availableTools.map((tool) => tool.id),
   });
   const [tenantLoading, setTenantLoading] = useState(false);
   const [tenantError, setTenantError] = useState<string | null>(null);
   const [tenantResult, setTenantResult] = useState<TenantResponse | null>(null);
+  const [analyticsForm, setAnalyticsForm] = useState({
+    tenantId: "",
+    adminToken: "",
+  });
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [analyticsResult, setAnalyticsResult] =
+    useState<TenantAnalyticsSnapshot | null>(null);
 
   const [triageForm, setTriageForm] = useState({
     tenantId: "",
@@ -80,6 +99,45 @@ export default function Home() {
 
   const addConversationEntry = (entry: ConversationEntry) => {
     setConversation((prev) => [...prev, entry]);
+  };
+
+  const toggleAllowedTool = (toolId: string) => {
+    setTenantForm((prev) => {
+      const set = new Set(prev.allowedTools);
+      if (set.has(toolId)) {
+        set.delete(toolId);
+      } else {
+        set.add(toolId);
+      }
+      return {
+        ...prev,
+        allowedTools: Array.from(set),
+      };
+    });
+  };
+
+  useEffect(() => {
+    setAnalyticsForm((prev) =>
+      prev.adminToken
+        ? prev
+        : {
+            ...prev,
+            adminToken: tenantForm.adminToken,
+          },
+    );
+  }, [tenantForm.adminToken]);
+
+  const formatDuration = (ms: number) => {
+    if (!ms || ms <= 0) {
+      return "—";
+    }
+    const seconds = Math.round(ms / 1000);
+    if (seconds < 60) {
+      return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remaining = seconds % 60;
+    return remaining ? `${minutes}m ${remaining}s` : `${minutes}m`;
   };
 
   const handleTenantSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -108,6 +166,36 @@ export default function Home() {
       setTenantError(message);
     } finally {
       setTenantLoading(false);
+    }
+  };
+
+  const handleAnalyticsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!analyticsForm.tenantId.trim()) {
+      setAnalyticsError("Tenant ID is required.");
+      return;
+    }
+    if (!analyticsForm.adminToken.trim()) {
+      setAnalyticsError("Admin token is required.");
+      return;
+    }
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    setAnalyticsResult(null);
+    try {
+      const snapshot = await getTenantAnalytics(
+        analyticsForm.tenantId.trim(),
+        analyticsForm.adminToken,
+      );
+      setAnalyticsResult(snapshot);
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? `${error.status}: ${error.message}`
+          : "Unable to load analytics.";
+      setAnalyticsError(message);
+    } finally {
+      setAnalyticsLoading(false);
     }
   };
 
@@ -235,12 +323,32 @@ export default function Home() {
               />
             </label>
 
+            <div className={styles.toolGroup}>
+              <div className={styles.toolGroupHeader}>
+                <span>Enabled tools</span>
+                <p>Select which AI tools are available for this tenant.</p>
+              </div>
+              <div className={styles.toolList}>
+                {availableTools.map((tool) => (
+                  <label key={tool.id} className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={tenantForm.allowedTools.includes(tool.id)}
+                      onChange={() => toggleAllowedTool(tool.id)}
+                    />
+                    <span>{tool.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <label className={styles.label}>
               Admin token
               <input
                 className={styles.input}
                 name="adminToken"
                 type="password"
+                autoComplete="current-password"
                 value={tenantForm.adminToken}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
@@ -389,6 +497,117 @@ export default function Home() {
                 {JSON.stringify(lastJob, null, 2)}
               </pre>
             </div>
+          )}
+        </section>
+
+        <section className={styles.card}>
+          <header>
+            <h2>Tenant analytics</h2>
+            <p>
+              Inspect call volume, job conversions, and tool usage for a tenant.
+              Requires an admin token.
+            </p>
+          </header>
+
+          <form className={styles.form} onSubmit={handleAnalyticsSubmit}>
+            <label className={styles.label}>
+              Tenant ID
+              <input
+                className={styles.input}
+                name="analyticsTenantId"
+                value={analyticsForm.tenantId}
+                onChange={(event) =>
+                  setAnalyticsForm((prev) => ({
+                    ...prev,
+                    tenantId: event.target.value,
+                  }))
+                }
+                placeholder="Enter tenant ID"
+                required
+              />
+            </label>
+
+            <label className={styles.label}>
+              Admin token
+              <input
+                className={styles.input}
+                name="analyticsAdminToken"
+                type="password"
+                autoComplete="current-password"
+                value={analyticsForm.adminToken}
+                onChange={(event) =>
+                  setAnalyticsForm((prev) => ({
+                    ...prev,
+                    adminToken: event.target.value,
+                  }))
+                }
+                placeholder="Enter admin token"
+                required
+              />
+            </label>
+
+            <button
+              className={styles.button}
+              type="submit"
+              disabled={analyticsLoading}
+            >
+              {analyticsLoading ? "Loading…" : "Fetch analytics"}
+            </button>
+
+            {analyticsError && (
+              <p role="alert" className={styles.error}>
+                {analyticsError}
+              </p>
+            )}
+          </form>
+
+          {analyticsResult ? (
+            <div className={styles.analyticsPanel}>
+              <div className={styles.metricsGrid}>
+                <div className={styles.metricCard}>
+                  <span>Call volume</span>
+                  <strong>
+                    {analyticsResult.callCount.toLocaleString()}
+                  </strong>
+                </div>
+                <div className={styles.metricCard}>
+                  <span>Jobs created</span>
+                  <strong>
+                    {analyticsResult.jobsCreated.toLocaleString()}
+                  </strong>
+                </div>
+                <div className={styles.metricCard}>
+                  <span>Avg info collection</span>
+                  <strong>
+                    {formatDuration(
+                      analyticsResult.averageInfoCollectionMs,
+                    )}
+                  </strong>
+                </div>
+              </div>
+
+              <div className={styles.toolUsage}>
+                <h3>Tool usage</h3>
+                {Object.keys(analyticsResult.toolUsage ?? {}).length === 0 ? (
+                  <p className={styles.muted}>No tool activity recorded yet.</p>
+                ) : (
+                  <ul>
+                    {Object.entries(analyticsResult.toolUsage).map(
+                      ([tool, count]) => (
+                        <li key={tool}>
+                          <span>{tool}</span>
+                          <strong>{count}</strong>
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className={styles.muted}>
+              Fetch analytics to see live metrics for a tenant.
+            </p>
           )}
         </section>
       </main>
