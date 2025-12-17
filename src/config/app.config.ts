@@ -16,6 +16,7 @@ export interface AppConfig {
   databaseUrl: string;
   adminApiToken: string;
   corsOrigins: string[];
+  corsWildcardOrigins: string[];
 }
 
 const DEFAULT_DATABASE_URL =
@@ -27,7 +28,22 @@ export default registerAs("app", (): AppConfig => {
     process.env.FRONTEND_ORIGINS?.split(",")
       .map((origin) => origin.trim())
       .filter(Boolean) ?? [];
-  const corsOrigins = rawOrigins.length > 0 ? rawOrigins : DEFAULT_CORS_ORIGINS;
+  const effectiveOrigins =
+    rawOrigins.length > 0 ? rawOrigins : DEFAULT_CORS_ORIGINS;
+
+  const corsOrigins: string[] = [];
+  const corsWildcardOrigins: string[] = [];
+  for (const origin of effectiveOrigins) {
+    const normalized = origin.replace(/\/$/, "");
+    const wildcardMatch = normalized.match(
+      /^(https?:\/\/)?\*\.(?<domain>.+)$/i,
+    );
+    if (wildcardMatch?.groups?.domain) {
+      corsWildcardOrigins.push(wildcardMatch.groups.domain.toLowerCase());
+      continue;
+    }
+    corsOrigins.push(normalized);
+  }
 
   return {
     environment: (process.env.NODE_ENV as NodeEnvironment) ?? "development",
@@ -47,5 +63,6 @@ export default registerAs("app", (): AppConfig => {
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
     corsOrigins,
+    corsWildcardOrigins,
   };
 });

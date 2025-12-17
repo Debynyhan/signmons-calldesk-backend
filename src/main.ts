@@ -14,7 +14,47 @@ async function bootstrap() {
   const port = config?.port ?? Number(process.env.PORT ?? 3000);
   const loggingService = app.get(LoggingService);
   const corsOrigins = config?.corsOrigins ?? [];
+  const corsWildcardOrigins = config?.corsWildcardOrigins ?? [];
   const allowAllOrigins = corsOrigins.includes("*");
+  const normalizeOrigin = (value: string) => value.toLowerCase().replace(/\/$/, "");
+  const exactOriginSet = new Set(corsOrigins.map((origin) => normalizeOrigin(origin)));
+  const wildcardOriginSuffixes = corsWildcardOrigins.map((suffix) =>
+    suffix.toLowerCase(),
+  );
+
+  const parseOriginHost = (value?: string): string | null => {
+    if (!value) {
+      return null;
+    }
+    try {
+      return new URL(value).host.toLowerCase();
+    } catch {
+      const withoutProtocol = value.replace(/^https?:\/\//i, "");
+      if (!withoutProtocol) {
+        return null;
+      }
+      return withoutProtocol.toLowerCase();
+    }
+  };
+
+  const isOriginAllowed = (origin?: string): boolean => {
+    if (!origin) {
+      return allowAllOrigins;
+    }
+
+    if (allowAllOrigins || exactOriginSet.has(normalizeOrigin(origin))) {
+      return true;
+    }
+
+    const host = parseOriginHost(origin);
+    if (!host) {
+      return false;
+    }
+
+    return wildcardOriginSuffixes.some(
+      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+    );
+  };
   loggingService.log(
     `CORS origins: ${
       allowAllOrigins ? "*" : corsOrigins.join(", ") || "(none)"
@@ -23,7 +63,24 @@ async function bootstrap() {
   );
 
   app.enableCors({
-    origin: allowAllOrigins ? true : corsOrigins,
+    origin: allowAllOrigins
+      ? true
+      : (
+          requestOrigin: string | undefined,
+          callback: (err: Error | null, allow?: boolean) => void,
+        ) => {
+          if (!requestOrigin) {
+            callback(null, true);
+            return;
+          }
+
+          if (isOriginAllowed(requestOrigin)) {
+            callback(null, true);
+            return;
+          }
+
+          callback(new Error("Not allowed by CORS"), false);
+        },
     methods: ["POST", "OPTIONS", "GET"],
     allowedHeaders: ["Content-Type", "x-admin-token"],
     maxAge: 3600,
@@ -31,17 +88,18 @@ async function bootstrap() {
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin ?? undefined;
-    const isAllowed =
-      allowAllOrigins || (origin !== undefined && corsOrigins.includes(origin));
-
+    const isAllowed = isOriginAllowed(origin);
     if (!isAllowed) {
       next();
       return;
     }
 
-    const responseOrigin = origin ?? corsOrigins[0] ?? "*";
+    const responseOrigin =
+      origin ?? corsOrigins[0] ?? (allowAllOrigins ? "*" : undefined);
 
-    res.header("Access-Control-Allow-Origin", responseOrigin);
+    if (responseOrigin) {
+      res.header("Access-Control-Allow-Origin", responseOrigin);
+    }
     res.header("Access-Control-Allow-Headers", "Content-Type, x-admin-token");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Vary", "Origin");
