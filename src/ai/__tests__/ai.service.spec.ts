@@ -14,6 +14,7 @@ import { AiProviderService } from "../providers/ai-provider.service";
 import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
+import { SessionStateService } from "../session-state/session-state.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -22,7 +23,7 @@ jest.mock("fs", () => ({
 
 class ToolSelectorStub {
   getEnabledToolsForTenant = jest
-    .fn<(tenantId: string) => unknown[]>()
+    .fn<(tenantId: string, allowed?: string[]) => unknown[]>()
     .mockReturnValue([]);
 }
 
@@ -38,6 +39,7 @@ describe("AiService", () => {
   let jobsRepository: jest.Mocked<IJobRepository>;
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
+  let sessionStateService: SessionStateService;
   let service: AiService;
 
   beforeEach(() => {
@@ -67,6 +69,7 @@ describe("AiService", () => {
       displayName: "Demo Contractor",
       instructions: "Collect caller details and determine urgency.",
       prompt: "You are acting for Demo Contractor.",
+      allowedTools: [],
     });
     callLogService = {
       createLog: jest.fn(),
@@ -74,6 +77,15 @@ describe("AiService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
+    sessionStateService = {
+      getPromptState: jest.fn().mockReturnValue({
+        currentStep: "GREETING",
+        requiredFields: {},
+      }),
+      getState: jest.fn(),
+      updateState: jest.fn(),
+      resetState: jest.fn(),
+    } as unknown as SessionStateService;
 
     service = new AiService(
       aiProvider,
@@ -84,6 +96,7 @@ describe("AiService", () => {
       jobsRepository,
       tenantsService,
       callLogService,
+      sessionStateService,
     );
   });
 

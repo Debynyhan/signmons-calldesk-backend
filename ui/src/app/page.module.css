@@ -78,6 +78,46 @@
   resize: vertical;
 }
 
+.toolGroup {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.toolGroupHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toolGroupHeader span {
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.toolGroupHeader p {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.toolList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
 .hint {
   font-size: 0.85rem;
   color: #94a3b8;

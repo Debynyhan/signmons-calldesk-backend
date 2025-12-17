@@ -12,12 +12,28 @@ export class ToolSelectorService {
     private readonly config: ConfigType<typeof appConfig>,
   ) {}
 
-  getEnabledToolsForTenant(tenantId: string): ChatCompletionTool[] {
-    // tenantId is reserved for future tenant-specific tool policies
+  getEnabledToolsForTenant(
+    tenantId: string,
+    tenantAllowedTools?: string[],
+  ): ChatCompletionTool[] {
     void tenantId;
-    const enabled = new Set(this.config.enabledTools);
+    const globalEnabled = new Set(this.config.enabledTools);
+
+    let activeTools: Set<string>;
+    if (tenantAllowedTools?.length) {
+      const normalized = tenantAllowedTools
+        .map((tool) => tool.trim())
+        .filter((tool) => tool.length > 0);
+      const filtered = normalized.filter((tool) => globalEnabled.has(tool));
+      activeTools = filtered.length
+        ? new Set(filtered)
+        : new Set(globalEnabled);
+    } else {
+      activeTools = globalEnabled;
+    }
+
     return this.toolRegistry
       .getTools()
-      .filter((tool) => enabled.has(tool.function?.name ?? ""));
+      .filter((tool) => activeTools.has(tool.function?.name ?? ""));
   }
 }

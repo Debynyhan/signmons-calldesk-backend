@@ -17,27 +17,68 @@ type ConversationEntry = {
   timestamp: string;
 };
 
+const availableTools = [
+  { id: "create_job", label: "Create job" },
+  { id: "request_more_info", label: "Request more info" },
+  { id: "mark_emergency", label: "Flag emergency" },
+  { id: "lookup_price_range", label: "Lookup price range" },
+  { id: "update_customer_profile", label: "Update customer profile" },
+];
+
 const defaultInstructions =
-  "Greet callers with a warm \"Thanks for calling Demo HVAC, this is your dispatcher\" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.";
+  'Greet callers with a warm "Thanks for calling Demo HVAC, this is your dispatcher" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.';
 
-const formatAssistantResponse = (payload: TriageResponse): string => {
-  if (payload && typeof payload === "object" && "status" in payload) {
-    if (payload.status === "reply") {
-      return payload.reply ?? "";
-    }
+type ReplyResponse = Extract<TriageResponse, { status: "reply" }>;
+type JobCreatedResponse = Extract<TriageResponse, { status: "job_created" }>;
 
-    if (payload.status === "job_created") {
-      const job = payload.job;
-      return [
-        payload.message ?? "Job created successfully.",
-        job.customerName ? `Customer: ${job.customerName}` : null,
-        job.issueCategory ? `Category: ${job.issueCategory}` : null,
-        job.urgency ? `Urgency: ${job.urgency}` : null,
-        job.id ? `Job ID: ${job.id}` : null,
-      ]
-        .filter(Boolean)
-        .join(" • ");
-    }
+const isReplyResponse = (
+  payload: TriageResponse | null,
+): payload is ReplyResponse => {
+  if (payload === null) {
+    return false;
+  }
+  return (
+    typeof payload === "object" &&
+    "status" in payload &&
+    payload.status === "reply"
+  );
+};
+
+const isJobCreatedResponse = (
+  payload: TriageResponse | null,
+): payload is JobCreatedResponse => {
+  if (payload === null) {
+    return false;
+  }
+  return (
+    typeof payload === "object" &&
+    "status" in payload &&
+    payload.status === "job_created" &&
+    typeof payload.job === "object" &&
+    payload.job !== null
+  );
+};
+
+const formatAssistantResponse = (payload: TriageResponse | null): string => {
+  if (isReplyResponse(payload)) {
+    return payload.reply ?? "";
+  }
+
+  if (isJobCreatedResponse(payload)) {
+    const job = payload.job;
+    return [
+      payload.message ?? "Job created successfully.",
+      job.customerName ? `Customer: ${job.customerName}` : null,
+      job.issueCategory ? `Category: ${job.issueCategory}` : null,
+      job.urgency ? `Urgency: ${job.urgency}` : null,
+      job.id ? `Job ID: ${job.id}` : null,
+    ]
+      .filter(Boolean)
+      .join(" • ");
+  }
+
+  if (payload === null) {
+    return "";
   }
 
   return JSON.stringify(payload);
@@ -51,6 +92,7 @@ export default function Home() {
     displayName: "Demo HVAC Contractor",
     instructions: defaultInstructions,
     adminToken: "",
+    allowedTools: availableTools.map((tool) => tool.id),
   });
   const [tenantLoading, setTenantLoading] = useState(false);
   const [tenantError, setTenantError] = useState<string | null>(null);
@@ -67,12 +109,7 @@ export default function Home() {
   const [lastResponse, setLastResponse] = useState<TriageResponse | null>(null);
 
   const lastJob = useMemo(() => {
-    if (
-      lastResponse &&
-      typeof lastResponse === "object" &&
-      "status" in lastResponse &&
-      lastResponse.status === "job_created"
-    ) {
+    if (isJobCreatedResponse(lastResponse)) {
       return lastResponse.job;
     }
     return null;
@@ -80,6 +117,18 @@ export default function Home() {
 
   const addConversationEntry = (entry: ConversationEntry) => {
     setConversation((prev) => [...prev, entry]);
+  };
+
+  const toggleAllowedTool = (toolId: string) => {
+    setTenantForm((prev) => {
+      const next = new Set(prev.allowedTools);
+      if (next.has(toolId)) {
+        next.delete(toolId);
+      } else {
+        next.add(toolId);
+      }
+      return { ...prev, allowedTools: Array.from(next) };
+    });
   };
 
   const handleTenantSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -234,6 +283,25 @@ export default function Home() {
                 required
               />
             </label>
+
+            <div className={styles.toolGroup}>
+              <div className={styles.toolGroupHeader}>
+                <span>Enabled tools</span>
+                <p>Select which AI tools are available for this tenant.</p>
+              </div>
+              <div className={styles.toolList}>
+                {availableTools.map((tool) => (
+                  <label key={tool.id} className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={tenantForm.allowedTools.includes(tool.id)}
+                      onChange={() => toggleAllowedTool(tool.id)}
+                    />
+                    <span>{tool.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
             <label className={styles.label}>
               Admin token
