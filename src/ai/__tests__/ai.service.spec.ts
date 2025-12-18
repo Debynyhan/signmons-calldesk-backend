@@ -77,14 +77,30 @@ describe("AiService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
+    const baseState = {
+      step: "GREETING" as const,
+      category: null,
+      urgency: null,
+      fields: {},
+      fee_disclosed: false,
+      upsell_offered: false,
+      emergency_flagged: false,
+    };
     sessionStateService = {
       getPromptState: jest.fn().mockReturnValue({
-        currentStep: "GREETING",
-        requiredFields: {},
+        step: "GREETING",
+        fields: {},
+        fee_disclosed: false,
+        upsell_offered: false,
+        emergency_flagged: false,
       }),
       getState: jest.fn(),
       updateState: jest.fn(),
       resetState: jest.fn(),
+      setStep: jest.fn(),
+      updateFromUserMessage: jest.fn().mockReturnValue(baseState),
+      previewAssistantUpdate: jest.fn().mockReturnValue(baseState),
+      applyAssistantReply: jest.fn().mockReturnValue(baseState),
     } as unknown as SessionStateService;
 
     service = new AiService(

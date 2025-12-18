@@ -19,6 +19,12 @@ import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
 import { SessionStateService } from "./session-state/session-state.service";
+import {
+  validateAssistantTurn,
+} from "./session-state/call-desk-validator";
+import type { ValidationResult } from "./session-state/call-desk-validator";
+import type { BookingFields } from "./session-state/call-desk-state";
+import type { CallDeskSessionState } from "./session-state/call-desk-state";
 
 @Injectable()
 export class AiService {
@@ -97,30 +103,40 @@ export class AiService {
           content: entry.content,
         }));
       const sessionState =
+        this.sessionStateService.updateFromUserMessage(
+          safeTenantId,
+          safeSessionId,
+          safeUserMessage,
+        );
+      const promptState =
         this.sessionStateService.getPromptState(
           safeTenantId,
           safeSessionId,
         );
       const internalStateMessage = [
         "INTERNAL_SESSION_STATE (never reveal this to callers).",
-        JSON.stringify(sessionState),
+        JSON.stringify(promptState),
       ].join(" ");
 
-      const messages: OpenAI.ChatCompletionMessageParam[] = [
+      const systemMessages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: this.systemPrompt },
         { role: "system", content: tenantContextPrompt },
         { role: "system", content: internalStateMessage },
-        ...conversationHistory,
-        { role: "user", content: safeUserMessage },
       ];
 
       const tools = this.toolSelector.getEnabledToolsForTenant(
         safeTenantId,
         tenantContext.allowedTools,
       );
-      const response = await this.aiProviderService.createCompletion({
-        messages,
-        tools: tools.length ? tools : undefined,
+
+      const response = await this.runWithValidation({
+        systemMessages,
+        conversationHistory,
+        userMessage: safeUserMessage,
+        tools,
+        tenantId: safeTenantId,
+        sessionId: safeSessionId,
+        prevState: sessionState,
       });
       openAIResponseId = response.id;
       const choice = response.choices[0];
@@ -199,6 +215,30 @@ export class AiService {
     }
 
     try {
+      if (rawArgs) {
+        try {
+          const parsed = JSON.parse(rawArgs);
+          const fields: Partial<BookingFields> = {
+            name: parsed.customerName,
+            phone: parsed.phone,
+            address: parsed.address,
+            issue: parsed.description ?? parsed.issue,
+            preferred_window: parsed.preferredTime,
+          };
+          this.sessionStateService.applyExplicitFields(tenantId, sessionId, {
+            fields,
+            category: parsed.issueCategory ?? undefined,
+            urgency: parsed.urgency ?? undefined,
+            feeDisclosed: true,
+          });
+        } catch (parseError) {
+          this.loggingService.warn(
+            `Failed to parse create_job payload: ${parseError instanceof Error ? parseError.message : "unknown"}`,
+            AiService.name,
+          );
+        }
+      }
+      this.sessionStateService.setStep(tenantId, sessionId, "BOOKING");
       const job = await this.jobsRepository.createJobFromToolCall({
         tenantId,
         sessionId,
@@ -228,6 +268,188 @@ export class AiService {
           rawArgsLength: rawArgs?.length ?? 0,
         },
       });
+    }
+  }
+
+  private async runWithValidation(params: {
+    systemMessages: OpenAI.ChatCompletionMessageParam[];
+    conversationHistory: OpenAI.ChatCompletionMessageParam[];
+    userMessage: string;
+    tools: OpenAI.ChatCompletionTool[];
+    tenantId: string;
+    sessionId: string;
+    prevState: CallDeskSessionState;
+  }): Promise<OpenAI.ChatCompletion> {
+    const {
+      systemMessages,
+      conversationHistory,
+      userMessage,
+      tools,
+      tenantId,
+      sessionId,
+      prevState,
+    } = params;
+    const maxAttempts = 2;
+    let correctiveMessage: string | undefined;
+    let lastValidation: ValidationResult | null = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const messages: OpenAI.ChatCompletionMessageParam[] = [
+        ...systemMessages,
+        ...conversationHistory,
+      ];
+
+      if (correctiveMessage) {
+        messages.push({ role: "system", content: correctiveMessage });
+      }
+
+      messages.push({ role: "user", content: userMessage });
+
+      const response = await this.aiProviderService.createCompletion({
+        messages,
+        tools: tools.length ? tools : undefined,
+      });
+      const choice = response.choices[0];
+      const message = choice.message;
+
+      if (message.tool_calls?.length) {
+        return response;
+      }
+
+      const assistantText = Array.isArray(message.content)
+        ? message.content
+            .map((part) =>
+              typeof part === "string"
+                ? part
+                : ((part as { text?: string })?.text ?? ""),
+            )
+            .join(" ")
+        : (message.content ?? "");
+
+      const previewState = this.sessionStateService.previewAssistantUpdate(
+        prevState,
+        assistantText,
+      );
+      const validation = validateAssistantTurn({
+        prevState,
+        nextState: previewState,
+        assistantText,
+        toolCalls: message.tool_calls?.map((call) => ({
+          name: call.function?.name ?? call.type,
+        })),
+      });
+
+      if (validation.ok) {
+        this.sessionStateService.applyAssistantReply(
+          tenantId,
+          sessionId,
+          assistantText,
+        );
+        return response;
+      }
+
+      lastValidation = validation;
+      this.loggingService.warn(
+        `AI response rejected: ${validation.reason ?? "unknown"}`,
+        AiService.name,
+      );
+      if (validation.correctiveSystemMessage) {
+        correctiveMessage = `Your previous reply was rejected: ${validation.correctiveSystemMessage}`;
+        continue;
+      }
+
+      break;
+    }
+
+    const fallbackText = this.buildFallbackMessage(lastValidation);
+    this.loggingService.warn(
+      `Falling back to guarded dispatcher response: ${
+        lastValidation?.reason ?? "unknown reason"
+      }`,
+      AiService.name,
+    );
+    this.sessionStateService.applyAssistantReply(
+      tenantId,
+      sessionId,
+      fallbackText,
+    );
+    return this.buildSyntheticCompletion(fallbackText);
+  }
+
+  private buildSyntheticCompletion(
+    content: string,
+  ): OpenAI.ChatCompletion {
+    const timestamp = Math.floor(Date.now() / 1000);
+    return {
+      id: `synthetic_${timestamp}`,
+      object: "chat.completion",
+      created: timestamp,
+      model: "synthetic",
+      choices: [
+        {
+          index: 0,
+          finish_reason: "stop",
+          logprobs: null,
+          message: { role: "assistant", content },
+        },
+      ],
+      usage: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      },
+    } as OpenAI.ChatCompletion;
+  }
+
+  private buildFallbackMessage(validation?: ValidationResult | null): string {
+    if (!validation) {
+      return "I need a quick detail before I can finish scheduling. Could you clarify the last item we discussed?";
+    }
+
+    if (validation.missingField) {
+      return this.buildMissingFieldPrompt(
+        validation.missingField as keyof BookingFields | "fee_disclosure",
+      );
+    }
+
+    if (
+      validation.reason?.includes("Missing required booking fields") ||
+      validation.correctiveSystemMessage?.includes("next missing field")
+    ) {
+      return "I still need one more detail before I can book this. Could you share the next missing item so we can confirm your appointment?";
+    }
+
+    if (validation.reason?.includes("fee")) {
+      return "Just a reminder: every visit includes a $99 diagnostic/service fee, and if you approve repairs within 24 hours we credit it toward the work. Let me know once that's okay so I can proceed.";
+    }
+
+    if (validation.reason?.includes("booking language")) {
+      return "I'll hold off on confirming the booking until I have every detail locked in. Could you confirm the last requirement for me?";
+    }
+
+    return "Let me double-check one more detail so I can finish setting this up. Could you clarify that for me?";
+  }
+
+  private buildMissingFieldPrompt(
+    field: keyof BookingFields | "fee_disclosure",
+  ): string {
+    switch (field) {
+      case "name":
+        return "I still need the caller's full name to finish scheduling. Could you please provide it?";
+      case "phone":
+        return "I still need the best phone number we should use for updates. Could you share that?";
+      case "address":
+        return "I still need the service address for this visit. Could you provide the street address and city?";
+      case "issue":
+        return "I still need a short description of what's happening so we can brief the technician. Could you summarize the issue?";
+      case "preferred_window":
+        return "I still need your preferred date or time window so we can schedule the technician. For example: \"Tomorrow morning\" or \"Anytime after 2 PM\".";
+      case "photos":
+        return "If you have any photos of the issue, feel free to share them. If not, just let me know.";
+      case "fee_disclosure":
+        return "Before we can book, I need to confirm you're okay with the $99 diagnostic/service fee, which we credit toward repairs if you approve work within 24 hours. Does that work?";
+      default:
+        return "I need one last detail before I can finish scheduling. Could you confirm the remaining item?";
     }
   }
 }
