@@ -1,5 +1,9 @@
 import type { CallDeskSessionState, BookingFields } from "./call-desk-state";
-import { canTransition, missingFields } from "./call-desk-state";
+import {
+  canTransition,
+  missingFields,
+  missingInfoFields,
+} from "./call-desk-state";
 
 export interface ToolCallPayload {
   name: string;
@@ -11,7 +15,7 @@ export interface ValidationResult {
   reason?: string;
   correctiveSystemMessage?: string;
   suggestedStep?: CallDeskSessionState["step"];
-  missingField?: keyof BookingFields | "fee_disclosure";
+  missingField?: keyof BookingFields | "fee_disclosure" | "fee_confirmation";
 }
 
 const FORBIDDEN_LEAK_PATTERNS = [
@@ -65,6 +69,28 @@ function hasToolCall(
   return (toolCalls ?? []).some((call) => call.name === name);
 }
 
+function mentionsField(
+  field: keyof BookingFields,
+  text: string,
+): boolean {
+  switch (field) {
+    case "name":
+      return /\b(name|full name)\b/i.test(text);
+    case "phone":
+      return /\b(phone|number|reach|call)\b/i.test(text);
+    case "address":
+      return /\b(address|street|city|zip|zip code)\b/i.test(text);
+    case "issue":
+      return /\b(issue|problem|happening|going on|describe)\b/i.test(text);
+    case "photos":
+      return /\b(photo|picture|image)\b/i.test(text);
+    case "preferred_window":
+      return /\b(time|date|window|availability|schedule|when|soon)\b/i.test(text);
+    default:
+      return false;
+  }
+}
+
 export function validateAssistantTurn(params: {
   prevState: CallDeskSessionState;
   nextState: CallDeskSessionState;
@@ -84,7 +110,8 @@ export function validateAssistantTurn(params: {
     };
   }
 
-  if (countQuestions(text) > 1) {
+  const questionCount = countQuestions(text);
+  if (questionCount > 1) {
     return {
       ok: false,
       reason: "Too many questions",
@@ -127,7 +154,67 @@ export function validateAssistantTurn(params: {
   }
 
   const missing = missingFields(nextState);
+  const missingInfo = missingInfoFields(nextState);
   const hasCreateJob = hasToolCall(toolCalls, "create_job");
+
+  if (nextState.step === "INFO_COLLECTION" && missingInfo.length > 0) {
+    const nextField = missingInfo[0];
+    if (!mentionsField(nextField, text)) {
+      return {
+        ok: false,
+        reason: "Missing field not requested",
+        correctiveSystemMessage: `Ask for the next missing field only: ${nextField}. Keep it to one question.`,
+        suggestedStep: "INFO_COLLECTION",
+        missingField: nextField,
+      };
+    }
+  }
+
+  if (
+    questionCount === 0 &&
+    nextState.step !== "CLOSEOUT" &&
+    nextState.step !== "BOOKING"
+  ) {
+    if (missingInfo.length > 0) {
+      return {
+        ok: false,
+        reason: "No question asked for missing field",
+        correctiveSystemMessage: `Ask for the next missing field only: ${missingInfo[0]}.`,
+        suggestedStep: "INFO_COLLECTION",
+        missingField: missingInfo[0],
+      };
+    }
+
+    if (!nextState.fee_disclosed) {
+      return {
+        ok: false,
+        reason: "No question asked to confirm fee",
+        correctiveSystemMessage:
+          "Confirm the $99 diagnostic/service fee and ask if the caller agrees so you can proceed.",
+        suggestedStep: "PRICING",
+        missingField: "fee_disclosure",
+      };
+    }
+
+    if (!nextState.fee_confirmed) {
+      return {
+        ok: false,
+        reason: "No question asked to confirm fee",
+        correctiveSystemMessage:
+          "Ask the caller to confirm they agree to the $99 diagnostic/service fee so you can proceed.",
+        suggestedStep: "PRICING",
+        missingField: "fee_confirmation",
+      };
+    }
+
+    return {
+      ok: false,
+      reason: "No question asked to move forward",
+      correctiveSystemMessage:
+        "Ask a single clear question to move to the next step. Do not add extra information.",
+      suggestedStep: prevState.step,
+    };
+  }
 
   if (nextState.step === "BOOKING") {
     if (missing.length > 0) {
@@ -140,14 +227,14 @@ export function validateAssistantTurn(params: {
       };
     }
 
-    if (!nextState.fee_disclosed) {
+    if (!nextState.fee_confirmed) {
       return {
         ok: false,
-        reason: "Fee not disclosed before booking",
+        reason: "Fee not confirmed before booking",
         correctiveSystemMessage:
-          "Before booking, disclose the $99 diagnostic/service fee and that it is credited toward repairs if approved within 24 hours.",
+          "Before booking, confirm the caller agrees to the $99 diagnostic/service fee (credited toward repairs if approved within 24 hours).",
         suggestedStep: "PRICING",
-        missingField: "fee_disclosure",
+        missingField: "fee_confirmation",
       };
     }
 

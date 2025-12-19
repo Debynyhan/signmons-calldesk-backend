@@ -15,6 +15,7 @@ import { TenantsModule } from "../tenants/tenants.module";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
 import { SessionStateService } from "./session-state/session-state.service";
+import { FieldExtractionService } from "./field-extraction.service";
 
 @Module({
   imports: [JobsModule, TenantsModule],
@@ -43,6 +44,7 @@ import { SessionStateService } from "./session-state/session-state.service";
     },
     ToolSelectorService,
     SessionStateService,
+    FieldExtractionService,
     AiErrorHandler,
     AiService,
   ],

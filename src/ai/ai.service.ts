@@ -19,6 +19,7 @@ import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
 import { SessionStateService } from "./session-state/session-state.service";
+import { FieldExtractionService } from "./field-extraction.service";
 import {
   validateAssistantTurn,
 } from "./session-state/call-desk-validator";
@@ -40,6 +41,7 @@ export class AiService {
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
     private readonly sessionStateService: SessionStateService,
+    private readonly fieldExtractionService: FieldExtractionService,
   ) {
     try {
       const promptPath = join(
@@ -89,6 +91,24 @@ export class AiService {
         throw new BadRequestException("Message must contain text.");
       }
 
+      const extractedFields =
+        await this.fieldExtractionService.extractFields(safeUserMessage);
+      if (
+        Object.keys(extractedFields.fields).length > 0 ||
+        extractedFields.category ||
+        extractedFields.urgency
+      ) {
+        this.sessionStateService.applyExplicitFields(
+          safeTenantId,
+          safeSessionId,
+          {
+            fields: extractedFields.fields,
+            category: extractedFields.category,
+            urgency: extractedFields.urgency,
+          },
+        );
+      }
+
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);
       const tenantContextPrompt = tenantContext.prompt;
@@ -113,6 +133,12 @@ export class AiService {
           safeTenantId,
           safeSessionId,
         );
+      this.loggingService.log(
+        `Missing fields after user message: ${JSON.stringify(
+          promptState.missing_fields ?? [],
+        )}`,
+        AiService.name,
+      );
       const internalStateMessage = [
         "INTERNAL_SESSION_STATE (never reveal this to callers).",
         JSON.stringify(promptState),
@@ -230,6 +256,7 @@ export class AiService {
             category: parsed.issueCategory ?? undefined,
             urgency: parsed.urgency ?? undefined,
             feeDisclosed: true,
+            feeConfirmed: true,
           });
         } catch (parseError) {
           this.loggingService.warn(
@@ -308,6 +335,7 @@ export class AiService {
       const response = await this.aiProviderService.createCompletion({
         messages,
         tools: tools.length ? tools : undefined,
+        toolChoice: this.selectToolChoice(prevState, tools),
       });
       const choice = response.choices[0];
       const message = choice.message;
@@ -325,15 +353,21 @@ export class AiService {
             )
             .join(" ")
         : (message.content ?? "");
+      const sanitized = this.sanitizeAssistantReply(assistantText);
+      const prefixed = this.maybePrependNameAcknowledgement(
+        prevState,
+        sanitized,
+      );
+      const finalText = prefixed.text;
 
       const previewState = this.sessionStateService.previewAssistantUpdate(
         prevState,
-        assistantText,
+        finalText,
       );
       const validation = validateAssistantTurn({
         prevState,
         nextState: previewState,
-        assistantText,
+        assistantText: finalText,
         toolCalls: message.tool_calls?.map((call) => ({
           name: call.function?.name ?? call.type,
         })),
@@ -343,8 +377,16 @@ export class AiService {
         this.sessionStateService.applyAssistantReply(
           tenantId,
           sessionId,
-          assistantText,
+          finalText,
         );
+        if (prefixed.acknowledged) {
+          this.sessionStateService.updateState(tenantId, sessionId, {
+            name_acknowledged: true,
+          });
+        }
+        if (finalText !== assistantText) {
+          message.content = finalText;
+        }
         return response;
       }
 
@@ -362,6 +404,10 @@ export class AiService {
     }
 
     const fallbackText = this.buildFallbackMessage(lastValidation);
+    const prefixedFallback = this.maybePrependNameAcknowledgement(
+      prevState,
+      fallbackText,
+    );
     this.loggingService.warn(
       `Falling back to guarded dispatcher response: ${
         lastValidation?.reason ?? "unknown reason"
@@ -371,9 +417,14 @@ export class AiService {
     this.sessionStateService.applyAssistantReply(
       tenantId,
       sessionId,
-      fallbackText,
+      prefixedFallback.text,
     );
-    return this.buildSyntheticCompletion(fallbackText);
+    if (prefixedFallback.acknowledged) {
+      this.sessionStateService.updateState(tenantId, sessionId, {
+        name_acknowledged: true,
+      });
+    }
+    return this.buildSyntheticCompletion(prefixedFallback.text);
   }
 
   private buildSyntheticCompletion(
@@ -408,7 +459,10 @@ export class AiService {
 
     if (validation.missingField) {
       return this.buildMissingFieldPrompt(
-        validation.missingField as keyof BookingFields | "fee_disclosure",
+        validation.missingField as
+          | keyof BookingFields
+          | "fee_disclosure"
+          | "fee_confirmation",
       );
     }
 
@@ -431,7 +485,7 @@ export class AiService {
   }
 
   private buildMissingFieldPrompt(
-    field: keyof BookingFields | "fee_disclosure",
+    field: keyof BookingFields | "fee_disclosure" | "fee_confirmation",
   ): string {
     switch (field) {
       case "name":
@@ -448,8 +502,84 @@ export class AiService {
         return "If you have any photos of the issue, feel free to share them. If not, just let me know.";
       case "fee_disclosure":
         return "Before we can book, I need to confirm you're okay with the $99 diagnostic/service fee, which we credit toward repairs if you approve work within 24 hours. Does that work?";
+      case "fee_confirmation":
+        return "Before we schedule, please confirm you agree to the $99 diagnostic/service fee (credited toward repairs if approved within 24 hours). Is that okay?";
       default:
         return "I need one last detail before I can finish scheduling. Could you confirm the remaining item?";
     }
+  }
+
+  private selectToolChoice(
+    state: CallDeskSessionState,
+    tools: OpenAI.ChatCompletionTool[],
+  ): OpenAI.Chat.Completions.ChatCompletionToolChoiceOption | undefined {
+    if (state.step !== "BOOKING") {
+      return undefined;
+    }
+
+    const hasCreateJob = tools.some(
+      (tool) => tool.type === "function" && tool.function?.name === "create_job",
+    );
+    if (!hasCreateJob) {
+      return undefined;
+    }
+
+    return {
+      type: "function",
+      function: { name: "create_job" },
+    };
+  }
+
+  private maybePrependNameAcknowledgement(
+    state: CallDeskSessionState,
+    text: string,
+  ): { text: string; acknowledged: boolean } {
+    if (state.name_acknowledged || !state.fields.name) {
+      return { text, acknowledged: false };
+    }
+
+    const firstName = state.fields.name.trim().split(/\s+/)[0];
+    if (!firstName) {
+      return { text, acknowledged: false };
+    }
+
+    const namePattern = new RegExp(`\\b${firstName}\\b`, "i");
+    if (namePattern.test(text)) {
+      return { text, acknowledged: true };
+    }
+
+    const updated = text.replace(
+      /^(thanks|thank you)\b/i,
+      `$1, ${firstName}`,
+    );
+    if (updated !== text) {
+      return { text: updated, acknowledged: true };
+    }
+
+    return { text: `Thanks, ${firstName}, ${text}`, acknowledged: true };
+  }
+
+  private sanitizeAssistantReply(text: string): string {
+    const trimmed = text.trim().replace(/\s+/g, " ");
+    if (!trimmed) {
+      return trimmed;
+    }
+
+    const sentences = trimmed
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => sentence.trim().length > 0);
+    const limitedSentences = sentences.slice(0, 2);
+    let sanitized = limitedSentences.join(" ");
+
+    const questionMatches = sanitized.match(/\?/g);
+    if (questionMatches && questionMatches.length > 1) {
+      let seen = 0;
+      sanitized = sanitized.replace(/\?/g, (match) => {
+        seen += 1;
+        return seen === 1 ? match : ".";
+      });
+    }
+
+    return sanitized.trim();
   }
 }

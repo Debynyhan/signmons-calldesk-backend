@@ -1,16 +1,19 @@
 import { Injectable } from "@nestjs/common";
+import { LoggingService } from "../../logging/logging.service";
 import type {
   CallDeskSessionState,
   CallDeskStep,
   BookingFields,
 } from "./call-desk-state";
-import { missingFields } from "./call-desk-state";
+import { missingFields, missingInfoFields } from "./call-desk-state";
 import {
   detectCategory,
   detectUrgency,
   extractBookingFields,
   detectFeeDisclosure,
+  detectFeeConfirmation,
   detectUpsellOffer,
+  mergeBookingFields,
 } from "./state-helpers";
 
 type PartialStateUpdate = Partial<
@@ -20,6 +23,8 @@ type PartialStateUpdate = Partial<
 @Injectable()
 export class SessionStateService {
   private readonly sessionStore = new Map<string, CallDeskSessionState>();
+
+  constructor(private readonly loggingService: LoggingService) {}
 
   getState(tenantId: string, sessionId: string): CallDeskSessionState {
     const key = this.composeKey(tenantId, sessionId);
@@ -67,9 +72,12 @@ export class SessionStateService {
       category: state.category ?? null,
       urgency: state.urgency ?? null,
       fee_disclosed: state.fee_disclosed,
+      fee_confirmed: state.fee_confirmed,
       upsell_offered: state.upsell_offered,
       emergency_flagged: state.emergency_flagged,
+      name_acknowledged: state.name_acknowledged,
       fields: state.fields,
+      missing_fields: missingInfoFields(state),
     };
   }
 
@@ -124,24 +132,26 @@ export class SessionStateService {
       category?: CallDeskSessionState["category"];
       urgency?: CallDeskSessionState["urgency"];
       feeDisclosed?: boolean;
+      feeConfirmed?: boolean;
       upsellOffered?: boolean;
       emergencyFlagged?: boolean;
     },
   ): CallDeskSessionState {
     const key = this.composeKey(tenantId, sessionId);
     const current = this.sessionStore.get(key) ?? this.createInitialState();
+    const mergedFields = payload.fields
+      ? mergeBookingFields(current.fields, payload.fields)
+      : current.fields;
     const next: CallDeskSessionState = {
       ...current,
       category: payload.category ?? current.category,
       urgency: payload.urgency ?? current.urgency,
       fee_disclosed: payload.feeDisclosed ?? current.fee_disclosed,
+      fee_confirmed: payload.feeConfirmed ?? current.fee_confirmed,
       upsell_offered: payload.upsellOffered ?? current.upsell_offered,
       emergency_flagged:
         payload.emergencyFlagged ?? current.emergency_flagged,
-      fields: {
-        ...current.fields,
-        ...(payload.fields ?? {}),
-      },
+      fields: mergedFields,
     };
     this.sessionStore.set(key, next);
     return this.cloneState(next);
@@ -157,8 +167,10 @@ export class SessionStateService {
       category: null,
       urgency: null,
       fee_disclosed: false,
+      fee_confirmed: false,
       upsell_offered: false,
       emergency_flagged: false,
+      name_acknowledged: false,
       fields: {
         name: undefined,
         phone: undefined,
@@ -181,16 +193,29 @@ export class SessionStateService {
     state: CallDeskSessionState,
     message: string,
   ): CallDeskSessionState {
-    const fieldsUpdate = extractBookingFields(message, state.fields);
-    const category = detectCategory(message);
-    const urgency = detectUrgency(message);
+    const extracted = extractBookingFields(message);
+    const mergedFields = mergeBookingFields(state.fields, extracted);
+    const categoryFromIssue = mergedFields.issue
+      ? detectCategory(mergedFields.issue)
+      : null;
+    const category = state.category ?? categoryFromIssue ?? detectCategory(message);
+    const urgency = state.urgency ?? detectUrgency(message);
     const isEmergency = urgency === "EMERGENCY";
+    const feeConfirmed =
+      state.fee_disclosed && detectFeeConfirmation(message);
+    if (feeConfirmed && !state.fee_confirmed) {
+      this.loggingService.log(
+        "Fee confirmed by caller.",
+        SessionStateService.name,
+      );
+    }
     const updated: CallDeskSessionState = {
       ...state,
-      fields: { ...state.fields, ...fieldsUpdate },
-      category: state.category ?? category ?? null,
-      urgency: state.urgency ?? urgency ?? null,
+      fields: mergedFields,
+      category: category ?? null,
+      urgency: urgency ?? null,
       emergency_flagged: state.emergency_flagged || isEmergency,
+      fee_confirmed: state.fee_confirmed || feeConfirmed,
     };
     return this.advanceStep(updated);
   }
@@ -236,11 +261,11 @@ export class SessionStateService {
           ? "PRICING"
           : "INFO_COLLECTION";
       case "PRICING":
-        return state.fee_disclosed ? "UPSELL" : "PRICING";
+        return state.fee_confirmed ? "UPSELL" : "PRICING";
       case "UPSELL":
-        return state.upsell_offered ? "BOOKING" : "UPSELL";
+        return missingFields(state).length === 0 ? "BOOKING" : "UPSELL";
       case "BOOKING":
-        return state.fee_disclosed ? "CLOSEOUT" : "BOOKING";
+        return "BOOKING";
       case "CLOSEOUT":
         return "CLOSEOUT";
       default:

@@ -15,6 +15,7 @@ import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
 import { SessionStateService } from "../session-state/session-state.service";
+import { FieldExtractionService } from "../field-extraction.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -40,6 +41,7 @@ describe("AiService", () => {
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
   let sessionStateService: SessionStateService;
+  let fieldExtractionService: jest.Mocked<FieldExtractionService>;
   let service: AiService;
 
   beforeEach(() => {
@@ -83,16 +85,20 @@ describe("AiService", () => {
       urgency: null,
       fields: {},
       fee_disclosed: false,
+      fee_confirmed: false,
       upsell_offered: false,
       emergency_flagged: false,
+      name_acknowledged: false,
     };
     sessionStateService = {
       getPromptState: jest.fn().mockReturnValue({
         step: "GREETING",
         fields: {},
         fee_disclosed: false,
+        fee_confirmed: false,
         upsell_offered: false,
         emergency_flagged: false,
+        name_acknowledged: false,
       }),
       getState: jest.fn(),
       updateState: jest.fn(),
@@ -102,6 +108,9 @@ describe("AiService", () => {
       previewAssistantUpdate: jest.fn().mockReturnValue(baseState),
       applyAssistantReply: jest.fn().mockReturnValue(baseState),
     } as unknown as SessionStateService;
+    fieldExtractionService = {
+      extractFields: jest.fn().mockResolvedValue({ fields: {} }),
+    } as unknown as jest.Mocked<FieldExtractionService>;
 
     service = new AiService(
       aiProvider,
@@ -113,6 +122,7 @@ describe("AiService", () => {
       tenantsService,
       callLogService,
       sessionStateService,
+      fieldExtractionService,
     );
   });
 
