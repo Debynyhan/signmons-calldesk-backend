@@ -284,7 +284,7 @@ export class AiService {
       return {
         status: "job_created",
         job,
-        message: "Job created successfully.",
+        message: this.buildCloseoutMessage(job),
       };
     } catch (error) {
       this.errorHandler.handle(error, {
@@ -581,5 +581,24 @@ export class AiService {
     }
 
     return sanitized.trim();
+  }
+
+  private buildCloseoutMessage(job: {
+    customerName?: string | null;
+    issueCategory?: string | null;
+    preferredTime?: string | null;
+  }): string {
+    const firstName =
+      job.customerName?.trim().split(/\s+/)[0] ?? "there";
+    const categoryRaw = job.issueCategory ?? "service";
+    const categoryLabel = categoryRaw
+      .toString()
+      .replace(/_/g, " ")
+      .toLowerCase();
+    const preferredTime = job.preferredTime?.trim();
+    const windowPhrase = preferredTime
+      ? `and targeting ${preferredTime}`
+      : "and we'll confirm the next available window";
+    return `Thanks, ${firstName} - we're dispatching a technician for your ${categoryLabel} issue ${windowPhrase}. We'll call or text shortly to confirm the window, and the $99 diagnostic fee is credited toward repairs if approved within 24 hours.`;
   }
 }
