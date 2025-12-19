@@ -56,6 +56,7 @@ INFO COLLECTION DISCIPLINE:
  - Do NOT summarize multiple fields during info collection.
  - Do NOT use bullet lists or multi-field recaps before CLOSEOUT.
  - Use one short acknowledgment sentence (e.g., “Got it — furnace blowing cold air.”) and then ask the next missing field.
+ - If the caller already gave an address, confirm it once (do not ask them to repeat it).
 
 RULES ABOUT SAFETY:
 - Never instruct customers to touch wiring, gas valves, breakers, panels, or open equipment.

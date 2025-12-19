@@ -3,12 +3,16 @@ export interface TenantContext {
   displayName: string;
   instructions: string;
   prompt: string;
+  emergencySurchargeEnabled?: boolean;
+  emergencySurchargeAmount?: number;
 }
 
 export interface CreateTenantInput {
   name: string;
   displayName: string;
   instructions: string;
+  emergencySurchargeEnabled?: boolean;
+  emergencySurchargeAmount?: number;
 }
 
 export interface TenantsService {

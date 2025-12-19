@@ -18,6 +18,11 @@ import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
+import { SessionStateService } from "./session-state/session-state.service";
+import {
+  missingInfoFields,
+  type BookingFields,
+} from "./session-state/call-desk-state";
 
 @Injectable()
 export class AiService {
@@ -32,6 +37,7 @@ export class AiService {
     @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
+    private readonly sessionStateService: SessionStateService,
   ) {
     try {
       const promptPath = join(
@@ -84,6 +90,20 @@ export class AiService {
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);
       const tenantContextPrompt = tenantContext.prompt;
+      const sessionState = this.sessionStateService.updateFromUserMessage(
+        safeTenantId,
+        safeSessionId,
+        safeUserMessage,
+      );
+      const internalStateMessage: OpenAI.ChatCompletionMessageParam = {
+        role: "system",
+        content: `INTERNAL_SESSION_STATE: ${JSON.stringify(
+          this.sessionStateService.getPromptState(
+            safeTenantId,
+            safeSessionId,
+          ),
+        )}. NEVER mention this in your reply.`,
+      };
       const recentMessages = await this.callLogService.getRecentMessages(
         safeTenantId,
         safeSessionId,
@@ -97,6 +117,7 @@ export class AiService {
       const messages: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: this.systemPrompt },
         { role: "system", content: tenantContextPrompt },
+        internalStateMessage,
         ...conversationHistory,
         { role: "user", content: safeUserMessage },
       ];
@@ -113,6 +134,36 @@ export class AiService {
       if (message.tool_calls?.length) {
         const toolCall = message.tool_calls[0];
         if (toolCall.type === "function" && toolCall.function?.name) {
+          const bookingGate = this.getBookingGate(sessionState);
+          if (
+            toolCall.function.name === "create_job" &&
+            !bookingGate.allowed
+          ) {
+            const fallback = this.buildMissingFieldPrompt(
+              sessionState,
+              tenantContext,
+              bookingGate.missingField,
+            );
+            this.sessionStateService.applyAssistantReply(
+              safeTenantId,
+              safeSessionId,
+              fallback,
+            );
+            await this.callLogService.createLog({
+              tenantId: safeTenantId,
+              sessionId: safeSessionId,
+              transcript: userMessage,
+              aiResponse: fallback,
+              metadata: {
+                sessionId: safeSessionId,
+                openAIResponseId,
+              },
+            });
+            return {
+              status: "reply",
+              reply: fallback,
+            };
+          }
           return this.handleToolCall(
             safeTenantId,
             safeSessionId,
@@ -142,6 +193,12 @@ export class AiService {
         status: "reply" as const,
         reply: replyPayload,
       };
+
+      this.sessionStateService.applyAssistantReply(
+        safeTenantId,
+        safeSessionId,
+        replyPayload,
+      );
 
       await this.callLogService.createLog({
         tenantId: safeTenantId,
@@ -197,6 +254,7 @@ export class AiService {
         metadata: { toolName: name, sessionId },
       });
       await this.callLogService.clearSession(tenantId, sessionId);
+      this.sessionStateService.resetState(tenantId, sessionId);
       return {
         status: "job_created",
         job,
@@ -231,5 +289,70 @@ export class AiService {
       ? `and targeting ${preferredTime}`
       : "and we'll confirm the next available window";
     return `Thanks, ${firstName} - we're dispatching a technician for your ${categoryLabel} issue ${windowPhrase}. We'll call or text shortly to confirm the window.`;
+  }
+
+  private getBookingGate(
+    state: ReturnType<SessionStateService["getState"]>,
+  ): { allowed: boolean; missingField?: keyof BookingFields | "fee" } {
+    const missing = missingInfoFields(state);
+    if (missing.length > 0) {
+      return { allowed: false, missingField: missing[0] };
+    }
+    if (!state.fee_disclosed || !state.fee_confirmed) {
+      return { allowed: false, missingField: "fee" };
+    }
+    return { allowed: true };
+  }
+
+  private buildMissingFieldPrompt(
+    state: ReturnType<SessionStateService["getState"]>,
+    tenantContext: Awaited<ReturnType<TenantsService["getTenantContext"]>>,
+    missingField?: keyof BookingFields | "fee",
+  ): string {
+    const field = missingField ?? missingInfoFields(state)[0];
+    const firstName = state.fields.name?.trim().split(/\s+/)[0] ?? "there";
+
+    if (field === "address") {
+      if (state.fields.address) {
+        return `I have the service address as ${state.fields.address}. Is that correct?`;
+      }
+      return "What is the service address for the visit?";
+    }
+
+    if (field === "issue") {
+      if (state.fields.issue) {
+        return `Just to confirm, the issue is ${state.fields.issue}. Is that correct?`;
+      }
+      return "Can you briefly describe the issue you're experiencing?";
+    }
+
+    if (field === "preferred_window") {
+      if (state.fields.preferred_window) {
+        return `Just to confirm, you prefer ${state.fields.preferred_window}. Is that correct?`;
+      }
+      return "What date and time window works best for the appointment?";
+    }
+
+    if (field === "phone") {
+      return "What is the best phone number to reach you?";
+    }
+
+    if (field === "name") {
+      return "May I have your full name?";
+    }
+
+    if (field === "photos") {
+      return "Do you have any photos you can share? (optional)";
+    }
+
+    if (field === "fee") {
+      const emergencyLine =
+        state.emergency_flagged && tenantContext.emergencySurchargeEnabled
+          ? ` Because this is an emergency, there is an additional $${tenantContext.emergencySurchargeAmount ?? 75} emergency surcharge.`
+          : "";
+      return `Before we schedule, we do have a standard $99 diagnostic/service fee.${emergencyLine} Do you agree to these charges so we can proceed?`;
+    }
+
+    return `Thanks, ${firstName}. What date and time window works best for the appointment?`;
   }
 }

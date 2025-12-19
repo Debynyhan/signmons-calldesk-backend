@@ -13,6 +13,8 @@ model Tenant {
   displayName   String
   instructions  String?
   prompt        String
+  emergencySurchargeEnabled Boolean @default(false)
+  emergencySurchargeAmount  Int     @default(75)
   phoneNumber   String?
   jobs          Job[]
   callLogs      CallLog[]

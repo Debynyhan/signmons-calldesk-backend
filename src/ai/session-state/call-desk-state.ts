@@ -37,6 +37,8 @@ export interface CallDeskSessionState {
   upsell_offered: boolean;
   emergency_flagged: boolean;
   name_acknowledged: boolean;
+  address_confirmed: boolean;
+  last_requested_field?: keyof BookingFields | null;
 }
 
 export const REQUIRED_FOR_BOOKING: (keyof BookingFields)[] = [
@@ -50,7 +52,12 @@ export const REQUIRED_FOR_BOOKING: (keyof BookingFields)[] = [
 export function missingFields(
   state: CallDeskSessionState,
 ): (keyof BookingFields)[] {
-  return REQUIRED_FOR_BOOKING.filter((field) => !state.fields[field]);
+  return REQUIRED_FOR_BOOKING.filter((field) => {
+    if (field === "address") {
+      return !state.fields.address || !state.address_confirmed;
+    }
+    return !state.fields[field];
+  });
 }
 
 export const INFO_COLLECTION_ORDER: (keyof BookingFields)[] = [
@@ -64,7 +71,12 @@ export const INFO_COLLECTION_ORDER: (keyof BookingFields)[] = [
 export function missingInfoFields(
   state: CallDeskSessionState,
 ): (keyof BookingFields)[] {
-  return INFO_COLLECTION_ORDER.filter((field) => !state.fields[field]);
+  return INFO_COLLECTION_ORDER.filter((field) => {
+    if (field === "address") {
+      return !state.fields.address || !state.address_confirmed;
+    }
+    return !state.fields[field];
+  });
 }
 
 export const ALLOWED_TRANSITIONS: Record<CallDeskStep, CallDeskStep[]> = {

@@ -50,6 +50,8 @@ export default function Home() {
     name: "demo_hvac",
     displayName: "Demo HVAC Contractor",
     instructions: defaultInstructions,
+    emergencySurchargeEnabled: false,
+    emergencySurchargeAmount: 75,
     adminToken: "",
   });
   const [tenantLoading, setTenantLoading] = useState(false);
@@ -233,6 +235,50 @@ export default function Home() {
                 rows={4}
                 required
               />
+            </label>
+
+            <label className={styles.label}>
+              Emergency surcharge
+              <div className={styles.inlineRow}>
+                <label className={styles.inlineOption}>
+                  <input
+                    name="emergencySurchargeEnabled"
+                    type="checkbox"
+                    checked={tenantForm.emergencySurchargeEnabled}
+                    onChange={(event) =>
+                      setTenantForm((prev) => ({
+                        ...prev,
+                        emergencySurchargeEnabled: event.target.checked,
+                      }))
+                    }
+                  />
+                  Enable emergency surcharge
+                </label>
+                <input
+                  className={styles.input}
+                  name="emergencySurchargeAmount"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={tenantForm.emergencySurchargeAmount}
+                  onChange={(event) =>
+                    setTenantForm((prev) => {
+                      const amount = Number(event.target.value);
+                      return {
+                        ...prev,
+                        emergencySurchargeAmount: Number.isFinite(amount)
+                          ? amount
+                          : prev.emergencySurchargeAmount,
+                      };
+                    })
+                  }
+                  disabled={!tenantForm.emergencySurchargeEnabled}
+                />
+              </div>
+              <span className={styles.hint}>
+                Flat emergency fee in USD (default $75). Shown only for
+                emergency calls.
+              </span>
             </label>
 
             <label className={styles.label}>

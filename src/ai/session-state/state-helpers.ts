@@ -452,6 +452,41 @@ export function detectFeeDisclosure(text: string): boolean {
   return /\$?99/.test(text) && /diagnostic|service fee/i.test(text);
 }
 
+export function detectAffirmation(text: string): boolean {
+  return /\b(yes|yeah|yep|correct|that's right|right|sure|ok|okay|you have it|i did|i already did|already did)\b/i.test(
+    text,
+  );
+}
+
+export function detectRequestedField(
+  text: string,
+): keyof BookingFields | null {
+  if (!/\?/.test(text)) {
+    return null;
+  }
+
+  if (/\b(address|street|city|zip|zip code)\b/i.test(text)) {
+    return "address";
+  }
+  if (/\b(phone|number|reach|call)\b/i.test(text)) {
+    return "phone";
+  }
+  if (/\b(name|full name)\b/i.test(text)) {
+    return "name";
+  }
+  if (/\b(issue|problem|happening|going on|describe)\b/i.test(text)) {
+    return "issue";
+  }
+  if (/\b(time|date|window|availability|schedule|when|soon)\b/i.test(text)) {
+    return "preferred_window";
+  }
+  if (/\b(photo|picture|image)\b/i.test(text)) {
+    return "photos";
+  }
+
+  return null;
+}
+
 export function detectFeeConfirmation(text: string): boolean {
   return /\b(yes|yeah|yep|ok|okay|sure|agree|approved|sounds good|that works)\b/i.test(
     text,

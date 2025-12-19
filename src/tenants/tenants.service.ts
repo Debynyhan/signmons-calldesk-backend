@@ -11,6 +11,8 @@ import {
 
 @Injectable()
 export class PrismaTenantsService implements TenantsService {
+  private readonly defaultEmergencySurchargeAmount = 75;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
@@ -42,12 +44,24 @@ export class PrismaTenantsService implements TenantsService {
     const instructions = this.sanitizationService.sanitizeText(
       input.instructions,
     );
+    const emergencySurchargeEnabled = Boolean(
+      input.emergencySurchargeEnabled,
+    );
+    const emergencySurchargeAmount = this.normalizeSurchargeAmount(
+      input.emergencySurchargeAmount,
+    );
 
     if (!name) {
       throw new Error("Tenant name must include alphanumeric characters.");
     }
 
-    const prompt = this.buildPrompt(tenantId, displayName, instructions);
+    const prompt = this.buildPrompt(
+      tenantId,
+      displayName,
+      instructions,
+      emergencySurchargeEnabled,
+      emergencySurchargeAmount,
+    );
 
     const tenant = await this.prisma.tenant.create({
       data: {
@@ -56,6 +70,8 @@ export class PrismaTenantsService implements TenantsService {
         displayName,
         instructions,
         prompt,
+        emergencySurchargeEnabled,
+        emergencySurchargeAmount,
       },
     });
 
@@ -68,6 +84,8 @@ export class PrismaTenantsService implements TenantsService {
       displayName: tenant.displayName,
       instructions: tenant.instructions ?? "",
       prompt: tenant.prompt,
+      emergencySurchargeEnabled: tenant.emergencySurchargeEnabled,
+      emergencySurchargeAmount: tenant.emergencySurchargeAmount,
     };
   }
 
@@ -75,16 +93,30 @@ export class PrismaTenantsService implements TenantsService {
     tenantId: string,
     displayName: string,
     instructions: string,
+    emergencySurchargeEnabled: boolean,
+    emergencySurchargeAmount: number,
   ) {
     const persona = [
       `You are handling calls for tenantId=${tenantId} (${displayName}).`,
       'Always greet callers warmly, introduce yourself as their dispatcher, and speak as part of the tenant\'s team (use "we" / "our").',
       "Act on the tenant's behalf end-to-end: gather details, reassure them, and upsell maintenance plans or priority service whenever it helps.",
       "Be transparent that every visit includes a $99 diagnostic/service fee which is credited toward repairs if they approve work within 24 hours.",
+      emergencySurchargeEnabled
+        ? `For emergency calls, disclose an additional $${emergencySurchargeAmount} emergency surcharge before booking and include it in the fee confirmation.`
+        : null,
       "Summarize the plan and next steps before closing every interaction.",
-    ].join(" ");
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     const trimmedInstructions = instructions?.trim();
     return trimmedInstructions ? `${persona} ${trimmedInstructions}` : persona;
+  }
+
+  private normalizeSurchargeAmount(value?: number): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return this.defaultEmergencySurchargeAmount;
+    }
+    return Math.max(0, Math.round(value));
   }
 }

@@ -13,6 +13,8 @@ import {
   detectFeeDisclosure,
   detectFeeConfirmation,
   detectUpsellOffer,
+  detectAffirmation,
+  detectRequestedField,
   mergeBookingFields,
 } from "./state-helpers";
 
@@ -76,6 +78,7 @@ export class SessionStateService {
       upsell_offered: state.upsell_offered,
       emergency_flagged: state.emergency_flagged,
       name_acknowledged: state.name_acknowledged,
+      address_confirmed: state.address_confirmed,
       fields: state.fields,
       missing_fields: missingInfoFields(state),
     };
@@ -171,6 +174,8 @@ export class SessionStateService {
       upsell_offered: false,
       emergency_flagged: false,
       name_acknowledged: false,
+      address_confirmed: false,
+      last_requested_field: null,
       fields: {
         name: undefined,
         phone: undefined,
@@ -203,6 +208,10 @@ export class SessionStateService {
     const isEmergency = urgency === "EMERGENCY";
     const feeConfirmed =
       state.fee_disclosed && detectFeeConfirmation(message);
+    const addressConfirmed = state.address_confirmed
+      || (state.last_requested_field === "address"
+        && Boolean(mergedFields.address)
+        && (detectAffirmation(message) || Boolean(extracted.address)));
     if (feeConfirmed && !state.fee_confirmed) {
       this.loggingService.log(
         "Fee confirmed by caller.",
@@ -216,6 +225,7 @@ export class SessionStateService {
       urgency: urgency ?? null,
       emergency_flagged: state.emergency_flagged || isEmergency,
       fee_confirmed: state.fee_confirmed || feeConfirmed,
+      address_confirmed: addressConfirmed,
     };
     return this.advanceStep(updated);
   }
@@ -229,10 +239,12 @@ export class SessionStateService {
       state.fee_disclosed || detectFeeDisclosure(assistantText);
     const upsell =
       state.upsell_offered || detectUpsellOffer(assistantText);
+    const requestedField = detectRequestedField(assistantText);
     const updated = this.advanceStep({
       ...state,
       fee_disclosed: feeDisclosed,
       upsell_offered: upsell,
+      last_requested_field: requestedField,
     });
     return persist ? updated : this.cloneState(updated);
   }

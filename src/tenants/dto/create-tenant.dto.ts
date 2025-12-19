@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsString, MaxLength, MinLength } from "class-validator";
+import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim() : value;
@@ -22,4 +22,14 @@ export class CreateTenantDto {
   @MinLength(10)
   @MaxLength(500)
   instructions!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  emergencySurchargeEnabled?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  emergencySurchargeAmount?: number;
 }

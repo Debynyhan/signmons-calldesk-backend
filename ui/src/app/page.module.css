@@ -83,6 +83,25 @@
   color: #94a3b8;
 }
 
+.inlineRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.inlineOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+}
+
+.inlineOption input {
+  accent-color: #38bdf8;
+}
+
 .button {
   border: none;
   border-radius: 999px;

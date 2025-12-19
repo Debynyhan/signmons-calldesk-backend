@@ -14,6 +14,7 @@ import { AiProviderService } from "../providers/ai-provider.service";
 import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
+import { SessionStateService } from "../session-state/session-state.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -38,6 +39,7 @@ describe("AiService", () => {
   let jobsRepository: jest.Mocked<IJobRepository>;
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
+  let sessionStateService: SessionStateService;
   let service: AiService;
 
   beforeEach(() => {
@@ -67,6 +69,8 @@ describe("AiService", () => {
       displayName: "Demo Contractor",
       instructions: "Collect caller details and determine urgency.",
       prompt: "You are acting for Demo Contractor.",
+      emergencySurchargeEnabled: false,
+      emergencySurchargeAmount: 75,
     });
     callLogService = {
       createLog: jest.fn(),
@@ -74,6 +78,7 @@ describe("AiService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
+    sessionStateService = new SessionStateService(loggingService);
 
     service = new AiService(
       aiProvider,
@@ -84,6 +89,7 @@ describe("AiService", () => {
       jobsRepository,
       tenantsService,
       callLogService,
+      sessionStateService,
     );
   });
 
@@ -116,6 +122,21 @@ describe("AiService", () => {
   });
 
   it("routes create_job tool calls to the job repository", async () => {
+    sessionStateService.updateState(tenantId, sessionId, {
+      category: "HEATING",
+      urgency: "EMERGENCY",
+      emergency_flagged: true,
+      fee_disclosed: true,
+      fee_confirmed: true,
+      address_confirmed: true,
+      fields: {
+        name: "Alice",
+        phone: "123",
+        address: "123 Elm Street",
+        issue: "No heat",
+        preferred_window: "today",
+      },
+    });
     aiProvider.createCompletion.mockResolvedValue({
       id: "resp-2",
       choices: [

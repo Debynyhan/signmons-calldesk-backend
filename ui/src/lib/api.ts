@@ -9,6 +9,8 @@ export interface TenantRequest {
   name: string;
   displayName: string;
   instructions: string;
+  emergencySurchargeEnabled?: boolean;
+  emergencySurchargeAmount?: number;
   adminToken: string;
 }
 
