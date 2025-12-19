@@ -161,7 +161,8 @@ describe("AiService", () => {
     expect(response).toEqual({
       status: "job_created",
       job: jobRecord,
-      message: "Job created successfully.",
+      message:
+        "Thanks, Alice - we're dispatching a technician for your heating issue and we'll confirm the next available window. We'll call or text shortly to confirm the window.",
     });
     expect(jobsRepository.createJobFromToolCall).toHaveBeenCalledWith({
       tenantId,
