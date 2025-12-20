@@ -171,6 +171,13 @@ export default function Home() {
             token manually so it never lives in source control.
           </p>
         </div>
+        <div className={styles.headerBadge}>
+          <span className={styles.pill}>Demo Live</span>
+          <span className={styles.subtitle}>AI intake workspace</span>
+          <a className={styles.ghostButton} href="/demo">
+            Open caller demo
+          </a>
+        </div>
       </header>
 
       <main className={styles.grid}>
@@ -417,7 +424,10 @@ export default function Home() {
             ) : (
               <ul className={styles.timelineList}>
                 {conversation.map((entry, index) => (
-                  <li key={`${entry.timestamp}-${index}`}>
+                  <li
+                    key={`${entry.timestamp}-${index}`}
+                    className={`${styles.timelineItem} ${styles[entry.role]}`}
+                  >
                     <span className={styles.timelineMeta}>
                       {entry.timestamp} · {entry.role.toUpperCase()}
                     </span>

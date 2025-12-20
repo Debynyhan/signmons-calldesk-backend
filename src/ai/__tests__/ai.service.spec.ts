@@ -109,13 +109,16 @@ describe("AiService", () => {
       "Hello there, I need help.",
     );
 
-    expect(response).toEqual({ status: "reply", reply: "Hello there!" });
+    expect(response).toEqual({
+      status: "reply",
+      reply: "May I have your full name?",
+    });
     expect(callLogService.createLog).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId,
         sessionId,
         transcript: "Hello there, I need help.",
-        aiResponse: "Hello there!",
+        aiResponse: "May I have your full name?",
         metadata: expect.objectContaining({ openAIResponseId: "resp-1" }),
       }),
     );

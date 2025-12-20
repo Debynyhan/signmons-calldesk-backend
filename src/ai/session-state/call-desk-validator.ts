@@ -1,9 +1,14 @@
 import type { CallDeskSessionState, BookingFields } from "./call-desk-state";
 import {
   canTransition,
+  INFO_COLLECTION_ORDER,
   missingFields,
   missingInfoFields,
 } from "./call-desk-state";
+import {
+  detectUrgencyAcknowledgement,
+  getMissingAddressParts,
+} from "./state-helpers";
 
 export interface ToolCallPayload {
   name: string;
@@ -44,6 +49,9 @@ const BOOKING_LANGUAGE_PATTERNS = [
   /\bwe'?ll see you\b/i,
   /\bsee you on\b/i,
 ];
+const EMERGENCY_SURCHARGE_PATTERN = /\bemergency surcharge\b/i;
+const URGENCY_QUESTION_PATTERN =
+  /\b(emergency|urgent|urgency|high priority|standard|how urgent|how soon|priority)\b/i;
 
 function countSentences(text: string): number {
   const matches = text.trim().match(/[.!?]+/g);
@@ -86,6 +94,21 @@ function mentionsField(
       return /\b(photo|picture|image)\b/i.test(text);
     case "preferred_window":
       return /\b(time|date|window|availability|schedule|when|soon)\b/i.test(text);
+    default:
+      return false;
+  }
+}
+
+function mentionsAddressPart(part: string, text: string): boolean {
+  switch (part) {
+    case "street":
+      return /\b(street|address)\b/i.test(text);
+    case "city":
+      return /\bcity\b/i.test(text);
+    case "state":
+      return /\bstate\b/i.test(text);
+    case "zip":
+      return /\bzip\b|\bzip code\b/i.test(text);
     default:
       return false;
   }
@@ -157,6 +180,53 @@ export function validateAssistantTurn(params: {
   const missingInfo = missingInfoFields(nextState);
   const hasCreateJob = hasToolCall(toolCalls, "create_job");
 
+  if (
+    nextState.step === "URGENCY" &&
+    !nextState.urgency &&
+    !URGENCY_QUESTION_PATTERN.test(text)
+  ) {
+    return {
+      ok: false,
+      reason: "Urgency not confirmed",
+      correctiveSystemMessage:
+        "I'm sorry you're dealing with this. Is this an emergency, high priority, or standard request?",
+      suggestedStep: "URGENCY",
+    };
+  }
+
+  if (
+    prevState.urgency &&
+    !prevState.urgency_acknowledged &&
+    prevState.step !== "URGENCY"
+  ) {
+    const acknowledged = detectUrgencyAcknowledgement(
+      text,
+      prevState.urgency,
+    );
+    if (!acknowledged) {
+      const missingField = missingInfo[0] ?? "fee_confirmation";
+      return {
+        ok: false,
+        reason: "Urgency not acknowledged",
+        correctiveSystemMessage:
+          "Acknowledge the urgency classification in a single sentence, then ask the next required question.",
+        suggestedStep: prevState.step,
+        missingField,
+      };
+    }
+  }
+
+  if (EMERGENCY_SURCHARGE_PATTERN.test(text) && !nextState.emergency_flagged) {
+    return {
+      ok: false,
+      reason: "Emergency surcharge mentioned without emergency",
+      correctiveSystemMessage:
+        "Do not mention an emergency surcharge unless the call is classified as an emergency. Continue with the normal fee confirmation.",
+      suggestedStep: nextState.step,
+      missingField: "fee_confirmation",
+    };
+  }
+
   if (nextState.step === "INFO_COLLECTION" && missingInfo.length > 0) {
     const nextField = missingInfo[0];
     if (!mentionsField(nextField, text)) {
@@ -166,6 +236,44 @@ export function validateAssistantTurn(params: {
         correctiveSystemMessage: `Ask for the next missing field only: ${nextField}. Keep it to one question.`,
         suggestedStep: "INFO_COLLECTION",
         missingField: nextField,
+      };
+    }
+    if (nextField === "address") {
+      const missingParts = getMissingAddressParts(nextState.fields.address);
+      if (
+        missingParts.length > 1 &&
+        !missingParts.every((part) => mentionsAddressPart(part, text))
+      ) {
+        return {
+          ok: false,
+          reason: "Address parts not fully requested",
+          correctiveSystemMessage:
+            "Ask for the full service address with street, city, state, and ZIP in one question.",
+          suggestedStep: "INFO_COLLECTION",
+          missingField: "address",
+        };
+      }
+    }
+  }
+
+  if (missingInfo.length === 0) {
+    const askedField = INFO_COLLECTION_ORDER.find((field) =>
+      mentionsField(field, text),
+    );
+    if (askedField) {
+      const missingFee = !nextState.fee_disclosed
+        ? "fee_disclosure"
+        : !nextState.fee_confirmed
+          ? "fee_confirmation"
+          : undefined;
+      return {
+        ok: false,
+        reason: "Asked for field already collected",
+        correctiveSystemMessage: missingFee
+          ? "Confirm the $99 diagnostic/service fee and ask if the caller agrees so you can proceed."
+          : "Move forward without re-asking collected details.",
+        suggestedStep: missingFee ? "PRICING" : nextState.step,
+        missingField: missingFee ?? undefined,
       };
     }
   }

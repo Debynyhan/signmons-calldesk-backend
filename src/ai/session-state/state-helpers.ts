@@ -42,6 +42,20 @@ const URGENCY_EMERGENCY = [
   /immediately/,
   /no heat/,
   /no ac/,
+  /freezing/,
+  /cold in here/,
+  /cold air/,
+  /blowing cold air/,
+  /blowing warm air/,
+  /no cooling/,
+  /burning up/,
+  /hot in here/,
+  /sweating bullets/,
+  /sweating/,
+  /too hot/,
+  /\b(?:40|41|42|43|44|45|50|55|60)\s*degrees\b/,
+  /\bfurnace\b.*\bnot (cutting|turning) on\b/,
+  /\bnot (cutting|turning) on\b.*\bfurnace\b/,
   /leak/,
   /flood/,
   /sparks/,
@@ -49,7 +63,40 @@ const URGENCY_EMERGENCY = [
   /gas/,
 ];
 
-const URGENCY_HIGH = [/soon/, /today/, /tomorrow/, /whenever you can/];
+const URGENCY_HIGH = [
+  /high priority/,
+  /high-priority/,
+  /soon/,
+  /today/,
+  /tomorrow/,
+  /whenever you can/,
+];
+
+const URGENCY_STANDARD = [/standard/, /not urgent/, /routine/];
+
+const URGENCY_QUESTION_PATTERNS =
+  /\b(is this|is it|would you say|do you consider|how urgent|urgency|priority)\b/i;
+
+const URGENCY_STATEMENT_PATTERNS: Record<CallDeskUrgency, RegExp[]> = {
+  EMERGENCY: [
+    /\bwe'?ll (treat|classify|mark|handle|prioritize) (this )?as (an )?emergency\b/i,
+    /\bwe will (treat|classify|mark|handle|prioritize) (this )?as (an )?emergency\b/i,
+    /\bthis is (an )?emergency\b/i,
+    /\b(emergency)\s+(call|situation|request)\b/i,
+  ],
+  HIGH_PRIORITY: [
+    /\bwe'?ll (treat|classify|mark|handle|prioritize) (this )?as (a )?high priority\b/i,
+    /\bwe will (treat|classify|mark|handle|prioritize) (this )?as (a )?high priority\b/i,
+    /\bthis is (a )?high priority\b/i,
+    /\bhigh priority\s+(request|call|situation)\b/i,
+  ],
+  STANDARD: [
+    /\bwe'?ll (treat|classify|mark|handle) (this )?as (a )?standard\b/i,
+    /\bwe will (treat|classify|mark|handle) (this )?as (a )?standard\b/i,
+    /\bthis is (a )?standard\b/i,
+    /\bstandard\s+(request|call|situation)\b/i,
+  ],
+};
 
 const DATE_REGEX = /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/;
 const TIME_REGEX = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i;
@@ -80,6 +127,180 @@ const NAME_REGEX =
 const NAME_COLON_REGEX = /name\s*[:\-]\s*([A-Za-z]+(?:\s+[A-Za-z]+){0,2})/i;
 const ADDRESS_PREFIX_REGEX =
   /(address|located at|we are at|i live at)\s*[:\-]?\s*([^.,\n]+)/i;
+
+const STATE_CODES = new Set([
+  "AL",
+  "AK",
+  "AZ",
+  "AR",
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "FL",
+  "GA",
+  "HI",
+  "ID",
+  "IL",
+  "IN",
+  "IA",
+  "KS",
+  "KY",
+  "LA",
+  "ME",
+  "MD",
+  "MA",
+  "MI",
+  "MN",
+  "MS",
+  "MO",
+  "MT",
+  "NE",
+  "NV",
+  "NH",
+  "NJ",
+  "NM",
+  "NY",
+  "NC",
+  "ND",
+  "OH",
+  "OK",
+  "OR",
+  "PA",
+  "RI",
+  "SC",
+  "SD",
+  "TN",
+  "TX",
+  "UT",
+  "VT",
+  "VA",
+  "WA",
+  "WV",
+  "WI",
+  "WY",
+]);
+
+const STATE_NAMES = new Map<string, string>([
+  ["alabama", "AL"],
+  ["alaska", "AK"],
+  ["arizona", "AZ"],
+  ["arkansas", "AR"],
+  ["california", "CA"],
+  ["colorado", "CO"],
+  ["connecticut", "CT"],
+  ["delaware", "DE"],
+  ["florida", "FL"],
+  ["georgia", "GA"],
+  ["hawaii", "HI"],
+  ["idaho", "ID"],
+  ["illinois", "IL"],
+  ["indiana", "IN"],
+  ["iowa", "IA"],
+  ["kansas", "KS"],
+  ["kentucky", "KY"],
+  ["louisiana", "LA"],
+  ["maine", "ME"],
+  ["maryland", "MD"],
+  ["massachusetts", "MA"],
+  ["michigan", "MI"],
+  ["minnesota", "MN"],
+  ["mississippi", "MS"],
+  ["missouri", "MO"],
+  ["montana", "MT"],
+  ["nebraska", "NE"],
+  ["nevada", "NV"],
+  ["new hampshire", "NH"],
+  ["new jersey", "NJ"],
+  ["new mexico", "NM"],
+  ["new york", "NY"],
+  ["north carolina", "NC"],
+  ["north dakota", "ND"],
+  ["ohio", "OH"],
+  ["oklahoma", "OK"],
+  ["oregon", "OR"],
+  ["pennsylvania", "PA"],
+  ["rhode island", "RI"],
+  ["south carolina", "SC"],
+  ["south dakota", "SD"],
+  ["tennessee", "TN"],
+  ["texas", "TX"],
+  ["utah", "UT"],
+  ["vermont", "VT"],
+  ["virginia", "VA"],
+  ["washington", "WA"],
+  ["west virginia", "WV"],
+  ["wisconsin", "WI"],
+  ["wyoming", "WY"],
+]);
+
+const STREET_ONLY_REGEX =
+  /(\d{1,6}\s+[A-Za-z0-9.#\s]+?\b(?:st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway)\b)/i;
+const ZIP_REGEX = /\b\d{5}(?:-\d{4})?\b/;
+
+const NAME_STOPWORDS = new Set([
+  "sweating",
+  "freezing",
+  "cold",
+  "hot",
+  "burning",
+  "sweaty",
+  "frustrated",
+  "upset",
+  "angry",
+  "stressed",
+  "worried",
+  "scared",
+  "nervous",
+  "pain",
+  "hurting",
+  "tired",
+  "sick",
+  "today",
+  "tomorrow",
+  "asap",
+  "emergency",
+  "urgent",
+  "priority",
+  "standard",
+  "yes",
+  "yeah",
+  "yep",
+  "ok",
+  "okay",
+  "sure",
+  "address",
+  "phone",
+  "number",
+  "time",
+  "window",
+]);
+
+type AddressParts = {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+};
+
+const STATE_NAME_PATTERN = Array.from(STATE_NAMES.keys())
+  .map((name) => name.replace(/\s+/g, "\\s+"))
+  .join("|");
+const STATE_CODE_PATTERN = Array.from(STATE_CODES).join("|");
+const STATE_TOKEN_PATTERN = new RegExp(
+  `\\b(${STATE_CODE_PATTERN}|${STATE_NAME_PATTERN})\\b`,
+  "i",
+);
+const FULL_ADDRESS_PATTERN = new RegExp(
+  `(\\d{1,6}\\s+[A-Za-z0-9.#\\s]+?\\b(?:st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway)\\b)\\s*,?\\s*([A-Za-z.'\\s]{2,40})\\s*,?\\s*(${STATE_CODE_PATTERN}|${STATE_NAME_PATTERN})\\s*,?\\s*(\\d{5}(?:-\\d{4})?)`,
+  "i",
+);
+const CITY_STATE_PATTERN = new RegExp(
+  `\\b(?:in|at|from|located\\s+in|located\\s+at)?\\s*([A-Za-z.'\\s]{2,40})\\s*,?\\s*(${STATE_CODE_PATTERN}|${STATE_NAME_PATTERN})\\b`,
+  "ig",
+);
+const CITY_INVALID_PATTERN =
+  /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway)\b/i;
 
 type ParsedPreferredWindow =
   | { kind: "none" }
@@ -276,6 +497,233 @@ export function parsePreferredWindow(textRaw: string): ParsedPreferredWindow {
   return { kind: "none" };
 }
 
+export function extractZip(text: string): string | null {
+  const match = text.match(ZIP_REGEX);
+  return match ? match[0] : null;
+}
+
+export function extractState(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const [name, code] of STATE_NAMES.entries()) {
+    const pattern = new RegExp(`\\b${name}\\b`);
+    if (pattern.test(lower)) {
+      return code;
+    }
+  }
+  const shortMatch = lower.match(/\b([a-z]{2})\b/);
+  if (shortMatch) {
+    const code = shortMatch[1].toUpperCase();
+    if (STATE_CODES.has(code)) {
+      return code;
+    }
+  }
+  return null;
+}
+
+export function extractStreet(text: string): string | null {
+  const match = text.match(STREET_ONLY_REGEX);
+  return match ? match[1].trim() : null;
+}
+
+export function isLikelyCity(text: string): boolean {
+  const cleaned = text.trim();
+  if (!cleaned || /\d/.test(cleaned)) {
+    return false;
+  }
+  if (extractState(cleaned)) {
+    return false;
+  }
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  return words.length >= 1 && words.length <= 3;
+}
+
+export function getAddressParts(address?: string): AddressParts {
+  if (!address) {
+    return {};
+  }
+  const normalized = normalizeSpaces(address.replace(/,/g, " "));
+  const fullMatch = normalized.match(FULL_ADDRESS_PATTERN);
+  if (fullMatch) {
+    const state = extractState(fullMatch[3]) ?? undefined;
+    return {
+      street: normalizeSpaces(fullMatch[1]),
+      city: titleCaseWords(fullMatch[2]),
+      state,
+      zip: fullMatch[4],
+    };
+  }
+  const street = extractStreet(normalized) ?? undefined;
+  const zip = extractZip(normalized) ?? undefined;
+  const state = extractState(normalized) ?? undefined;
+  let city: string | undefined;
+
+  if (street) {
+    const streetIndex = normalized.toLowerCase().indexOf(street.toLowerCase());
+    const afterStreet = streetIndex >= 0
+      ? normalized.slice(streetIndex + street.length)
+      : normalized;
+    const stateIndex = state
+      ? afterStreet.toLowerCase().indexOf(state.toLowerCase())
+      : -1;
+    const zipIndex = zip ? afterStreet.indexOf(zip) : -1;
+    const endIndex =
+      stateIndex >= 0 && zipIndex >= 0
+        ? Math.min(stateIndex, zipIndex)
+        : stateIndex >= 0
+          ? stateIndex
+          : zipIndex;
+    if (endIndex > 0) {
+      const candidate = normalizeSpaces(afterStreet.slice(0, endIndex));
+      if (candidate.length >= 2) {
+        city = candidate;
+      }
+    }
+  }
+
+  if (!city) {
+    const cityMatch = address.match(/,\s*([A-Za-z.\s]+?)(?:,|$)/);
+    if (cityMatch) {
+      const candidate = normalizeSpaces(cityMatch[1]);
+      if (candidate.length >= 2) {
+        city = candidate;
+      }
+    }
+  }
+
+  return { street, city, state, zip };
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function extractAddressPartsFromMessage(message: string): AddressParts {
+  const normalized = normalizeSpaces(message.replace(/,/g, " "));
+  const parts: AddressParts = {};
+
+  const fullMatch = normalized.match(FULL_ADDRESS_PATTERN);
+  if (fullMatch) {
+    parts.street = normalizeSpaces(fullMatch[1]);
+    parts.city = titleCaseWords(fullMatch[2]);
+    parts.state = extractState(fullMatch[3]) ?? undefined;
+    parts.zip = fullMatch[4];
+    return parts;
+  }
+
+  const street = extractStreet(normalized);
+  if (street) {
+    parts.street = street;
+  }
+
+  const zip = extractZip(normalized);
+  if (zip) {
+    parts.zip = zip;
+  }
+
+  const state = extractState(normalized);
+  if (state) {
+    parts.state = state;
+  }
+
+  const matches = Array.from(normalized.matchAll(CITY_STATE_PATTERN));
+  if (matches.length > 0) {
+    const match = matches[matches.length - 1];
+    const cityCandidate = normalizeSpaces(match[1]);
+    const stateToken = match[2];
+    if (!parts.state) {
+      const normalizedState = extractState(stateToken);
+      if (normalizedState) {
+        parts.state = normalizedState;
+      }
+    }
+    if (!CITY_INVALID_PATTERN.test(cityCandidate)) {
+      const cityTokens = cityCandidate.split(/\s+/).filter(Boolean);
+      const trimmedCity = cityTokens.slice(-3).join(" ");
+      if (isLikelyCity(trimmedCity)) {
+        parts.city = titleCaseWords(trimmedCity);
+      }
+    }
+  } else if (STATE_TOKEN_PATTERN.test(normalized)) {
+    const tokens = normalized.split(/\s+/).filter(Boolean);
+    const stateIndex = tokens.findIndex((token) =>
+      extractState(token.toLowerCase()),
+    );
+    if (stateIndex > 0) {
+      const cityTokens = tokens.slice(Math.max(0, stateIndex - 3), stateIndex);
+      const cityCandidate = cityTokens.join(" ");
+      if (
+        !CITY_INVALID_PATTERN.test(cityCandidate) &&
+        isLikelyCity(cityCandidate)
+      ) {
+        parts.city = titleCaseWords(cityCandidate);
+      }
+    }
+  } else if (isLikelyCity(normalized)) {
+    parts.city = titleCaseWords(normalized);
+  }
+
+  if (!parts.city && parts.street && parts.state) {
+    const streetIndex = normalized.toLowerCase().indexOf(parts.street.toLowerCase());
+    const afterStreet =
+      streetIndex >= 0
+        ? normalized.slice(streetIndex + parts.street.length)
+        : normalized;
+    const stateIndex = parts.state
+      ? afterStreet.toLowerCase().indexOf(parts.state.toLowerCase())
+      : -1;
+    const zipIndex = parts.zip ? afterStreet.indexOf(parts.zip) : -1;
+    const endIndex =
+      stateIndex >= 0 && zipIndex >= 0
+        ? Math.min(stateIndex, zipIndex)
+        : stateIndex >= 0
+          ? stateIndex
+          : zipIndex;
+    if (endIndex > 0) {
+      const candidate = normalizeSpaces(afterStreet.slice(0, endIndex));
+      if (
+        candidate.length >= 2 &&
+        !CITY_INVALID_PATTERN.test(candidate) &&
+        isLikelyCity(candidate)
+      ) {
+        parts.city = titleCaseWords(candidate);
+      }
+    }
+  }
+
+  return parts;
+}
+
+export function assembleAddress(parts: AddressParts): string | null {
+  const components: string[] = [];
+  if (parts.street) components.push(parts.street);
+  if (parts.city) components.push(parts.city);
+  if (parts.state) components.push(parts.state);
+  let base = components.join(", ");
+  if (parts.zip) {
+    base = base ? `${base} ${parts.zip}` : parts.zip;
+  }
+  return base || null;
+}
+
+export function getMissingAddressParts(address?: string): string[] {
+  const parts = getAddressParts(address);
+  const missing: string[] = [];
+  if (!parts.street) missing.push("street");
+  if (!parts.city) missing.push("city");
+  if (!parts.state) missing.push("state");
+  if (!parts.zip) missing.push("zip");
+  return missing;
+}
+
+export function isCompleteAddress(address?: string): boolean {
+  return getMissingAddressParts(address).length === 0;
+}
+
 export function stringifyPreferredWindow(
   parsed: ParsedPreferredWindow,
 ): string | null {
@@ -325,7 +773,35 @@ export function detectUrgency(text: string): CallDeskUrgency | null {
   if (URGENCY_HIGH.some((pattern) => pattern.test(lower))) {
     return "HIGH_PRIORITY";
   }
+  if (URGENCY_STANDARD.some((pattern) => pattern.test(lower))) {
+    return "STANDARD";
+  }
   return null;
+}
+
+export function detectUrgencyAcknowledgement(
+  text: string,
+  urgency?: CallDeskUrgency | null,
+): boolean {
+  if (!urgency) {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  const label =
+    urgency === "HIGH_PRIORITY"
+      ? "high priority"
+      : urgency === "STANDARD"
+        ? "standard"
+        : "emergency";
+  if (!lower.includes(label)) {
+    return false;
+  }
+  if (URGENCY_QUESTION_PATTERNS.test(lower)) {
+    return false;
+  }
+  return URGENCY_STATEMENT_PATTERNS[urgency].some((pattern) =>
+    pattern.test(lower),
+  );
 }
 
 export function detectPreferredWindow(text: string): string | undefined {
@@ -359,7 +835,10 @@ export function extractBookingFields(textRaw: string): Partial<BookingFields> {
     text.match(/\bname\s+(?:is)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/i);
 
   if (nameMatch) {
-    updates.name = nameMatch[1].trim();
+    const candidate = nameMatch[1].trim();
+    if (isNameCandidate(candidate)) {
+      updates.name = candidate;
+    }
   }
 
   /* =========================
@@ -371,17 +850,28 @@ export function extractBookingFields(textRaw: string): Partial<BookingFields> {
   // 987 W 117th St Apt 2B, Cleveland, Ohio 44102
   const ADDRESS_REGEX =
     /(\d{1,6}\s+[A-Za-z0-9.#\s]+?\b(?:st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way)\b[\s,#A-Za-z0-9.-]*,\s*[A-Za-z.\s]+,\s*(?:[A-Z]{2}|Ohio)\s+\d{5}(?:-\d{4})?)/i;
+  const ADDRESS_NO_COMMA_REGEX =
+    /(\d{1,6}\s+[A-Za-z0-9.#\s]+?\b(?:st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way)\b\s+[A-Za-z.\s]+\s+(?:[A-Z]{2}|Ohio)\s+\d{5}(?:-\d{4})?)/i;
 
   const ADDRESS_PREFIX_REGEX =
     /\b(?:located at|address is|service address is|i(?:’|')?m at|im at|i(?:’|')?m located at)\s+(.+?)(?:[.?!]|$)/i;
 
   const addrMatch =
-    text.match(ADDRESS_REGEX) || text.match(ADDRESS_PREFIX_REGEX);
+    text.match(ADDRESS_REGEX) ||
+    text.match(ADDRESS_NO_COMMA_REGEX) ||
+    text.match(ADDRESS_PREFIX_REGEX);
 
   if (addrMatch) {
     const addr = (addrMatch[1] || "").trim();
     if (addr.length >= 10) {
       updates.address = addr.replace(/\s+/g, " ");
+    }
+  }
+
+  if (!updates.address) {
+    const streetOnly = text.match(STREET_ONLY_REGEX);
+    if (streetOnly) {
+      updates.address = streetOnly[1].trim().replace(/\s+/g, " ");
     }
   }
 
@@ -423,7 +913,7 @@ export function mergeBookingFields(
 ): BookingFields {
   const out: BookingFields = { ...existing };
 
-  (["name", "phone", "address", "issue", "preferred_window"] as const).forEach(
+  (["phone", "address", "issue", "preferred_window"] as const).forEach(
     (k) => {
       const v = incoming[k];
       if (typeof v === "string") {
@@ -437,6 +927,37 @@ export function mergeBookingFields(
       }
     },
   );
+
+  if (typeof incoming.name === "string") {
+    const incomingName = incoming.name.trim();
+    if (incomingName.length >= 2 && isNameCandidate(incomingName)) {
+      const existingName = out.name?.trim();
+      const existingValid = existingName
+        ? isNameCandidate(existingName)
+        : false;
+      if (!existingName || !existingValid) {
+        out.name = incomingName;
+      } else {
+        const existingTokens = existingName.split(/\s+/).filter(Boolean);
+        const incomingTokens = incomingName.split(/\s+/).filter(Boolean);
+        const existingFirst = existingTokens[0]?.toLowerCase();
+        const incomingFirst = incomingTokens[0]?.toLowerCase();
+        if (
+          existingTokens.length === 1 &&
+          incomingTokens.length >= 2 &&
+          (!existingFirst || existingFirst === incomingFirst)
+        ) {
+          out.name = incomingName;
+        } else if (
+          existingTokens.length === 1 &&
+          incomingTokens.length === 1 &&
+          existingFirst === incomingFirst
+        ) {
+          out.name = incomingName;
+        }
+      }
+    }
+  }
 
   if (typeof incoming.photos === "boolean") {
     if (incoming.photos || out.photos !== true) {
@@ -453,7 +974,7 @@ export function detectFeeDisclosure(text: string): boolean {
 }
 
 export function detectAffirmation(text: string): boolean {
-  return /\b(yes|yeah|yep|correct|that's right|right|sure|ok|okay|you have it|i did|i already did|already did)\b/i.test(
+  return /\b(yes|yeah|yep|hell yeah|correct|that's right|right|sure|ok|okay|you have it|i did|i already did|already did)\b/i.test(
     text,
   );
 }
@@ -495,4 +1016,82 @@ export function detectFeeConfirmation(text: string): boolean {
 
 export function detectUpsellOffer(text: string): boolean {
   return /maintenance plan|priority service|membership|service plan/i.test(text);
+}
+
+export function detectDistress(text: string): boolean {
+  return /\b(sleep|can't sleep|cannot sleep|freezing|cold|frustrated|upset|angry|annoyed|in pain|worried|scared|nervous|stressed)\b/i.test(
+    text,
+  );
+}
+
+export function detectPricingQuestion(text: string): boolean {
+  return /\b(cost|price|pricing|fee|charge|surcharge|costs more|cost more|extra charge)\b.*\?/i.test(
+    text,
+  ) || /\b(do|does)\b.*\b(cost|price|fee|charge|surcharge)\b/i.test(text);
+}
+
+export function getIssueLabel(
+  issue?: string,
+  category?: CallDeskCategory | null,
+): string {
+  const text = (issue ?? "").toLowerCase();
+  if (/\bfurnace\b/.test(text)) {
+    return "furnace issue";
+  }
+  if (/\b(heater|heat|boiler)\b/.test(text)) {
+    return "heating issue";
+  }
+  if (/\b(ac|a\/c|air conditioner|cooling)\b/.test(text)) {
+    return "AC issue";
+  }
+  if (/\b(drain|clog|backup)\b/.test(text)) {
+    return "drain issue";
+  }
+  if (/\b(leak|pipe|toilet|sink|water heater|plumb)\b/.test(text)) {
+    return "plumbing issue";
+  }
+  if (/\b(outlet|breaker|panel|sparks|electri)\b/.test(text)) {
+    return "electrical issue";
+  }
+
+  switch (category) {
+    case "HEATING":
+      return "heating issue";
+    case "COOLING":
+      return "AC issue";
+    case "PLUMBING":
+      return "plumbing issue";
+    case "ELECTRICAL":
+      return "electrical issue";
+    case "DRAINS":
+      return "drain issue";
+    case "GENERAL_HANDYMAN_CONSTRUCTION":
+      return "service request";
+    default:
+      return "issue";
+  }
+}
+
+export function isNameCandidate(name: string): boolean {
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 3) {
+    return false;
+  }
+  return tokens.every((token) => {
+    if (!/^[A-Za-z][A-Za-z'’-]*$/.test(token)) {
+      return false;
+    }
+    return !NAME_STOPWORDS.has(token.toLowerCase());
+  });
+}
+
+export function getSafeFirstName(name?: string): string | null {
+  if (!name) {
+    return null;
+  }
+  const token = name.trim().split(/\s+/).filter(Boolean)[0];
+  if (!token || !isNameCandidate(token)) {
+    return null;
+  }
+  return token.charAt(0).toUpperCase() + token.slice(1);
 }
