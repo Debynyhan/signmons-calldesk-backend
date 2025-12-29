@@ -105,6 +105,7 @@ describe("AiService", () => {
       tenantId,
       sessionId,
       "Hello there, I need help.",
+      { channel: "WEBCHAT", metadata: { source: "unit" } },
     );
 
     expect(response).toEqual({ status: "reply", reply: "Hello there!" });
@@ -114,7 +115,11 @@ describe("AiService", () => {
         sessionId,
         transcript: "Hello there, I need help.",
         aiResponse: "Hello there!",
-        metadata: expect.objectContaining({ openAIResponseId: "resp-1" }),
+        metadata: expect.objectContaining({
+          channel: "WEBCHAT",
+          openAIResponseId: "resp-1",
+          source: "unit",
+        }),
       }),
     );
   });
@@ -161,7 +166,10 @@ describe("AiService", () => {
     };
     jobsRepository.createJobFromToolCall.mockResolvedValue(jobRecord);
 
-    const response = await service.triage(tenantId, sessionId, "Create job.");
+    const response = await service.triage(tenantId, sessionId, "Create job.", {
+      channel: "SMS",
+      metadata: { source: "unit" },
+    });
 
     expect(response).toEqual({
       status: "job_created",
@@ -178,7 +186,11 @@ describe("AiService", () => {
         tenantId,
         sessionId,
         jobId: jobRecord.id,
-        metadata: expect.objectContaining({ toolName: "create_job" }),
+        metadata: expect.objectContaining({
+          channel: "SMS",
+          source: "unit",
+          toolName: "create_job",
+        }),
       }),
     );
     expect(callLogService.clearSession).toHaveBeenCalledWith(

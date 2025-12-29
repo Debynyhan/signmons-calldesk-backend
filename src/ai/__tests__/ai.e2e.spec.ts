@@ -53,7 +53,8 @@ class FakeAiProvider implements IAiProvider {
   }
 }
 
-const canRunE2E = Boolean(process.env.TEST_DATABASE_URL);
+const canRunE2E =
+  process.env.RUN_E2E === "true" && Boolean(process.env.TEST_DATABASE_URL);
 const describeOrSkip = canRunE2E ? describe : describe.skip;
 
 describeOrSkip("AI create-job flow (e2e)", () => {
@@ -61,6 +62,9 @@ describeOrSkip("AI create-job flow (e2e)", () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
+    if (!process.env.TEST_DATABASE_URL) {
+      throw new Error("TEST_DATABASE_URL is required to run e2e tests.");
+    }
     if (process.env.TEST_DATABASE_URL) {
       process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
     }
@@ -126,6 +130,10 @@ describeOrSkip("AI create-job flow (e2e)", () => {
         tenantId,
         sessionId: "session-abc",
         message: "Caller reports no heat and wants immediate help.",
+        channel: "WEBCHAT",
+        metadata: {
+          source: "e2e",
+        },
       })
       .expect(201);
 

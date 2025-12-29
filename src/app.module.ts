@@ -13,6 +13,9 @@ import { SanitizationModule } from "./sanitization/sanitization.module";
 import { ToolRegistryModule } from "./ai/tools/tool-registry.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health/health.controller";
+import { ConversationsModule } from "./conversations/conversations.module";
+import { JobsModule } from "./jobs/jobs.module";
+import { TenantsModule } from "./tenants/tenants.module";
 
 @Module({
   imports: [
@@ -33,6 +36,9 @@ import { HealthController } from "./health/health.controller";
       },
     ]),
     AiModule,
+    JobsModule,
+    TenantsModule,
+    ConversationsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

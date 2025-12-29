@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
+import { CreateJobRequestDto } from "./dto/create-job-request.dto";
 import {
   CreateJobFromToolCallRequest,
   CreateJobPayload,
@@ -130,6 +131,92 @@ export class JobsService implements IJobRepository {
         },
       ),
     );
+  }
+
+  async createJob(request: CreateJobRequestDto) {
+    const tenantId = this.sanitizeTenantId(request.tenantId);
+
+    const [customer, propertyAddress, serviceCategory] = await Promise.all([
+      this.prisma.customer.findUnique({
+        where: { id_tenantId: { id: request.customerId, tenantId } },
+      }),
+      this.prisma.propertyAddress.findUnique({
+        where: { id_tenantId: { id: request.propertyAddressId, tenantId } },
+      }),
+      this.prisma.serviceCategory.findUnique({
+        where: { id_tenantId: { id: request.serviceCategoryId, tenantId } },
+      }),
+    ]);
+
+    if (!customer) {
+      throw new BadRequestException("Customer not found for tenant.");
+    }
+    if (!propertyAddress) {
+      throw new BadRequestException("Property address not found for tenant.");
+    }
+    if (!serviceCategory) {
+      throw new BadRequestException("Service category not found for tenant.");
+    }
+
+    const pricingSnapshot =
+      (request.pricingSnapshot as Prisma.InputJsonValue | undefined) ??
+      ({
+        basePriceCents: serviceCategory.basePriceCents,
+        emergencySurchargeCents: serviceCategory.emergencySurchargeCents,
+        estimatedDurationMinutes: serviceCategory.estimatedDurationMinutes,
+      } satisfies Prisma.InputJsonValue);
+    const policySnapshot =
+      (request.policySnapshot as Prisma.InputJsonValue | undefined) ??
+      ({
+        preferredWindowLabel: request.preferredWindowLabel ?? null,
+      } satisfies Prisma.InputJsonValue);
+
+    const assignedUserId = request.assignedUserId ?? null;
+    const job = await this.prisma.job.create({
+      data: {
+        tenantId,
+        customerId: request.customerId,
+        customerTenantId: tenantId,
+        propertyAddressId: request.propertyAddressId,
+        propertyAddressTenantId: tenantId,
+        serviceCategoryId: request.serviceCategoryId,
+        serviceCategoryTenantId: tenantId,
+        assignedUserId,
+        assignedUserTenantId: assignedUserId ? tenantId : null,
+        status: "CREATED",
+        urgency: request.urgency,
+        description: request.description,
+        pricingSnapshot,
+        policySnapshot,
+        preferredWindowLabel: request.preferredWindowLabel,
+        serviceWindowStart: request.serviceWindowStart
+          ? new Date(request.serviceWindowStart)
+          : null,
+        serviceWindowEnd: request.serviceWindowEnd
+          ? new Date(request.serviceWindowEnd)
+          : null,
+      },
+      include: {
+        serviceCategory: {
+          select: { name: true },
+        },
+      },
+    });
+
+    return job;
+  }
+
+  async listJobsDetailed(tenantId: string) {
+    const sanitizedTenantId = this.sanitizeTenantId(tenantId);
+    return this.prisma.job.findMany({
+      where: { tenantId: sanitizedTenantId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        serviceCategory: {
+          select: { name: true },
+        },
+      },
+    });
   }
 
   private parsePayload(rawArgs?: string): CreateJobPayload {
