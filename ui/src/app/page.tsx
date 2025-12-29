@@ -65,8 +65,11 @@ export default function Home() {
 
   const [tenantForm, setTenantForm] = useState({
     name: "demo_hvac",
-    displayName: "Demo HVAC Contractor",
-    instructions: defaultInstructions,
+    timezone: "",
+    settings: {
+      displayName: "Demo HVAC Contractor",
+      instructions: defaultInstructions,
+    },
     adminToken: "",
   });
   const [tenantLoading, setTenantLoading] = useState(false);
@@ -105,11 +108,16 @@ export default function Home() {
     setTenantError(null);
 
     try {
-      const response = await createTenant(tenantForm);
+      const response = await createTenant({
+        ...tenantForm,
+        timezone: tenantForm.timezone.trim() || undefined,
+      });
       setTenantResult(response);
+      const tenantDisplayName =
+        response.settings?.displayName?.trim() || response.name;
       addConversationEntry({
         role: "system",
-        content: `Tenant created: ${response.displayName} (${response.tenantId})`,
+        content: `Tenant created: ${tenantDisplayName} (${response.tenantId})`,
         timestamp: new Date().toLocaleTimeString(),
       });
     } catch (error) {
@@ -213,15 +221,35 @@ export default function Home() {
             </label>
 
             <label className={styles.label}>
+              Timezone (optional)
+              <input
+                className={styles.input}
+                name="timezone"
+                value={tenantForm.timezone}
+                onChange={(event) =>
+                  setTenantForm((prev) => ({
+                    ...prev,
+                    timezone: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="America/Chicago"
+              />
+            </label>
+
+            <label className={styles.label}>
               Display name
               <input
                 className={styles.input}
                 name="displayName"
-                value={tenantForm.displayName}
+                value={tenantForm.settings.displayName ?? ""}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
                     ...prev,
-                    displayName: event.target.value,
+                    settings: {
+                      ...prev.settings,
+                      displayName: event.target.value,
+                    },
                   }))
                 }
                 autoComplete="off"
@@ -235,11 +263,14 @@ export default function Home() {
               <textarea
                 className={styles.textarea}
                 name="instructions"
-                value={tenantForm.instructions}
+                value={tenantForm.settings.instructions ?? ""}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
                     ...prev,
-                    instructions: event.target.value,
+                    settings: {
+                      ...prev.settings,
+                      instructions: event.target.value,
+                    },
                   }))
                 }
                 rows={4}
@@ -292,7 +323,8 @@ export default function Home() {
                     <strong>ID:</strong> {tenantResult.tenantId}
                   </li>
                   <li>
-                    <strong>Display:</strong> {tenantResult.displayName}
+                    <strong>Display:</strong>{" "}
+                    {tenantResult.settings?.displayName ?? tenantResult.name}
                   </li>
                 </ul>
               </div>

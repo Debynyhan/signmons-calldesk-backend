@@ -108,8 +108,10 @@ describeOrSkip("AI create-job flow (e2e)", () => {
       .set("x-admin-token", adminToken)
       .send({
         name: "demo_hvac",
-        displayName: "Demo HVAC Contractor",
-        instructions: "Gather info and book emergencies immediately.",
+        settings: {
+          displayName: "Demo HVAC Contractor",
+          instructions: "Gather info and book emergencies immediately.",
+        },
       })
       .expect(201);
 

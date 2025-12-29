@@ -18,8 +18,6 @@ export interface TenantContext {
 
 export interface CreateTenantInput {
   name: string;
-  displayName?: string;
-  instructions?: string;
   timezone?: string;
   settings?: TenantSettings;
 }

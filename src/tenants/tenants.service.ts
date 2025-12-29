@@ -42,11 +42,12 @@ export class PrismaTenantsService implements TenantsService {
   async createTenant(input: CreateTenantInput): Promise<TenantContext> {
     const tenantId = randomUUID();
     const name = this.sanitizationService.sanitizeIdentifier(input.name);
+    const settingsInput = input.settings ?? {};
     const displayName = this.sanitizationService.sanitizeText(
-      input.displayName ?? "",
+      settingsInput.displayName ?? "",
     );
     const instructions = this.sanitizationService.sanitizeText(
-      input.instructions ?? "",
+      settingsInput.instructions ?? "",
     );
     const timezone =
       this.sanitizationService.sanitizeText(input.timezone ?? "") ||
@@ -57,18 +58,19 @@ export class PrismaTenantsService implements TenantsService {
     }
 
     const settings = this.normalizeSettings({
-      ...input.settings,
-      displayName: displayName || input.settings?.displayName,
-      instructions: instructions || input.settings?.instructions,
+      ...settingsInput,
+      displayName: displayName || settingsInput.displayName,
+      instructions: instructions || settingsInput.instructions,
       slug: name,
     });
-    const prompt = this.buildPrompt(tenantId, name, settings);
+    const tenantName = displayName || name;
+    const prompt = this.buildPrompt(tenantId, tenantName, settings);
     const settingsWithPrompt: TenantSettings = { ...settings, prompt };
 
     const tenant = await this.prisma.tenantOrganization.create({
       data: {
         id: tenantId,
-        name: displayName || name,
+        name: tenantName,
         timezone,
         settings: this.toJson(settingsWithPrompt),
       },

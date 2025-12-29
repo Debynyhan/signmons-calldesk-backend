@@ -5,17 +5,26 @@ const apiBase =
 
 type JsonRecord = Record<string, unknown>;
 
+export interface TenantSettingsInput {
+  displayName?: string;
+  instructions?: string;
+  diagnosticFeeCents?: number;
+  emergencySurchargeEnabled?: boolean;
+  emergencySurchargeAmountCents?: number;
+}
+
 export interface TenantRequest {
   name: string;
-  displayName: string;
-  instructions: string;
+  timezone?: string;
+  settings?: TenantSettingsInput;
   adminToken: string;
 }
 
 export interface TenantResponse {
   tenantId: string;
-  displayName: string;
-  instructions: string;
+  name: string;
+  timezone: string;
+  settings: TenantSettingsInput;
   prompt: string;
 }
 
