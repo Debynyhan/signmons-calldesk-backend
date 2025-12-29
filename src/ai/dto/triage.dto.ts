@@ -1,9 +1,21 @@
 import { Transform, TransformFnParams } from "class-transformer";
-import { IsString, IsUUID, MaxLength, MinLength } from "class-validator";
+import {
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 import { IsSafeMessage } from "../../common/validators/is-safe-message.decorator";
 
 const trimToString = ({ value }: TransformFnParams): string =>
   typeof value === "string" ? value.trim() : "";
+
+const CHANNELS = ["VOICE", "SMS", "WEBCHAT"] as const;
+
+type Channel = (typeof CHANNELS)[number];
 
 export class TriageDto {
   @Transform(trimToString)
@@ -20,4 +32,15 @@ export class TriageDto {
   @IsString()
   @IsSafeMessage()
   message!: string;
+
+  @Transform(trimToString)
+  @IsOptional()
+  @IsIn(CHANNELS, {
+    message: `channel must be one of: ${CHANNELS.join(", ")}`,
+  })
+  channel?: Channel;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }

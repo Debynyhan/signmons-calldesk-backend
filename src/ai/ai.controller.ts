@@ -9,7 +9,11 @@ export class AiController {
 
   @Post("triage")
   @Throttle({ default: { limit: 15, ttl: 60 } })
-  async triage(@Body() { tenantId, sessionId, message }: TriageDto) {
-    return this.aiService.triage(tenantId, sessionId, message);
+  async triage(@Body() dto: TriageDto) {
+    const { tenantId, sessionId, message, channel, metadata } = dto;
+    return this.aiService.triage(tenantId, sessionId, message, {
+      channel,
+      metadata,
+    });
   }
 }

@@ -24,6 +24,11 @@ const isFunctionToolCall = (
 ): toolCall is OpenAI.ChatCompletionMessageFunctionToolCall =>
   toolCall.type === "function";
 
+type TriageContext = {
+  channel?: "VOICE" | "SMS" | "WEBCHAT";
+  metadata?: Record<string, unknown>;
+};
+
 @Injectable()
 export class AiService {
   private readonly systemPrompt: string | null;
@@ -57,7 +62,12 @@ export class AiService {
     }
   }
 
-  async triage(tenantId: string, sessionId: string, userMessage: string) {
+  async triage(
+    tenantId: string,
+    sessionId: string,
+    userMessage: string,
+    context?: TriageContext,
+  ) {
     if (!this.systemPrompt) {
       throw new InternalServerErrorException(
         "AI is not configured on the server.",
@@ -123,6 +133,7 @@ export class AiService {
             safeSessionId,
             toolCall.function.name,
             toolCall.function.arguments,
+            context,
           );
         }
 
@@ -152,15 +163,18 @@ export class AiService {
         reply: replyPayload,
       };
 
+      const logMetadata = {
+        ...(context?.metadata ?? {}),
+        channel: context?.channel,
+        openAIResponseId,
+      };
+
       await this.callLogService.createLog({
         tenantId: safeTenantId,
         sessionId: safeSessionId,
         transcript: userMessage,
         aiResponse: replyPayload,
-        metadata: {
-          sessionId: safeSessionId,
-          openAIResponseId,
-        },
+        metadata: logMetadata,
       });
 
       return reply;
@@ -182,6 +196,7 @@ export class AiService {
     sessionId: string,
     name: string,
     rawArgs?: string,
+    context?: TriageContext,
   ) {
     if (name !== "create_job") {
       return {
@@ -203,7 +218,11 @@ export class AiService {
         jobId: job.id,
         transcript: rawArgs ?? "",
         aiResponse: JSON.stringify(job),
-        metadata: { toolName: name, sessionId },
+        metadata: {
+          ...(context?.metadata ?? {}),
+          channel: context?.channel,
+          toolName: name,
+        },
       });
       await this.callLogService.clearSession(tenantId, sessionId);
       return {
