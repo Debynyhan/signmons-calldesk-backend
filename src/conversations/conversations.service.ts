@@ -41,7 +41,9 @@ export class ConversationsService {
         status: dto.status ?? "ONGOING",
         currentFSMState,
         collectedData:
-          (dto.collectedData as Prisma.InputJsonValue | undefined) ?? null,
+          dto.collectedData === undefined
+            ? Prisma.JsonNull
+            : (dto.collectedData as Prisma.InputJsonValue),
         providerConversationId,
         twilioCallSid,
         twilioSmsSid,
