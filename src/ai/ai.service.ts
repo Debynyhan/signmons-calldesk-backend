@@ -19,6 +19,11 @@ import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
 
+const isFunctionToolCall = (
+  toolCall: OpenAI.ChatCompletionMessageToolCall,
+): toolCall is OpenAI.ChatCompletionMessageFunctionToolCall =>
+  toolCall.type === "function";
+
 @Injectable()
 export class AiService {
   private readonly systemPrompt: string | null;
@@ -112,7 +117,7 @@ export class AiService {
 
       if (message.tool_calls?.length) {
         const toolCall = message.tool_calls[0];
-        if (toolCall.type === "function" && toolCall.function?.name) {
+        if (isFunctionToolCall(toolCall) && toolCall.function?.name) {
           return this.handleToolCall(
             safeTenantId,
             safeSessionId,
@@ -121,10 +126,14 @@ export class AiService {
           );
         }
 
+        const rawArgs = isFunctionToolCall(toolCall)
+          ? (toolCall.function?.arguments ?? null)
+          : null;
+
         return {
           status: "tool_called",
           toolName: toolCall.type,
-          rawArgs: toolCall.function?.arguments ?? null,
+          rawArgs,
         };
       }
 

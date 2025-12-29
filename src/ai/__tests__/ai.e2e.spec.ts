@@ -2,6 +2,7 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import type OpenAI from "openai";
+import type { CallLog } from "@prisma/client";
 import { AppModule } from "../../app.module";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AI_PROVIDER } from "../ai.constants";
@@ -132,7 +133,9 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     const jobs = await prisma.job.findMany({ where: { tenantId } });
     expect(jobs).toHaveLength(1);
 
-    const logs = await prisma.callLog.findMany({ where: { tenantId } });
+    const logs: CallLog[] = await prisma.callLog.findMany({
+      where: { tenantId },
+    });
     expect(logs.some((log) => log.jobId === jobs[0].id)).toBe(true);
   });
 });

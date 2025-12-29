@@ -18,6 +18,8 @@ export class ToolSelectorService {
     const enabled = new Set(this.config.enabledTools);
     return this.toolRegistry
       .getTools()
-      .filter((tool) => enabled.has(tool.function?.name ?? ""));
+      .filter((tool) =>
+        tool.type === "function" ? enabled.has(tool.function.name) : false,
+      );
   }
 }
