@@ -1,4 +1,10 @@
 import { Injectable } from "@nestjs/common";
+import type {
+  CommunicationDirection,
+  CommunicationEvent,
+  Conversation,
+  Customer,
+} from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
@@ -9,12 +15,14 @@ export interface CreateCallLogInput {
   jobId?: string;
   transcript: string;
   aiResponse?: string;
-  direction?: "INBOUND" | "OUTBOUND";
+  direction?: CommunicationDirection;
   metadata?: Record<string, unknown>;
 }
 
 @Injectable()
 export class CallLogService {
+  private readonly defaultChannel = "WEBCHAT";
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
@@ -35,16 +43,46 @@ export class CallLogService {
       sessionId: input.sessionId,
     };
 
-    return this.prisma.callLog.create({
-      data: {
+    const conversation = await this.ensureConversation(
+      input.tenantId,
+      input.sessionId,
+    );
+
+    const inbound = await this.createCommunicationEvent({
+      tenantId: input.tenantId,
+      conversation,
+      jobId: input.jobId,
+      direction: input.direction ?? "INBOUND",
+      content: sanitizedTranscript,
+      metadata: metadataPayload,
+      status: "RECEIVED",
+    });
+
+    if (sanitizedResponse) {
+      await this.createCommunicationEvent({
         tenantId: input.tenantId,
-        jobId: input.jobId ?? null,
-        direction: input.direction ?? "INBOUND",
-        transcript: sanitizedTranscript,
-        aiResponse: sanitizedResponse,
+        conversation,
+        jobId: input.jobId,
+        direction: "OUTBOUND",
+        content: sanitizedResponse,
         metadata: metadataPayload,
+        status: "SENT",
+      });
+    }
+
+    await this.prisma.conversation.update({
+      where: {
+        id_tenantId: {
+          id: conversation.id,
+          tenantId: input.tenantId,
+        },
+      },
+      data: {
+        status: "ONGOING",
       },
     });
+
+    return inbound;
   }
 
   async getRecentMessages(
@@ -58,35 +96,40 @@ export class CallLogService {
       createdAt: Date;
     }>
   > {
-    const logs = await this.prisma.callLog.findMany({
+    const conversation = await this.prisma.conversation.findFirst({
       where: {
         tenantId,
-        metadata: {
-          path: ["sessionId"],
-          equals: sessionId,
-        },
-        sessionClosedAt: null,
+        providerConversationId: sessionId,
       },
-      orderBy: { createdAt: "desc" },
-      take: limit,
     });
 
-    return logs
-      .map((log) => [
-        {
-          role: "user" as const,
-          content: log.transcript,
-          createdAt: log.createdAt,
-        },
-        log.aiResponse
-          ? ({
-              role: "assistant" as const,
-              content: log.aiResponse,
-              createdAt: log.createdAt,
-            } as const)
-          : null,
-      ])
-      .flat()
+    if (!conversation) {
+      return [];
+    }
+
+    const events = await this.prisma.communicationEvent.findMany({
+      where: {
+        tenantId,
+        conversationId: conversation.id,
+        conversationTenantId: tenantId,
+      },
+      orderBy: { occurredAt: "desc" },
+      take: limit,
+      include: { content: true },
+    });
+
+    return events
+      .map((event) => {
+        const content = this.extractContent(event);
+        if (!content) {
+          return null;
+        }
+        return {
+          role: event.direction === "INBOUND" ? "user" : "assistant",
+          content,
+          createdAt: event.occurredAt,
+        } as const;
+      })
       .filter(
         (
           entry,
@@ -100,19 +143,131 @@ export class CallLogService {
   }
 
   async clearSession(tenantId: string, sessionId: string): Promise<void> {
-    await this.prisma.callLog.updateMany({
+    await this.prisma.conversation.updateMany({
       where: {
         tenantId,
-        metadata: {
-          path: ["sessionId"],
-          equals: sessionId,
-        },
-        sessionClosedAt: null,
+        providerConversationId: sessionId,
+        status: "ONGOING",
       },
       data: {
-        sessionClosedAt: new Date(),
+        status: "COMPLETED",
+        endedAt: new Date(),
       },
     });
+  }
+
+  private async ensureConversation(
+    tenantId: string,
+    sessionId: string,
+  ): Promise<Conversation> {
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId,
+        providerConversationId: sessionId,
+      },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const customer = await this.getOrCreatePlaceholderCustomer(
+      tenantId,
+      sessionId,
+    );
+
+    return this.prisma.conversation.create({
+      data: {
+        tenantId,
+        customerId: customer.id,
+        customerTenantId: tenantId,
+        channel: this.defaultChannel,
+        status: "ONGOING",
+        currentFSMState: "INTAKE",
+        collectedData: {},
+        providerConversationId: sessionId,
+        startedAt: new Date(),
+      },
+    });
+  }
+
+  private async getOrCreatePlaceholderCustomer(
+    tenantId: string,
+    sessionId: string,
+  ): Promise<Customer> {
+    const phone = `unknown-${sessionId}`;
+    return this.prisma.customer.upsert({
+      where: {
+        tenantId_phone: {
+          tenantId,
+          phone,
+        },
+      },
+      update: {
+        fullName: "Unknown Caller",
+      },
+      create: {
+        tenantId,
+        phone,
+        fullName: "Unknown Caller",
+        consentToText: false,
+        marketingOptIn: false,
+      },
+    });
+  }
+
+  private async createCommunicationEvent(input: {
+    tenantId: string;
+    conversation: Conversation;
+    jobId?: string;
+    direction: CommunicationDirection;
+    content: string;
+    metadata: Prisma.InputJsonValue;
+    status: "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
+  }): Promise<CommunicationEvent> {
+    const event = await this.prisma.communicationEvent.create({
+      data: {
+        tenantId: input.tenantId,
+        conversationId: input.conversation.id,
+        conversationTenantId: input.tenantId,
+        jobId: input.jobId ?? null,
+        jobTenantId: input.jobId ? input.tenantId : null,
+        channel: input.conversation.channel,
+        direction: input.direction,
+        provider: "OTHER",
+        externalId: null,
+        status: input.status,
+        redactionLevel: "PARTIAL",
+        occurredAt: new Date(),
+      },
+    });
+
+    await this.prisma.communicationContent.create({
+      data: {
+        tenantId: input.tenantId,
+        communicationEventId: event.id,
+        communicationEventTenantId: input.tenantId,
+        payload: {
+          text: input.content,
+          metadata: input.metadata,
+        },
+      },
+    });
+
+    return event;
+  }
+
+  private extractContent(
+    event: CommunicationEvent & { content?: { payload: unknown } | null },
+  ): string | null {
+    const payload = event.content?.payload;
+    if (typeof payload === "string") {
+      return payload;
+    }
+    if (payload && typeof payload === "object" && "text" in payload) {
+      const value = (payload as { text?: unknown }).text;
+      return typeof value === "string" ? value : null;
+    }
+    return null;
   }
 
   private obfuscatePii(value: string): string {

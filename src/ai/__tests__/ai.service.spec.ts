@@ -64,8 +64,12 @@ describe("AiService", () => {
     } as unknown as jest.Mocked<TenantsService>;
     tenantsService.getTenantContext.mockResolvedValue({
       tenantId,
-      displayName: "Demo Contractor",
-      instructions: "Collect caller details and determine urgency.",
+      name: "Demo Contractor",
+      timezone: "UTC",
+      settings: {
+        displayName: "Demo Contractor",
+        instructions: "Collect caller details and determine urgency.",
+      },
       prompt: "You are acting for Demo Contractor.",
     });
     callLogService = {
@@ -146,11 +150,12 @@ describe("AiService", () => {
     const jobRecord: JobRecord = {
       id: "job-1",
       tenantId,
+      customerId: "customer-1",
       customerName: "Alice",
-      phone: "123",
+      serviceCategoryId: "service-1",
       issueCategory: "HEATING",
       urgency: "EMERGENCY",
-      status: "PENDING" as const,
+      status: "CREATED" as const,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

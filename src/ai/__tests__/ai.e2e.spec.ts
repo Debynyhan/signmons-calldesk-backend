@@ -2,7 +2,6 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import type OpenAI from "openai";
-import type { CallLog } from "@prisma/client";
 import { AppModule } from "../../app.module";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AI_PROVIDER } from "../ai.constants";
@@ -82,9 +81,19 @@ describeOrSkip("AI create-job flow (e2e)", () => {
   });
 
   afterEach(async () => {
-    await prisma.callLog.deleteMany({});
+    await prisma.communicationContent.deleteMany({});
+    await prisma.communicationEvent.deleteMany({});
+    await prisma.conversationJobLink.deleteMany({});
+    await prisma.jobOffer.deleteMany({});
+    await prisma.ledgerEntry.deleteMany({});
+    await prisma.payment.deleteMany({});
     await prisma.job.deleteMany({});
-    await prisma.tenant.deleteMany({});
+    await prisma.conversation.deleteMany({});
+    await prisma.propertyAddress.deleteMany({});
+    await prisma.customer.deleteMany({});
+    await prisma.serviceCategory.deleteMany({});
+    await prisma.tenantSubscription.deleteMany({});
+    await prisma.tenantOrganization.deleteMany({});
   });
 
   afterAll(async () => {
@@ -133,9 +142,9 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     const jobs = await prisma.job.findMany({ where: { tenantId } });
     expect(jobs).toHaveLength(1);
 
-    const logs: CallLog[] = await prisma.callLog.findMany({
-      where: { tenantId },
+    const events = await prisma.communicationEvent.findMany({
+      where: { tenantId, jobId: jobs[0].id },
     });
-    expect(logs.some((log) => log.jobId === jobs[0].id)).toBe(true);
+    expect(events.length).toBeGreaterThan(0);
   });
 });

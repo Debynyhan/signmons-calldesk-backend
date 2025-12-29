@@ -13,7 +13,8 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate && node scripts/link-prisma-client.js",
+    "postinstall": "node scripts/link-prisma-client.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.10",

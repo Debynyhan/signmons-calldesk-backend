@@ -8,27 +8,32 @@ export interface CreateJobPayload {
   preferredTime?: string;
 }
 
-export interface CreateJobRequest {
-  tenantId: string;
-  payload: CreateJobPayload;
-}
-
 export interface CreateJobFromToolCallRequest {
   tenantId: string;
   sessionId: string;
   rawArgs?: string;
 }
 
-export type JobStatus = "PENDING" | "SCHEDULED" | "COMPLETED" | "CANCELLED";
+export type JobStatus =
+  | "CREATED"
+  | "OFFERED"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "EXPIRED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type JobUrgency = "STANDARD" | "EMERGENCY";
 
 export interface JobRecord {
   id: string;
   tenantId: string;
+  customerId: string;
   customerName: string;
-  phone: string;
-  address?: string;
+  serviceCategoryId: string;
   issueCategory: string;
-  urgency: string;
+  urgency: JobUrgency;
   description?: string;
   preferredTime?: string;
   status: JobStatus;
