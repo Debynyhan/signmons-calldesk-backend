@@ -215,7 +215,11 @@ describe("AiService", () => {
 describe("AiProviderService", () => {
   const mockConfig: ReturnType<typeof appConfig> = {
     environment: "test",
+    aiProvider: "openai",
     openAiApiKey: "test",
+    vertexProjectId: "project",
+    vertexLocation: "us-central1",
+    vertexModel: "gemini-1.5-pro",
     enablePreviewModel: true,
     enabledTools: [],
     port: 3000,

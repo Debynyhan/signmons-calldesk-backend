@@ -4,7 +4,11 @@ export type NodeEnvironment = "development" | "production" | "test";
 
 export interface AppConfig {
   environment: NodeEnvironment;
+  aiProvider: "openai" | "vertex";
   openAiApiKey: string;
+  vertexProjectId: string;
+  vertexLocation: string;
+  vertexModel: string;
   enablePreviewModel: boolean;
   enabledTools: string[];
   port: number;
@@ -26,7 +30,11 @@ export default registerAs("app", (): AppConfig => {
 
   return {
     environment: (process.env.NODE_ENV as NodeEnvironment) ?? "development",
+    aiProvider: (process.env.AI_PROVIDER as "openai" | "vertex") ?? "openai",
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
+    vertexProjectId: process.env.VERTEX_AI_PROJECT_ID ?? "",
+    vertexLocation: process.env.VERTEX_AI_LOCATION ?? "us-central1",
+    vertexModel: process.env.VERTEX_AI_MODEL ?? "gemini-1.5-pro",
     enablePreviewModel:
       (process.env.ENABLE_GPT5_1_CODEX ?? "false").toLowerCase() === "true",
     enabledTools: (process.env.ENABLED_TOOLS ?? "create_job")

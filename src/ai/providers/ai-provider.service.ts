@@ -36,22 +36,24 @@ export class AiProviderService implements IAiProvider {
         tool_choice: options.toolChoice ?? "auto",
       });
     } catch (error) {
-      const shouldFallback =
-        model === this.previewModel && this.isPreviewUnavailable(error);
-      if (shouldFallback) {
-        this.loggingService.warn(
-          `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
-          AiProviderService.name,
-        );
-        try {
-          return await this.client.createCompletion({
-            model: this.defaultModel,
-            messages: options.messages,
-            tools: options.tools,
-            tool_choice: options.toolChoice ?? "auto",
-          });
-        } catch (fallbackError) {
-          this.handleProviderError(fallbackError, options, this.defaultModel);
+      if (this.config.aiProvider === "openai") {
+        const shouldFallback =
+          model === this.previewModel && this.isPreviewUnavailable(error);
+        if (shouldFallback) {
+          this.loggingService.warn(
+            `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
+            AiProviderService.name,
+          );
+          try {
+            return await this.client.createCompletion({
+              model: this.defaultModel,
+              messages: options.messages,
+              tools: options.tools,
+              tool_choice: options.toolChoice ?? "auto",
+            });
+          } catch (fallbackError) {
+            this.handleProviderError(fallbackError, options, this.defaultModel);
+          }
         }
       }
       this.handleProviderError(error, options, model);
@@ -59,6 +61,9 @@ export class AiProviderService implements IAiProvider {
   }
 
   private selectModel(): string {
+    if (this.config.aiProvider === "vertex") {
+      return this.config.vertexModel;
+    }
     return this.config.enablePreviewModel
       ? this.previewModel
       : this.defaultModel;

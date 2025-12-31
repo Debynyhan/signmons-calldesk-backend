@@ -156,5 +156,13 @@ describeOrSkip("AI create-job flow (e2e)", () => {
       where: { tenantId, jobId: jobs[0].id },
     });
     expect(events.length).toBeGreaterThan(0);
+
+    const links = await prisma.conversationJobLink.findMany({
+      where: {
+        tenantId,
+        jobId: jobs[0].id,
+      },
+    });
+    expect(links).toHaveLength(1);
   });
 });

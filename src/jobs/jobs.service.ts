@@ -96,6 +96,7 @@ export class JobsService implements IJobRepository {
       request.sessionId,
       customer,
     );
+    await this.linkConversationJob(tenantId, request.sessionId, job.id);
 
     return this.mapJob(job, customer, serviceCategory, sanitizedPayload);
   }
@@ -278,6 +279,43 @@ export class JobsService implements IJobRepository {
       data: {
         customerId: customer.id,
         customerTenantId: tenantId,
+      },
+    });
+  }
+
+  private async linkConversationJob(
+    tenantId: string,
+    sessionId: string,
+    jobId: string,
+  ): Promise<void> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId,
+        providerConversationId: sessionId,
+      },
+      select: { id: true },
+    });
+
+    if (!conversation) {
+      return;
+    }
+
+    await this.prisma.conversationJobLink.upsert({
+      where: {
+        tenantId_conversationId_jobId: {
+          tenantId,
+          conversationId: conversation.id,
+          jobId,
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        conversationId: conversation.id,
+        conversationTenantId: tenantId,
+        jobId,
+        jobTenantId: tenantId,
+        relationType: "CREATED_FROM",
       },
     });
   }

@@ -4,7 +4,21 @@ export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid("development", "production", "test")
     .default("development"),
-  OPENAI_API_KEY: Joi.string().min(10).required(),
+  AI_PROVIDER: Joi.string().valid("openai", "vertex").default("openai"),
+  OPENAI_API_KEY: Joi.string()
+    .min(10)
+    .when("AI_PROVIDER", {
+      is: "openai",
+      then: Joi.required(),
+      otherwise: Joi.optional().allow(""),
+    }),
+  VERTEX_AI_PROJECT_ID: Joi.string().when("AI_PROVIDER", {
+    is: "vertex",
+    then: Joi.required(),
+    otherwise: Joi.optional().allow(""),
+  }),
+  VERTEX_AI_LOCATION: Joi.string().default("us-central1"),
+  VERTEX_AI_MODEL: Joi.string().default("gemini-1.5-pro"),
   DATABASE_URL: Joi.string()
     .uri({ scheme: ["postgres", "postgresql"] })
     .default(
