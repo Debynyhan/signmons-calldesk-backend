@@ -202,6 +202,7 @@ export class VertexAiProvider implements IAiProviderClient {
       role: "assistant",
       content: textParts.length ? textParts.join("\n") : null,
       tool_calls: toolCalls.length ? toolCalls : undefined,
+      refusal: null,
     };
 
     const usage =

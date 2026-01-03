@@ -16,7 +16,6 @@ import { HealthController } from "./health/health.controller";
 import { ConversationsModule } from "./conversations/conversations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { TenantsModule } from "./tenants/tenants.module";
-import { CoverageModule } from "./coverage/coverage.module";
 
 @Module({
   imports: [
@@ -40,7 +39,6 @@ import { CoverageModule } from "./coverage/coverage.module";
     JobsModule,
     TenantsModule,
     ConversationsModule,
-    CoverageModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
