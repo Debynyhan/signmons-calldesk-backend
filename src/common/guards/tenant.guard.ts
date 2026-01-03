@@ -15,13 +15,24 @@ export class TenantGuard implements CanActivate {
       .authUser;
 
     const tenantId = this.resolveTenantId(request);
+    const impersonatedTenant = this.readImpersonatedTenant(request);
 
     if (!tenantId) {
       throw new ForbiddenException("Tenant id is required for this resource.");
     }
 
     if (authUser?.role === "admin") {
-      return true;
+      if (authUser.tenantId && authUser.tenantId === tenantId) {
+        return true;
+      }
+
+      if (impersonatedTenant && impersonatedTenant === tenantId) {
+        return true;
+      }
+
+      throw new ForbiddenException(
+        "Admin impersonation header is required to access another tenant.",
+      );
     }
 
     if (!authUser?.tenantId) {
@@ -42,6 +53,14 @@ export class TenantGuard implements CanActivate {
       this.pickId((request.params as Record<string, unknown>)?.tenantId);
 
     return candidate ?? null;
+  }
+
+  private readImpersonatedTenant(request: Request): string | null {
+    const raw = request.headers["x-impersonated-tenant"];
+    if (typeof raw === "string" && raw.trim().length) {
+      return raw.trim();
+    }
+    return null;
   }
 
   private pickId(value: unknown): string | null {

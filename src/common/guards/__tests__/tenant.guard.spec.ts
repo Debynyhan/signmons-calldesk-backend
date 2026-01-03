@@ -11,6 +11,7 @@ const makeContext = (opts: {
     query: {},
     params: {},
     authUser: opts.authUser,
+    headers: {},
   } as Record<string, unknown>;
 
   return {
@@ -30,13 +31,36 @@ describe("TenantGuard", () => {
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it("allows admin with tenant provided", () => {
+  it("allows admin same-tenant without impersonation", () => {
     const context = makeContext({
       tenantId: "tenant-2",
-      authUser: { tenantId: "other", role: "admin" },
+      authUser: { tenantId: "tenant-2", role: "admin" },
     });
 
     expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it("allows admin cross-tenant with impersonation header", () => {
+    const context = makeContext({
+      tenantId: "tenant-2",
+      authUser: { tenantId: "tenant-1", role: "admin" },
+    });
+
+    const req = context.switchToHttp().getRequest();
+    (req as Record<string, unknown>).headers = {
+      "x-impersonated-tenant": "tenant-2",
+    };
+
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it("rejects admin cross-tenant without impersonation header", () => {
+    const context = makeContext({
+      tenantId: "tenant-2",
+      authUser: { tenantId: "tenant-1", role: "admin" },
+    });
+
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 
   it("rejects when tenant missing", () => {

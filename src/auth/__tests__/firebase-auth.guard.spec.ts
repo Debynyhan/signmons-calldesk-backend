@@ -4,6 +4,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { ExecutionContext } from "@nestjs/common";
 import { FirebaseAuthGuard } from "../firebase-auth.guard";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { LoggingService } from "../../logging/logging.service";
 
 jest.mock("jose", () => ({
   createRemoteJWKSet: jest.fn(() => jest.fn()),
@@ -28,6 +29,10 @@ describe("FirebaseAuthGuard", () => {
     get: jest.fn((key: string) => (key ? appConfig : appConfig)),
   } as unknown as ConfigService;
 
+  const loggingService = {
+    warn: jest.fn(),
+  } as unknown as LoggingService;
+
   const makeContext = (headers: Record<string, string>): MockHttpContext => {
     const req: { headers: Record<string, string>; authUser?: unknown } = {
       headers,
@@ -51,7 +56,7 @@ describe("FirebaseAuthGuard", () => {
       key: {} as never,
     });
 
-    const guard = new FirebaseAuthGuard(configService);
+    const guard = new FirebaseAuthGuard(configService, loggingService);
     const context = makeContext({ authorization: "Bearer test-token" });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -76,7 +81,7 @@ describe("FirebaseAuthGuard", () => {
   });
 
   it("rejects when token missing", async () => {
-    const guard = new FirebaseAuthGuard(configService);
+    const guard = new FirebaseAuthGuard(configService, loggingService);
     const context = makeContext({});
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(

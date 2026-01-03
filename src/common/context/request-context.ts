@@ -7,6 +7,7 @@ export interface RequestContextData {
   userId?: string;
   tenantId?: string;
   role?: string;
+  impersonatedTenantId?: string;
 }
 
 const requestContext = new AsyncLocalStorage<RequestContextData>();
@@ -27,13 +28,17 @@ export function requestContextMiddleware(
   });
 }
 
-export function setAuthContext(authUser: AuthenticatedUser | undefined): void {
+export function setAuthContext(
+  authUser: AuthenticatedUser | undefined,
+  impersonatedTenantId?: string | null,
+): void {
   const store = requestContext.getStore();
   if (!store || !authUser) return;
 
   store.userId = authUser.userId;
   store.tenantId = authUser.tenantId;
   store.role = authUser.role;
+  store.impersonatedTenantId = impersonatedTenantId ?? undefined;
 }
 
 export function getRequestContext(): RequestContextData | undefined {

@@ -14,6 +14,7 @@ import {
 import type { Request } from "express";
 import appConfig from "../config/app.config";
 import { setAuthContext } from "../common/context/request-context";
+import { LoggingService } from "../logging/logging.service";
 
 const FIREBASE_JWKS_URL =
   "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
@@ -30,7 +31,10 @@ export interface AuthenticatedUser {
 export class FirebaseAuthGuard implements CanActivate {
   private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly loggingService: LoggingService,
+  ) {
     const jwksUrl = new URL(FIREBASE_JWKS_URL);
     this.jwks = createRemoteJWKSet(jwksUrl);
   }
@@ -54,8 +58,20 @@ export class FirebaseAuthGuard implements CanActivate {
       app.identityIssuer,
       app.identityAudience,
     );
-    const authUser = this.mapUser(verified, token);
-    setAuthContext(authUser);
+    const impersonatedTenant = this.readImpersonatedTenant(request);
+    const authUser = this.mapUser(verified, token, impersonatedTenant);
+    setAuthContext(authUser, impersonatedTenant);
+
+    if (impersonatedTenant) {
+      this.loggingService.warn(
+        `Admin impersonation requested for tenant ${impersonatedTenant}`,
+        "FirebaseAuthGuard",
+      );
+      this.loggingService.log(
+        `Audit: user ${authUser.userId} impersonating tenant ${impersonatedTenant}`,
+        "Audit",
+      );
+    }
 
     // Attach to request for downstream guards/controllers
     (request as Request & { authUser?: AuthenticatedUser }).authUser = authUser;
@@ -97,6 +113,7 @@ export class FirebaseAuthGuard implements CanActivate {
   private mapUser(
     result: JWTVerifyResult<JWTPayload>,
     token: string,
+    impersonatedTenantId?: string | null,
   ): AuthenticatedUser {
     const payloadRaw = result.payload ?? {};
     const payload: JWTPayload & Record<string, unknown> =
@@ -109,11 +126,13 @@ export class FirebaseAuthGuard implements CanActivate {
       throw new UnauthorizedException("Token subject is missing.");
     }
 
-    const tenantId = this.readClaim(payload, [
-      "tenantId",
-      "tenant_id",
-      "https://signmons.app/tenantId",
-    ]);
+    const tenantId =
+      impersonatedTenantId ??
+      this.readClaim(payload, [
+        "tenantId",
+        "tenant_id",
+        "https://signmons.app/tenantId",
+      ]);
     const role = this.readClaim(payload, ["role", "https://signmons.app/role"]);
 
     return {
@@ -136,5 +155,20 @@ export class FirebaseAuthGuard implements CanActivate {
       }
     }
     return null;
+  }
+
+  private readImpersonatedTenant(request: Request): string | null {
+    const raw = request.headers["x-impersonated-tenant"];
+    if (typeof raw !== "string" || !raw.trim().length) {
+      return null;
+    }
+    const tenantId = raw.trim();
+
+    this.loggingService.warn(
+      `Admin impersonation requested for tenant ${tenantId}`,
+      "FirebaseAuthGuard",
+    );
+
+    return tenantId;
   }
 }

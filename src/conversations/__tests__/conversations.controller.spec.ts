@@ -8,6 +8,7 @@ import { FirebaseAuthGuard } from "../../auth/firebase-auth.guard";
 import { TenantGuard } from "../../common/guards/tenant.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { ConfigService } from "@nestjs/config";
+import { LoggingService } from "../../logging/logging.service";
 
 describe("ConversationsController", () => {
   let controller: ConversationsController;
@@ -28,6 +29,14 @@ describe("ConversationsController", () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn(),
+          },
+        },
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
           },
         },
         {

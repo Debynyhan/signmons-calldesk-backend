@@ -73,11 +73,11 @@ export class PrismaService
     const ctx = getRequestContext();
     const tenantId = ctx?.tenantId;
 
-    if (ctx?.role === "admin" || !tenantId) {
+    if (ctx?.role === "admin" && !ctx?.impersonatedTenantId) {
       return next(params);
     }
 
-    if (this.isTenantScoped(params.model, params.args)) {
+    if (tenantId && this.isTenantScoped(params.model, params.args)) {
       this.injectTenantFilter(params, tenantId);
     }
 
