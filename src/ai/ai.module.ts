@@ -12,6 +12,7 @@ import { AiErrorHandler } from "./ai-error.handler";
 import appConfig from "../config/app.config";
 import { VertexAiProvider } from "./providers/vertex.provider";
 import OpenAI from "openai";
+import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
 
 @Module({
   imports: [JobsModule, TenantsModule],
@@ -46,6 +47,7 @@ import OpenAI from "openai";
     ToolSelectorService,
     AiErrorHandler,
     AiService,
+    FirebaseAuthGuard,
   ],
 })
 export class AiModule {}

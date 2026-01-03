@@ -12,6 +12,9 @@ export const envValidationSchema = Joi.object({
       then: Joi.required(),
       otherwise: Joi.optional().allow(""),
     }),
+  IDENTITY_PROJECT_ID: Joi.string().default("signmons"),
+  IDENTITY_ISSUER: Joi.string().uri().optional(),
+  IDENTITY_AUDIENCE: Joi.string().optional(),
   VERTEX_AI_PROJECT_ID: Joi.string().when("AI_PROVIDER", {
     is: "vertex",
     then: Joi.required(),

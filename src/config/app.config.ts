@@ -15,6 +15,9 @@ export interface AppConfig {
   databaseUrl: string;
   adminApiToken: string;
   corsOrigins: string[];
+  identityProjectId: string;
+  identityIssuer: string;
+  identityAudience: string;
 }
 
 const DEFAULT_DATABASE_URL =
@@ -27,6 +30,11 @@ export default registerAs("app", (): AppConfig => {
       .map((origin) => origin.trim())
       .filter(Boolean) ?? [];
   const corsOrigins = rawOrigins.length > 0 ? rawOrigins : DEFAULT_CORS_ORIGINS;
+  const identityProjectId = process.env.IDENTITY_PROJECT_ID ?? "signmons";
+  const identityIssuer =
+    process.env.IDENTITY_ISSUER ??
+    `https://securetoken.google.com/${identityProjectId}`;
+  const identityAudience = process.env.IDENTITY_AUDIENCE ?? identityProjectId;
 
   return {
     environment: (process.env.NODE_ENV as NodeEnvironment) ?? "development",
@@ -45,5 +53,8 @@ export default registerAs("app", (): AppConfig => {
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
     corsOrigins,
+    identityProjectId,
+    identityIssuer,
+    identityAudience,
   };
 });

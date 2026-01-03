@@ -1,9 +1,11 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Post, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { AiService } from "./ai.service";
 import { TriageDto } from "./dto/triage.dto";
+import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
 
 @Controller("ai")
+@UseGuards(FirebaseAuthGuard)
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
