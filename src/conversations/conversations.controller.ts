@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Post,
   Query,
@@ -13,6 +14,7 @@ import { ConversationResponseDto } from "./dto/conversation-response.dto";
 import { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
 import { TenantGuard } from "../common/guards/tenant.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import type { Request } from "express";
 import type { AuthenticatedUser } from "../auth/firebase-auth.guard";
 
@@ -22,13 +24,17 @@ export class ConversationsController {
   constructor(private readonly conversationsService: ConversationsService) {}
 
   @Post()
+  @Roles("admin", "owner", "dispatcher")
   async createConversation(
     @Body() dto: CreateConversationDto,
     @Req() request: Request,
   ): Promise<ConversationResponseDto> {
     const authUser = (request as Request & { authUser?: AuthenticatedUser })
       .authUser;
-    const tenantId = authUser?.tenantId ?? dto.tenantId;
+    const tenantId = authUser?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException("Tenant is required from auth context.");
+    }
     const conversation = await this.conversationsService.createConversation({
       ...dto,
       tenantId,
@@ -37,13 +43,17 @@ export class ConversationsController {
   }
 
   @Get()
+  @Roles("admin", "owner", "dispatcher")
   async listConversations(
     @Query() query: ListConversationsQueryDto,
     @Req() request: Request,
   ): Promise<ConversationResponseDto[]> {
     const authUser = (request as Request & { authUser?: AuthenticatedUser })
       .authUser;
-    const tenantId = authUser?.tenantId ?? query.tenantId;
+    const tenantId = authUser?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException("Tenant is required from auth context.");
+    }
     const conversations =
       await this.conversationsService.listConversations(tenantId);
     return conversations.map((conversation) =>

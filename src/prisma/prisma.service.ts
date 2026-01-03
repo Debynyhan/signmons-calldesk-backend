@@ -72,9 +72,19 @@ export class PrismaService
   private enforceTenantIsolation: PrismaMiddleware = async (params, next) => {
     const ctx = getRequestContext();
     const tenantId = ctx?.tenantId;
+    const impersonatedTenantId = ctx?.impersonatedTenantId;
+    const role = ctx?.role ?? null;
+    const effectiveTenantId = impersonatedTenantId ?? tenantId;
 
     if (ctx?.role === "admin" && !ctx?.impersonatedTenantId) {
+      await this.setRlsContext(null, role);
       return next(params);
+    }
+
+    if (effectiveTenantId) {
+      await this.setRlsContext(effectiveTenantId, role);
+    } else if (role) {
+      await this.setRlsContext(null, role);
     }
 
     if (tenantId && this.isTenantScoped(params.model, params.args)) {
@@ -129,5 +139,13 @@ export class PrismaService
       where.tenantId = tenantId;
     }
     args.where = where;
+  }
+
+  private async setRlsContext(tenantId: string | null, role: string | null) {
+    await this.$executeRaw`
+      SELECT
+        set_config('app.current_tenant', ${tenantId ?? ""}, true),
+        set_config('app.current_role', ${role ?? ""}, true);
+    `;
   }
 }

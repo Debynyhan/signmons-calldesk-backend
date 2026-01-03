@@ -18,6 +18,7 @@ import { JobsModule } from "./jobs/jobs.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { CoverageModule } from "./coverage/coverage.module";
 import coverageConfig from "./config/coverage.config";
+import { RolesGuard } from "./common/guards/roles.guard";
 
 @Module({
   imports: [
@@ -53,6 +54,10 @@ import coverageConfig from "./config/coverage.config";
     {
       provide: APP_GUARD,
       useClass: TenantThrottleGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

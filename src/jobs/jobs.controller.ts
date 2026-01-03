@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Post,
   Query,
@@ -13,6 +14,7 @@ import { JobResponseDto } from "./dto/job-response.dto";
 import { ListJobsQueryDto } from "./dto/list-jobs-query.dto";
 import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
 import { TenantGuard } from "../common/guards/tenant.guard";
+import { Roles } from "../common/decorators/roles.decorator";
 import type { Request } from "express";
 import type { AuthenticatedUser } from "../auth/firebase-auth.guard";
 
@@ -22,25 +24,33 @@ export class JobsController {
   constructor(private readonly jobsService: JobsService) {}
 
   @Post()
+  @Roles("admin", "owner", "dispatcher")
   async createJob(
     @Body() dto: CreateJobRequestDto,
     @Req() request: Request,
   ): Promise<JobResponseDto> {
     const authUser = (request as Request & { authUser?: AuthenticatedUser })
       .authUser;
-    const tenantId = authUser?.tenantId ?? dto.tenantId;
+    const tenantId = authUser?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException("Tenant is required from auth context.");
+    }
     const job = await this.jobsService.createJob({ ...dto, tenantId });
     return this.toJobResponse(job);
   }
 
   @Get()
+  @Roles("admin", "owner", "dispatcher")
   async listJobs(
     @Query() query: ListJobsQueryDto,
     @Req() request: Request,
   ): Promise<JobResponseDto[]> {
     const authUser = (request as Request & { authUser?: AuthenticatedUser })
       .authUser;
-    const tenantId = authUser?.tenantId ?? query.tenantId;
+    const tenantId = authUser?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException("Tenant is required from auth context.");
+    }
     const jobs = await this.jobsService.listJobsDetailed(tenantId);
     return jobs.map((job) => this.toJobResponse(job));
   }
