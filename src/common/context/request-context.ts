@@ -18,9 +18,10 @@ export function requestContextMiddleware(
   next: NextFunction,
 ): void {
   const initial: RequestContextData = {
-    requestId: typeof req.headers["x-request-id"] === "string"
-      ? req.headers["x-request-id"]
-      : undefined,
+    requestId:
+      typeof req.headers["x-request-id"] === "string"
+        ? req.headers["x-request-id"]
+        : undefined,
   };
 
   requestContext.run(initial, () => {

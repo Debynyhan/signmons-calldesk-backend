@@ -80,8 +80,7 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "test-openai";
     process.env.IDENTITY_ISSUER =
       process.env.IDENTITY_ISSUER ?? "https://issuer.example.com";
-    process.env.IDENTITY_AUDIENCE =
-      process.env.IDENTITY_AUDIENCE ?? "signmons";
+    process.env.IDENTITY_AUDIENCE = process.env.IDENTITY_AUDIENCE ?? "signmons";
     process.env.IDENTITY_PROJECT_ID =
       process.env.IDENTITY_PROJECT_ID ?? "demo-project";
 

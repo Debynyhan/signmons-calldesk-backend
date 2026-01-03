@@ -19,6 +19,7 @@ import { TenantsModule } from "./tenants/tenants.module";
 import { CoverageModule } from "./coverage/coverage.module";
 import coverageConfig from "./config/coverage.config";
 import { RolesGuard } from "./common/guards/roles.guard";
+import { CoverageCheckModule } from "./coverage-check/coverage-check.module";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { RolesGuard } from "./common/guards/roles.guard";
     TenantsModule,
     ConversationsModule,
     CoverageModule,
+    CoverageCheckModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

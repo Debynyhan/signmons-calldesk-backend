@@ -103,13 +103,13 @@ export class PrismaService
 
     return Boolean(
       (data && Object.prototype.hasOwnProperty.call(data, "tenantId")) ||
-        (where && Object.prototype.hasOwnProperty.call(where, "tenantId")),
+      (where && Object.prototype.hasOwnProperty.call(where, "tenantId")),
     );
   }
 
   private injectTenantFilter(params: MiddlewareParams, tenantId: string) {
     const action = params.action;
-    const args = (params.args ?? {}) as Record<string, unknown>;
+    const args: Record<string, unknown> = params.args ?? {};
     params.args = args;
 
     if (action === "create") {

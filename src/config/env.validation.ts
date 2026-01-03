@@ -27,9 +27,7 @@ export const envValidationSchema = Joi.object({
     .default(
       "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk",
     ),
-  ADMIN_JWT_SECRET: Joi.string()
-    .min(16)
-    .default("changeme-admin-jwt-secret"),
+  ADMIN_JWT_SECRET: Joi.string().min(16).default("changeme-admin-jwt-secret"),
   ADMIN_JWT_ISSUER: Joi.string().default("signmons-admin"),
   ADMIN_JWT_AUDIENCE: Joi.string().default("admin-api"),
   ENABLE_GPT5_1_CODEX: Joi.string()

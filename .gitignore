@@ -2,6 +2,7 @@ node_modules
 coverage
 dist
 .env
+.env.example
 .env.local
 .DS_Store
 npm-debug.log*
@@ -11,3 +12,6 @@ pnpm-debug.log*
 .idea
 .vscode
 
+
+# Snyk Security Extension - AI Rules (auto-generated)
+.github/instructions/snyk_rules.instructions.md
