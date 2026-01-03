@@ -13,7 +13,9 @@ export interface AppConfig {
   enabledTools: string[];
   port: number;
   databaseUrl: string;
-  adminApiToken: string;
+  adminJwtSecret: string;
+  adminJwtIssuer: string;
+  adminJwtAudience: string;
   corsOrigins: string[];
   identityProjectId: string;
   identityIssuer: string;
@@ -51,7 +53,10 @@ export default registerAs("app", (): AppConfig => {
       .filter(Boolean),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
-    adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
+    adminJwtSecret:
+      process.env.ADMIN_JWT_SECRET ?? "changeme-admin-jwt-secret",
+    adminJwtIssuer: process.env.ADMIN_JWT_ISSUER ?? "signmons-admin",
+    adminJwtAudience: process.env.ADMIN_JWT_AUDIENCE ?? "admin-api",
     corsOrigins,
     identityProjectId,
     identityIssuer,

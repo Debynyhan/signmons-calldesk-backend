@@ -12,6 +12,7 @@
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest",
+    "check:coverage": "node scripts/check-coverage.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "prisma:generate": "prisma generate && node scripts/link-prisma-client.js",
     "postinstall": "node scripts/link-prisma-client.js"

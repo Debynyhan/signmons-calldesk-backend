@@ -227,7 +227,9 @@ describe("AiProviderService", () => {
     enabledTools: [],
     port: 3000,
     databaseUrl: "postgres://user:pass@localhost:5432/db",
-    adminApiToken: "token",
+    adminJwtSecret: "test-admin-jwt-secret-please-change",
+    adminJwtIssuer: "signmons-admin",
+    adminJwtAudience: "admin-api",
     corsOrigins: ["http://localhost:3000"],
   };
   let client: jest.Mocked<IAiProviderClient>;
