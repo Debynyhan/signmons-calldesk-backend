@@ -10,6 +10,18 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import appConfig from "../config/app.config";
+import { getRequestContext } from "../common/context/request-context";
+
+type MiddlewareParams = {
+  model?: string;
+  action: string;
+  args?: Record<string, unknown>;
+};
+
+type PrismaMiddleware = (
+  params: MiddlewareParams,
+  next: (params: MiddlewareParams) => Promise<unknown>,
+) => Promise<unknown>;
 
 @Injectable()
 export class PrismaService
@@ -33,6 +45,12 @@ export class PrismaService
       log: ["warn", "error"],
     });
 
+    const client = this as unknown as {
+      $use: (middleware: PrismaMiddleware) => void;
+    };
+
+    client.$use(this.enforceTenantIsolation.bind(this));
+
     this.pool = pool;
   }
 
@@ -49,5 +67,67 @@ export class PrismaService
     process.on("beforeExit", () => {
       void app.close();
     });
+  }
+
+  private enforceTenantIsolation: PrismaMiddleware = async (params, next) => {
+    const ctx = getRequestContext();
+    const tenantId = ctx?.tenantId;
+
+    if (ctx?.role === "admin" || !tenantId) {
+      return next(params);
+    }
+
+    if (this.isTenantScoped(params.model, params.args)) {
+      this.injectTenantFilter(params, tenantId);
+    }
+
+    return next(params);
+  };
+
+  private isTenantScoped(model?: string, args?: unknown): boolean {
+    if (!model || !args) return false;
+
+    const candidate = args as Record<string, unknown>;
+    const data = candidate.data as Record<string, unknown> | undefined;
+    const where = candidate.where as Record<string, unknown> | undefined;
+
+    return Boolean(
+      (data && Object.prototype.hasOwnProperty.call(data, "tenantId")) ||
+        (where && Object.prototype.hasOwnProperty.call(where, "tenantId")),
+    );
+  }
+
+  private injectTenantFilter(params: MiddlewareParams, tenantId: string) {
+    const action = params.action;
+    const args = (params.args ?? {}) as Record<string, unknown>;
+    params.args = args;
+
+    if (action === "create") {
+      const data = (args.data ?? {}) as Record<string, unknown>;
+      if (data.tenantId === undefined) {
+        data.tenantId = tenantId;
+      }
+      args.data = data;
+      return;
+    }
+
+    const needsWhere = [
+      "findUnique",
+      "findFirst",
+      "findMany",
+      "update",
+      "updateMany",
+      "delete",
+      "deleteMany",
+      "upsert",
+    ].includes(action);
+
+    if (!needsWhere) return;
+
+    const where = (args.where ?? {}) as Record<string, unknown>;
+    if (where.tenantId === undefined) {
+      where.tenantId = tenantId;
+    }
+    args.where = where;
   }
 }

@@ -4,6 +4,7 @@ import { ConfigType } from "@nestjs/config";
 import type { NextFunction, Request, Response } from "express";
 import { AppModule } from "./app.module";
 import { SanitizedExceptionFilter } from "./common/filters/sanitized-exception.filter";
+import { requestContextMiddleware } from "./common/context/request-context";
 import { LoggingService } from "./logging/logging.service";
 import appConfig from "./config/app.config";
 import { PrismaService } from "./prisma/prisma.service";
@@ -53,6 +54,8 @@ async function bootstrap() {
 
     next();
   });
+
+  app.use(requestContextMiddleware);
 
   app.useGlobalPipes(
     new ValidationPipe({

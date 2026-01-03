@@ -13,6 +13,7 @@ import {
 } from "jose";
 import type { Request } from "express";
 import appConfig from "../config/app.config";
+import { setAuthContext } from "../common/context/request-context";
 
 const FIREBASE_JWKS_URL =
   "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
@@ -54,6 +55,7 @@ export class FirebaseAuthGuard implements CanActivate {
       app.identityAudience,
     );
     const authUser = this.mapUser(verified, token);
+    setAuthContext(authUser);
 
     // Attach to request for downstream guards/controllers
     (request as Request & { authUser?: AuthenticatedUser }).authUser = authUser;
