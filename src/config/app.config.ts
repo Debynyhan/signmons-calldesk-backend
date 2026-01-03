@@ -53,8 +53,7 @@ export default registerAs("app", (): AppConfig => {
       .filter(Boolean),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
-    adminJwtSecret:
-      process.env.ADMIN_JWT_SECRET ?? "changeme-admin-jwt-secret",
+    adminJwtSecret: process.env.ADMIN_JWT_SECRET ?? "changeme-admin-jwt-secret",
     adminJwtIssuer: process.env.ADMIN_JWT_ISSUER ?? "signmons-admin",
     adminJwtAudience: process.env.ADMIN_JWT_AUDIENCE ?? "admin-api",
     corsOrigins,
