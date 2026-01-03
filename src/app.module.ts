@@ -16,13 +16,15 @@ import { HealthController } from "./health/health.controller";
 import { ConversationsModule } from "./conversations/conversations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { TenantsModule } from "./tenants/tenants.module";
+import { CoverageModule } from "./coverage/coverage.module";
+import coverageConfig from "./config/coverage.config";
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
-      load: [appConfig],
+      load: [appConfig, coverageConfig],
       validationSchema: envValidationSchema,
     }),
     LoggingModule,
@@ -39,6 +41,7 @@ import { TenantsModule } from "./tenants/tenants.module";
     JobsModule,
     TenantsModule,
     ConversationsModule,
+    CoverageModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

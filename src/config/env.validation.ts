@@ -32,5 +32,10 @@ export const envValidationSchema = Joi.object({
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),
   ENABLED_TOOLS: Joi.string().default("create_job"),
+  COVERAGE_SUMMARY_PATH: Joi.string().default("coverage/coverage-summary.json"),
+  COVERAGE_MIN_STATEMENTS: Joi.number().min(0).default(0),
+  COVERAGE_MIN_BRANCHES: Joi.number().min(0).default(0),
+  COVERAGE_MIN_FUNCTIONS: Joi.number().min(0).default(0),
+  COVERAGE_MIN_LINES: Joi.number().min(0).default(0),
   PORT: Joi.number().min(0).max(65535).default(3000),
 });
