@@ -1,8 +1,13 @@
 import { Test } from "@nestjs/testing";
+import type { Request } from "express";
 import type { CreateJobRequestDto } from "../dto/create-job-request.dto";
 import type { ListJobsQueryDto } from "../dto/list-jobs-query.dto";
 import { JobsController } from "../jobs.controller";
 import { JobsService } from "../jobs.service";
+import { FirebaseAuthGuard } from "../../auth/firebase-auth.guard";
+import { TenantGuard } from "../../common/guards/tenant.guard";
+import { RolesGuard } from "../../common/guards/roles.guard";
+import { ConfigService } from "@nestjs/config";
 
 describe("JobsController", () => {
   let controller: JobsController;
@@ -18,6 +23,30 @@ describe("JobsController", () => {
         {
           provide: JobsService,
           useValue: jobsService,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn(),
+          },
+        },
+        {
+          provide: FirebaseAuthGuard,
+          useValue: {
+            canActivate: () => true,
+          },
+        },
+        {
+          provide: TenantGuard,
+          useValue: {
+            canActivate: () => true,
+          },
+        },
+        {
+          provide: RolesGuard,
+          useValue: {
+            canActivate: () => true,
+          },
         },
       ],
     }).compile();
@@ -56,13 +85,16 @@ describe("JobsController", () => {
       serviceCategory: { name: "HEATING" },
     });
 
-    const response = await controller.createJob({
-      tenantId: "tenant-1",
-      customerId: "customer-1",
-      propertyAddressId: "address-1",
-      serviceCategoryId: "category-1",
-      urgency: "STANDARD",
-    } as CreateJobRequestDto);
+    const response = await controller.createJob(
+      {
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        propertyAddressId: "address-1",
+        serviceCategoryId: "category-1",
+        urgency: "STANDARD",
+      } as CreateJobRequestDto,
+      { authUser: { tenantId: "tenant-1" } } as unknown as Request,
+    );
 
     expect(response).toMatchObject({
       id: "job-1",
@@ -108,9 +140,12 @@ describe("JobsController", () => {
       },
     ]);
 
-    const response = await controller.listJobs({
-      tenantId: "tenant-2",
-    } as ListJobsQueryDto);
+    const response = await controller.listJobs(
+      {
+        tenantId: "tenant-2",
+      } as ListJobsQueryDto,
+      { authUser: { tenantId: "tenant-2" } } as unknown as Request,
+    );
 
     expect(response).toEqual([
       {

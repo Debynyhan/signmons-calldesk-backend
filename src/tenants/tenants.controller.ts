@@ -4,9 +4,11 @@ import type { TenantsService } from "./interfaces/tenants-service.interface";
 import { CreateTenantDto } from "./dto/create-tenant.dto";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
 import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
+import { Roles } from "../common/decorators/roles.decorator";
+import { RolesGuard } from "../common/guards/roles.guard";
 
 @Controller("tenants")
-@UseGuards(FirebaseAuthGuard, AdminApiGuard)
+@UseGuards(FirebaseAuthGuard, RolesGuard, AdminApiGuard)
 export class TenantsController {
   constructor(
     @Inject(TENANTS_SERVICE)
@@ -14,6 +16,7 @@ export class TenantsController {
   ) {}
 
   @Post()
+  @Roles("admin")
   async createTenant(@Body() dto: CreateTenantDto) {
     return this.tenantsService.createTenant(dto);
   }

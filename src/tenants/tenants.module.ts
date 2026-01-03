@@ -5,6 +5,7 @@ import { TenantsController } from "./tenants.controller";
 import { SanitizationModule } from "../sanitization/sanitization.module";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
 import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
+import { RolesGuard } from "../common/guards/roles.guard";
 
 @Module({
   imports: [SanitizationModule],
@@ -13,6 +14,7 @@ import { FirebaseAuthGuard } from "../auth/firebase-auth.guard";
     PrismaTenantsService,
     AdminApiGuard,
     FirebaseAuthGuard,
+    RolesGuard,
     {
       provide: TENANTS_SERVICE,
       useExisting: PrismaTenantsService,

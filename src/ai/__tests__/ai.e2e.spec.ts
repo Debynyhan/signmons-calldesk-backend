@@ -2,7 +2,6 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import type OpenAI from "openai";
-import { AppModule } from "../../app.module";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AI_PROVIDER } from "../ai.constants";
 import type { IAiProvider } from "../interfaces/ai-provider.interface";
@@ -53,6 +52,14 @@ class FakeAiProvider implements IAiProvider {
   }
 }
 
+process.env.AI_PROVIDER = process.env.AI_PROVIDER ?? "openai";
+process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "test-openai";
+process.env.IDENTITY_ISSUER =
+  process.env.IDENTITY_ISSUER ?? "https://issuer.example.com";
+process.env.IDENTITY_AUDIENCE = process.env.IDENTITY_AUDIENCE ?? "signmons";
+process.env.IDENTITY_PROJECT_ID =
+  process.env.IDENTITY_PROJECT_ID ?? "demo-project";
+
 const canRunE2E =
   process.env.RUN_E2E === "true" && Boolean(process.env.TEST_DATABASE_URL);
 const describeOrSkip = canRunE2E ? describe : describe.skip;
@@ -70,6 +77,15 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     }
     process.env.ADMIN_API_TOKEN =
       process.env.ADMIN_API_TOKEN ?? "test-admin-token";
+    process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "test-openai";
+    process.env.IDENTITY_ISSUER =
+      process.env.IDENTITY_ISSUER ?? "https://issuer.example.com";
+    process.env.IDENTITY_AUDIENCE =
+      process.env.IDENTITY_AUDIENCE ?? "signmons";
+    process.env.IDENTITY_PROJECT_ID =
+      process.env.IDENTITY_PROJECT_ID ?? "demo-project";
+
+    const { AppModule } = await import("../../app.module");
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],

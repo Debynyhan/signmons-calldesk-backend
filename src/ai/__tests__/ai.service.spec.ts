@@ -217,6 +217,9 @@ describe("AiProviderService", () => {
     environment: "test",
     aiProvider: "openai",
     openAiApiKey: "test",
+    identityProjectId: "signmons",
+    identityIssuer: "https://issuer.example.com",
+    identityAudience: "signmons",
     vertexProjectId: "project",
     vertexLocation: "us-central1",
     vertexModel: "gemini-1.5-pro",
@@ -227,7 +230,6 @@ describe("AiProviderService", () => {
     adminApiToken: "token",
     corsOrigins: ["http://localhost:3000"],
   };
-
   let client: jest.Mocked<IAiProviderClient>;
   let errorHandler: jest.Mocked<AiErrorHandler>;
   let loggingService: jest.Mocked<LoggingService>;

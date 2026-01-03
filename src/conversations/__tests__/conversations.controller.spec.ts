@@ -1,8 +1,13 @@
 import { Test } from "@nestjs/testing";
+import type { Request } from "express";
 import type { CreateConversationDto } from "../dto/create-conversation.dto";
 import type { ListConversationsQueryDto } from "../dto/list-conversations-query.dto";
 import { ConversationsController } from "../conversations.controller";
 import { ConversationsService } from "../conversations.service";
+import { FirebaseAuthGuard } from "../../auth/firebase-auth.guard";
+import { TenantGuard } from "../../common/guards/tenant.guard";
+import { RolesGuard } from "../../common/guards/roles.guard";
+import { ConfigService } from "@nestjs/config";
 
 describe("ConversationsController", () => {
   let controller: ConversationsController;
@@ -18,6 +23,30 @@ describe("ConversationsController", () => {
         {
           provide: ConversationsService,
           useValue: conversationsService,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn(),
+          },
+        },
+        {
+          provide: FirebaseAuthGuard,
+          useValue: {
+            canActivate: () => true,
+          },
+        },
+        {
+          provide: TenantGuard,
+          useValue: {
+            canActivate: () => true,
+          },
+        },
+        {
+          provide: RolesGuard,
+          useValue: {
+            canActivate: () => true,
+          },
         },
       ],
     }).compile();
@@ -49,15 +78,18 @@ describe("ConversationsController", () => {
       updatedAt: now,
     });
 
-    const response = await controller.createConversation({
-      tenantId: "tenant-1",
-      customerId: "customer-1",
-      channel: "WEBCHAT",
-      currentFSMState: "INTAKE",
-      collectedData: { issue: "no heat" },
-      providerConversationId: "session-1",
-      startedAt: now.toISOString(),
-    } as CreateConversationDto);
+    const response = await controller.createConversation(
+      {
+        tenantId: "tenant-1",
+        customerId: "customer-1",
+        channel: "WEBCHAT",
+        currentFSMState: "INTAKE",
+        collectedData: { issue: "no heat" },
+        providerConversationId: "session-1",
+        startedAt: now.toISOString(),
+      } as CreateConversationDto,
+      { authUser: { tenantId: "tenant-1" } } as unknown as Request,
+    );
 
     expect(response).toEqual({
       id: "conv-1",
@@ -98,9 +130,12 @@ describe("ConversationsController", () => {
       },
     ]);
 
-    const response = await controller.listConversations({
-      tenantId: "tenant-2",
-    } as ListConversationsQueryDto);
+    const response = await controller.listConversations(
+      {
+        tenantId: "tenant-2",
+      } as ListConversationsQueryDto,
+      { authUser: { tenantId: "tenant-2" } } as unknown as Request,
+    );
 
     expect(response).toEqual([
       {
