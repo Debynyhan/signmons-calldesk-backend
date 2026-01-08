@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { ConfigType } from "@nestjs/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import appConfig from "../config/app.config";
 import { getRequestContext } from "../common/context/request-context";
@@ -45,11 +45,31 @@ export class PrismaService
       log: ["warn", "error"],
     });
 
-    const client = this as unknown as {
-      $use: (middleware: PrismaMiddleware) => void;
-    };
+    const serviceRef = this;
+    const extension = Prisma.defineExtension({
+      query: {
+        $allModels: {
+          $allOperations: async ({ model, operation, args, query }) => {
+            const normalizedArgs =
+              args && typeof args === "object"
+                ? (args as Record<string, unknown>)
+                : undefined;
+            const params: MiddlewareParams = {
+              model,
+              action: operation,
+              args: normalizedArgs,
+            };
 
-    client.$use(this.enforceTenantIsolation.bind(this));
+            return serviceRef.enforceTenantIsolation(params, (updated) =>
+              query(updated.args ?? args),
+            );
+          },
+        },
+      },
+    });
+
+    const extended = this.$extends(extension);
+    Object.assign(this, extended);
 
     this.pool = pool;
   }
