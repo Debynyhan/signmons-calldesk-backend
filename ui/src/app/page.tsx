@@ -5,6 +5,7 @@ import styles from "./page.module.css";
 import {
   ApiError,
   ConversationResponse,
+  DevAuthInput,
   JobResponse,
   TenantResponse,
   TriageResponse,
@@ -71,6 +72,12 @@ const formatJson = (payload: unknown): string =>
 
 export default function Home() {
   const apiBase = useMemo(() => getApiBaseUrl(), []);
+  const [devAuthForm, setDevAuthForm] = useState({
+    token: process.env.NEXT_PUBLIC_DEV_AUTH_TOKEN ?? "",
+    role: process.env.NEXT_PUBLIC_DEV_AUTH_ROLE ?? "admin",
+    userId: process.env.NEXT_PUBLIC_DEV_AUTH_USER_ID ?? "dev-user",
+    tenantId: "",
+  });
 
   const [tenantForm, setTenantForm] = useState({
     name: "demo_hvac",
@@ -136,6 +143,20 @@ export default function Home() {
     string | null
   >(null);
 
+  const devAuthInput = useMemo<DevAuthInput | undefined>(() => {
+    const token = devAuthForm.token.trim();
+    if (!token) {
+      return undefined;
+    }
+    const tenantId = devAuthForm.tenantId.trim();
+    return {
+      token,
+      role: devAuthForm.role.trim() || "admin",
+      userId: devAuthForm.userId.trim() || "dev-user",
+      tenantId: tenantId.length ? tenantId : undefined,
+    };
+  }, [devAuthForm]);
+
   const lastJob = useMemo(() => {
     if (lastResponse && isJobCreatedResponse(lastResponse)) {
       return lastResponse.job;
@@ -149,8 +170,8 @@ export default function Home() {
 
   const handleTenantSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!tenantForm.adminToken.trim()) {
-      setTenantError("Admin token is required.");
+    if (!tenantForm.adminToken.trim() && !devAuthInput) {
+      setTenantError("Admin token or dev auth is required.");
       return;
     }
 
@@ -158,10 +179,13 @@ export default function Home() {
     setTenantError(null);
 
     try {
-      const response = await createTenant({
-        ...tenantForm,
-        timezone: tenantForm.timezone.trim() || undefined,
-      });
+      const response = await createTenant(
+        {
+          ...tenantForm,
+          timezone: tenantForm.timezone.trim() || undefined,
+        },
+        devAuthInput,
+      );
       setTenantResult(response);
       const tenantDisplayName =
         response.settings?.displayName?.trim() || response.name;
@@ -205,7 +229,7 @@ export default function Home() {
     });
 
     try {
-      const response = await sendTriage(triageForm);
+      const response = await sendTriage(triageForm, devAuthInput);
       setLastResponse(response);
       addConversationEntry({
         role: "assistant",
@@ -235,21 +259,24 @@ export default function Home() {
     setJobError(null);
 
     try {
-      const response = await createJob({
-        tenantId: jobForm.tenantId.trim(),
-        customerId: jobForm.customerId.trim(),
-        propertyAddressId: jobForm.propertyAddressId.trim(),
-        serviceCategoryId: jobForm.serviceCategoryId.trim(),
-        urgency: jobForm.urgency === "EMERGENCY" ? "EMERGENCY" : "STANDARD",
-        description: jobForm.description.trim() || undefined,
-        preferredWindowLabel: jobForm.preferredWindowLabel
-          ? (jobForm.preferredWindowLabel as
-              | "ASAP"
-              | "MORNING"
-              | "AFTERNOON"
-              | "EVENING")
-          : undefined,
-      });
+      const response = await createJob(
+        {
+          tenantId: jobForm.tenantId.trim(),
+          customerId: jobForm.customerId.trim(),
+          propertyAddressId: jobForm.propertyAddressId.trim(),
+          serviceCategoryId: jobForm.serviceCategoryId.trim(),
+          urgency: jobForm.urgency === "EMERGENCY" ? "EMERGENCY" : "STANDARD",
+          description: jobForm.description.trim() || undefined,
+          preferredWindowLabel: jobForm.preferredWindowLabel
+            ? (jobForm.preferredWindowLabel as
+                | "ASAP"
+                | "MORNING"
+                | "AFTERNOON"
+                | "EVENING")
+            : undefined,
+        },
+        devAuthInput,
+      );
       setJobResult(response);
     } catch (error) {
       const message =
@@ -269,7 +296,7 @@ export default function Home() {
 
     try {
       const tenantId = jobsTenantId.trim();
-      const response = await listJobs(tenantId);
+      const response = await listJobs(tenantId, devAuthInput);
       setJobsList(response);
     } catch (error) {
       const message =
@@ -294,15 +321,18 @@ export default function Home() {
       const collectedData = collectedDataRaw
         ? (JSON.parse(collectedDataRaw) as Record<string, unknown>)
         : undefined;
-      const response = await createConversation({
-        tenantId: conversationForm.tenantId.trim(),
-        customerId: conversationForm.customerId.trim(),
-        channel: conversationForm.channel as "VOICE" | "SMS" | "WEBCHAT",
-        currentFSMState: conversationForm.currentFSMState.trim() || undefined,
-        providerConversationId:
-          conversationForm.providerConversationId.trim() || undefined,
-        collectedData,
-      });
+      const response = await createConversation(
+        {
+          tenantId: conversationForm.tenantId.trim(),
+          customerId: conversationForm.customerId.trim(),
+          channel: conversationForm.channel as "VOICE" | "SMS" | "WEBCHAT",
+          currentFSMState: conversationForm.currentFSMState.trim() || undefined,
+          providerConversationId:
+            conversationForm.providerConversationId.trim() || undefined,
+          collectedData,
+        },
+        devAuthInput,
+      );
       setConversationResult(response);
     } catch (error) {
       const message =
@@ -324,7 +354,7 @@ export default function Home() {
 
     try {
       const tenantId = conversationsTenantId.trim();
-      const response = await listConversations(tenantId);
+      const response = await listConversations(tenantId, devAuthInput);
       setConversationsList(response);
     } catch (error) {
       const message =
@@ -344,12 +374,101 @@ export default function Home() {
           <h1>Signmons CallDesk Sandbox</h1>
           <p>
             Requests are pointed at <code>{apiBase}</code>. Supply your admin
-            token manually so it never lives in source control.
+            token manually so it never lives in source control. Use dev auth
+            for MVP-only testing.
           </p>
         </div>
       </header>
 
       <main className={styles.grid}>
+        <section className={styles.card}>
+          <header>
+            <h2>Dev auth</h2>
+            <p>
+              Optional shortcut to bypass Firebase in development. Leave blank
+              to use normal auth.
+            </p>
+          </header>
+
+          <form
+            className={styles.form}
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <label className={styles.label}>
+              Dev auth token
+              <input
+                className={styles.input}
+                name="devAuthToken"
+                type="password"
+                value={devAuthForm.token}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    token: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="dev-auth-secret"
+              />
+            </label>
+
+            <label className={styles.label}>
+              Role
+              <input
+                className={styles.input}
+                name="devAuthRole"
+                value={devAuthForm.role}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    role: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="admin"
+              />
+            </label>
+
+            <label className={styles.label}>
+              User ID
+              <input
+                className={styles.input}
+                name="devAuthUserId"
+                value={devAuthForm.userId}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    userId: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="dev-user"
+              />
+            </label>
+
+            <label className={styles.label}>
+              Tenant ID override (optional)
+              <input
+                className={styles.input}
+                name="devAuthTenantId"
+                value={devAuthForm.tenantId}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    tenantId: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="tenant UUID"
+              />
+            </label>
+
+            <p className={styles.hint}>
+              Dev auth headers are sent only when a token is provided.
+            </p>
+          </form>
+        </section>
+
         <section className={styles.card}>
           <header>
             <h2>Onboard a tenant</h2>
@@ -451,7 +570,7 @@ export default function Home() {
                 }
                 autoComplete="off"
                 placeholder="Enter token at runtime"
-                required
+                required={!devAuthInput}
               />
             </label>
 

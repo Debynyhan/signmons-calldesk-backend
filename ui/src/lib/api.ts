@@ -2,6 +2,17 @@ const DEFAULT_API_URL = "http://localhost:3000";
 
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? DEFAULT_API_URL;
+const devAuthToken = process.env.NEXT_PUBLIC_DEV_AUTH_TOKEN?.trim();
+const devAuthRole = process.env.NEXT_PUBLIC_DEV_AUTH_ROLE?.trim() || "admin";
+const devAuthUserId =
+  process.env.NEXT_PUBLIC_DEV_AUTH_USER_ID?.trim() || "dev-user";
+
+export interface DevAuthInput {
+  token: string;
+  role?: string;
+  userId?: string;
+  tenantId?: string;
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -73,11 +84,15 @@ async function postJson<T>(
   path: string,
   body: JsonRecord,
   headers: Record<string, string> = {},
+  devAuth?: DevAuthInput,
 ): Promise<T> {
+  const tenantId =
+    typeof body.tenantId === "string" ? body.tenantId : undefined;
   const response = await fetch(`${apiBase}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...buildDevAuthHeaders(tenantId, devAuth),
       ...headers,
     },
     cache: "no-store",
@@ -103,18 +118,20 @@ async function postJson<T>(
 
 export async function createTenant(
   input: TenantRequest,
+  devAuth?: DevAuthInput,
 ): Promise<TenantResponse> {
   const { adminToken, ...payload } = input;
 
   return postJson<TenantResponse>("/tenants", payload, {
     "x-admin-token": adminToken.trim(),
-  });
+  }, devAuth);
 }
 
 export async function sendTriage(
   input: TriageRequest,
+  devAuth?: DevAuthInput,
 ): Promise<TriageResponse> {
-  return postJson<TriageResponse>("/ai/triage", input);
+  return postJson<TriageResponse>("/ai/triage", input, {}, devAuth);
 }
 
 export interface JobCreateRequest {
@@ -165,12 +182,16 @@ export interface JobResponse {
 
 export async function createJob(
   input: JobCreateRequest,
+  devAuth?: DevAuthInput,
 ): Promise<JobResponse> {
-  return postJson<JobResponse>("/jobs", input);
+  return postJson<JobResponse>("/jobs", input, {}, devAuth);
 }
 
-export async function listJobs(tenantId: string): Promise<JobResponse[]> {
-  return getJson<JobResponse[]>("/jobs", { tenantId });
+export async function listJobs(
+  tenantId: string,
+  devAuth?: DevAuthInput,
+): Promise<JobResponse[]> {
+  return getJson<JobResponse[]>("/jobs", { tenantId }, devAuth);
 }
 
 export interface ConversationCreateRequest {
@@ -205,14 +226,16 @@ export interface ConversationResponse {
 
 export async function createConversation(
   input: ConversationCreateRequest,
+  devAuth?: DevAuthInput,
 ): Promise<ConversationResponse> {
-  return postJson<ConversationResponse>("/conversations", input);
+  return postJson<ConversationResponse>("/conversations", input, {}, devAuth);
 }
 
 export async function listConversations(
   tenantId: string,
+  devAuth?: DevAuthInput,
 ): Promise<ConversationResponse[]> {
-  return getJson<ConversationResponse[]>("/conversations", { tenantId });
+  return getJson<ConversationResponse[]>("/conversations", { tenantId }, devAuth);
 }
 
 export function getApiBaseUrl(): string {
@@ -222,6 +245,7 @@ export function getApiBaseUrl(): string {
 async function getJson<T>(
   path: string,
   query?: Record<string, string | number | boolean | undefined>,
+  devAuth?: DevAuthInput,
 ): Promise<T> {
   const url = new URL(`${apiBase}${path}`);
   if (query) {
@@ -232,10 +256,13 @@ async function getJson<T>(
       url.searchParams.set(key, String(value));
     }
   }
+  const tenantId =
+    typeof query?.tenantId === "string" ? query.tenantId : undefined;
   const response = await fetch(url.toString(), {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
+      ...buildDevAuthHeaders(tenantId, devAuth),
     },
     cache: "no-store",
   });
@@ -254,4 +281,23 @@ async function getJson<T>(
   }
 
   return payload as T;
+}
+
+function buildDevAuthHeaders(
+  tenantId?: string,
+  devAuth?: DevAuthInput,
+): Record<string, string> {
+  const token = devAuth?.token ?? devAuthToken;
+  if (!token) {
+    return {};
+  }
+  const role = devAuth?.role?.trim() || devAuthRole;
+  const userId = devAuth?.userId?.trim() || devAuthUserId;
+  const resolvedTenantId = devAuth?.tenantId ?? tenantId;
+  return {
+    "x-dev-auth": token,
+    "x-dev-role": role,
+    "x-dev-user-id": userId,
+    ...(resolvedTenantId ? { "x-dev-tenant-id": resolvedTenantId } : {}),
+  };
 }

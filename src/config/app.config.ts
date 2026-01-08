@@ -16,6 +16,8 @@ export interface AppConfig {
   adminJwtSecret: string;
   adminJwtIssuer: string;
   adminJwtAudience: string;
+  devAuthEnabled: boolean;
+  devAuthSecret: string;
   corsOrigins: string[];
   identityProjectId: string;
   identityIssuer: string;
@@ -56,6 +58,9 @@ export default registerAs("app", (): AppConfig => {
     adminJwtSecret: process.env.ADMIN_JWT_SECRET ?? "changeme-admin-jwt-secret",
     adminJwtIssuer: process.env.ADMIN_JWT_ISSUER ?? "signmons-admin",
     adminJwtAudience: process.env.ADMIN_JWT_AUDIENCE ?? "admin-api",
+    devAuthEnabled:
+      (process.env.DEV_AUTH_ENABLED ?? "false").toLowerCase() === "true",
+    devAuthSecret: process.env.DEV_AUTH_SECRET ?? "dev-auth-secret",
     corsOrigins,
     identityProjectId,
     identityIssuer,

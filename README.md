@@ -23,6 +23,45 @@ NestJS backend powering the Signmons CallDesk AI dispatcher. Provides `/ai/triag
      }'
    ```
 
+## Dev Auth (MVP shortcut)
+
+To avoid Firebase setup during MVP, you can enable a lightweight dev auth mode.
+Set `DEV_AUTH_ENABLED=true` and `DEV_AUTH_SECRET` in `.env`, then send headers:
+`x-dev-auth`, `x-dev-role`, `x-dev-user-id`, and optionally `x-dev-tenant-id`.
+The frontend sandbox can pick these up from `NEXT_PUBLIC_DEV_AUTH_*`.
+
+Example:
+```bash
+DEV_AUTH_ENABLED=true
+DEV_AUTH_SECRET=dev-auth-secret
+```
+
+In the UI, fill the Dev auth panel with the same token and (optionally) set a
+tenant ID override if you want to force all requests to a tenant.
+
+## MVP local setup (no cloud spend)
+
+Use local Postgres + dev auth + free-tier API keys. Example `.env`:
+```bash
+NODE_ENV=development
+AI_PROVIDER=openai
+PORT=3000
+DATABASE_URL=postgresql://calldesk:call_backend_v1@localhost:5432/calldesk?schema=calldesk
+FRONTEND_ORIGINS=http://localhost:3000,http://localhost:3101
+ENABLED_TOOLS=create_job
+DEV_AUTH_ENABLED=true
+DEV_AUTH_SECRET=dev-auth-secret
+OPENAI_API_KEY=replace-with-your-key
+```
+
+Example `ui/.env.local`:
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_DEV_AUTH_TOKEN=dev-auth-secret
+NEXT_PUBLIC_DEV_AUTH_ROLE=admin
+NEXT_PUBLIC_DEV_AUTH_USER_ID=dev-user
+```
+
 ## Frontend sandbox
 
 A lightweight Next.js client lives under `ui/` so you can test the triage workflow without crafting curl commands.
@@ -35,10 +74,10 @@ A lightweight Next.js client lives under `ui/` so you can test the triage workfl
    npm run dev
    ```
 3. The UI exposes two panels:
-   - **Onboard Tenant** – submits to `/tenants`. Enter your `ADMIN_API_TOKEN` in the form; it is never stored.
+   - **Onboard Tenant** – submits to `/tenants`. Use dev auth for MVP or a signed admin JWT for production.
    - **AI Triage** – posts messages with `tenantId` + `sessionId` to `/ai/triage`, shows replies, and prints saved jobs.
 
-Keep using admin tokens sparingly and rotate them if you share access.
+Keep admin credentials scoped to development unless you harden auth.
 
 ## Stack (Current + Planned)
 
@@ -63,7 +102,7 @@ Core runtime:
 - `NODE_ENV` – defaults to `development`.
 - `PORT` – HTTP port (default: `3000`).
 - `DATABASE_URL` – Cloud SQL connection string for Prisma.
-- `ADMIN_API_TOKEN` – admin-only tenant creation token.
+- `ADMIN_JWT_SECRET` – secret for signing admin JWTs (used by `/tenants`).
 - `FRONTEND_ORIGINS` – comma-separated CORS origins (defaults to `http://localhost:3000,http://localhost:3101`).
 - `ENABLED_TOOLS` – comma-separated tool names (default: `create_job`).
 

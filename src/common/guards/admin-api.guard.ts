@@ -20,6 +20,9 @@ export class AdminApiGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
+    if (this.isDevAuth(request)) {
+      return true;
+    }
     const providedToken =
       request.header("x-admin-token") ?? request.header("x-admin-api-key");
     if (!providedToken) {
@@ -54,6 +57,17 @@ export class AdminApiGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private isDevAuth(request: Request): boolean {
+    if (!this.config.devAuthEnabled) {
+      return false;
+    }
+    const rawToken = request.headers["x-dev-auth"];
+    if (typeof rawToken !== "string" || !rawToken.trim().length) {
+      return false;
+    }
+    return rawToken.trim() === this.config.devAuthSecret;
   }
 
   private readClaim(payload: JWTPayload, keys: string[]): string | null {

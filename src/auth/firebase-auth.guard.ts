@@ -41,15 +41,32 @@ export class FirebaseAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
+    const app = this.configService.get<ConfigType<typeof appConfig>>(
+      appConfig.KEY,
+    );
+    if (!app) {
+      throw new UnauthorizedException("Identity configuration is missing.");
+    }
+
+    const devAuthUser = this.tryDevAuth(request, app);
+    if (devAuthUser) {
+      const impersonatedTenant = this.readImpersonatedTenant(request);
+      setAuthContext(devAuthUser, impersonatedTenant);
+      (request as Request & { authUser?: AuthenticatedUser }).authUser =
+        devAuthUser;
+      this.loggingService.warn(
+        "Dev auth accepted for request.",
+        "FirebaseAuthGuard",
+      );
+      return true;
+    }
+
     const token = this.extractToken(request);
     if (!token) {
       throw new UnauthorizedException("Missing bearer token.");
     }
 
-    const app = this.configService.get<ConfigType<typeof appConfig>>(
-      appConfig.KEY,
-    );
-    if (!app?.identityIssuer || !app.identityAudience) {
+    if (!app.identityIssuer || !app.identityAudience) {
       throw new UnauthorizedException("Identity configuration is missing.");
     }
 
@@ -170,5 +187,48 @@ export class FirebaseAuthGuard implements CanActivate {
     );
 
     return tenantId;
+  }
+
+  private tryDevAuth(
+    request: Request,
+    app: ConfigType<typeof appConfig>,
+  ): AuthenticatedUser | null {
+    if (!app.devAuthEnabled) {
+      return null;
+    }
+
+    const rawToken = request.headers["x-dev-auth"];
+    if (typeof rawToken !== "string" || !rawToken.trim()) {
+      return null;
+    }
+    const token = rawToken.trim();
+    if (!app.devAuthSecret || token !== app.devAuthSecret) {
+      return null;
+    }
+
+    const rawTenant = request.headers["x-dev-tenant-id"];
+    const rawRole = request.headers["x-dev-role"];
+    const rawUserId = request.headers["x-dev-user-id"];
+
+    const tenantId =
+      typeof rawTenant === "string" && rawTenant.trim().length
+        ? rawTenant.trim()
+        : undefined;
+    const role =
+      typeof rawRole === "string" && rawRole.trim().length
+        ? rawRole.trim()
+        : "admin";
+    const userId =
+      typeof rawUserId === "string" && rawUserId.trim().length
+        ? rawUserId.trim()
+        : "dev-user";
+
+    return {
+      userId,
+      tenantId,
+      role,
+      claims: { devAuth: true },
+      token: "dev-auth",
+    };
   }
 }

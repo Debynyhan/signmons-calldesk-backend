@@ -30,6 +30,16 @@ export const envValidationSchema = Joi.object({
   ADMIN_JWT_SECRET: Joi.string().min(16).default("changeme-admin-jwt-secret"),
   ADMIN_JWT_ISSUER: Joi.string().default("signmons-admin"),
   ADMIN_JWT_AUDIENCE: Joi.string().default("admin-api"),
+  DEV_AUTH_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  DEV_AUTH_SECRET: Joi.string()
+    .min(8)
+    .when("DEV_AUTH_ENABLED", {
+      is: Joi.valid("true", "TRUE"),
+      then: Joi.required(),
+      otherwise: Joi.optional().allow(""),
+    }),
   ENABLE_GPT5_1_CODEX: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),
