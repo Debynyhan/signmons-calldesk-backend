@@ -174,6 +174,11 @@ export default function Home() {
       setTenantError("Admin token or dev auth is required.");
       return;
     }
+    const instructions = tenantForm.settings.instructions?.trim() ?? "";
+    if (instructions.length < 10) {
+      setTenantError("Instructions must be at least 10 characters.");
+      return;
+    }
 
     setTenantLoading(true);
     setTenantError(null);

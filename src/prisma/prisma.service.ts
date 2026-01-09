@@ -38,7 +38,22 @@ export class PrismaService
       throw new Error("DATABASE_URL is not configured.");
     }
 
-    const pool = new Pool({ connectionString: config.databaseUrl });
+    let schema = "public";
+    try {
+      const url = new URL(config.databaseUrl);
+      schema = url.searchParams.get("schema") ?? schema;
+    } catch {
+      schema = "public";
+    }
+    const safeSchema = schema.replace(/[^a-zA-Z0-9_]/g, "") || "public";
+
+    const pool = new Pool({
+      connectionString: config.databaseUrl,
+      options: `-c search_path=${safeSchema}`,
+    });
+    pool.on("connect", (client) => {
+      client.query(`SET search_path TO ${safeSchema}`);
+    });
 
     super({
       adapter: new PrismaPg(pool),

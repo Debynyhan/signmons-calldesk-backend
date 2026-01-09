@@ -1,10 +1,11 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
-import { ConfigService, ConfigType } from "@nestjs/config";
+import { ConfigType } from "@nestjs/config";
 import {
   createRemoteJWKSet,
   jwtVerify,
@@ -32,7 +33,8 @@ export class FirebaseAuthGuard implements CanActivate {
   private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(appConfig.KEY)
+    private readonly config: ConfigType<typeof appConfig>,
     private readonly loggingService: LoggingService,
   ) {
     const jwksUrl = new URL(FIREBASE_JWKS_URL);
@@ -41,9 +43,7 @@ export class FirebaseAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const app = this.configService.get<ConfigType<typeof appConfig>>(
-      appConfig.KEY,
-    );
+    const app = this.config;
     if (!app) {
       throw new UnauthorizedException("Identity configuration is missing.");
     }
@@ -193,7 +193,22 @@ export class FirebaseAuthGuard implements CanActivate {
     request: Request,
     app: ConfigType<typeof appConfig>,
   ): AuthenticatedUser | null {
-    if (!app.devAuthEnabled) {
+    const envEnabled =
+      (process.env.DEV_AUTH_ENABLED ?? "").toLowerCase() === "true";
+    const devAuthEnabled = app.devAuthEnabled || envEnabled;
+    const devAuthSecret =
+      app.devAuthSecret || process.env.DEV_AUTH_SECRET || "";
+
+    if (!devAuthEnabled) {
+      const hasHeader =
+        typeof request.headers["x-dev-auth"] === "string" &&
+        Boolean(request.headers["x-dev-auth"].trim());
+      if (hasHeader) {
+        this.loggingService.warn(
+          "Dev auth header received but dev auth is disabled.",
+          "FirebaseAuthGuard",
+        );
+      }
       return null;
     }
 
@@ -202,7 +217,8 @@ export class FirebaseAuthGuard implements CanActivate {
       return null;
     }
     const token = rawToken.trim();
-    if (!app.devAuthSecret || token !== app.devAuthSecret) {
+    if (!devAuthSecret || token !== devAuthSecret) {
+      this.loggingService.warn("Dev auth token mismatch.", "FirebaseAuthGuard");
       return null;
     }
 
@@ -216,7 +232,7 @@ export class FirebaseAuthGuard implements CanActivate {
         : undefined;
     const role =
       typeof rawRole === "string" && rawRole.trim().length
-        ? rawRole.trim()
+        ? rawRole.trim().toLowerCase()
         : "admin";
     const userId =
       typeof rawUserId === "string" && rawUserId.trim().length

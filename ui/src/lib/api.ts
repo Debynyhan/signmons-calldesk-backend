@@ -291,7 +291,10 @@ function buildDevAuthHeaders(
   if (!token) {
     return {};
   }
-  const role = devAuth?.role?.trim() || devAuthRole;
+  const role =
+    devAuth?.role?.trim().toLowerCase() ||
+    devAuthRole.trim().toLowerCase() ||
+    "admin";
   const userId = devAuth?.userId?.trim() || devAuthUserId;
   const resolvedTenantId = devAuth?.tenantId ?? tenantId;
   return {

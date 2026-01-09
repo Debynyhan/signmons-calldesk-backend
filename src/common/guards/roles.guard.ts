@@ -27,6 +27,10 @@ export class RolesGuard implements CanActivate {
     const authUser = (request as Request & { authUser?: AuthenticatedUser })
       .authUser;
 
+    if (!authUser) {
+      return true;
+    }
+
     if (!authUser?.role) {
       throw new ForbiddenException("Role is required for this resource.");
     }
