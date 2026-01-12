@@ -62,6 +62,10 @@ NEXT_PUBLIC_DEV_AUTH_ROLE=admin
 NEXT_PUBLIC_DEV_AUTH_USER_ID=dev-user
 ```
 
+## MVP task board
+
+See `TASKS.md` for the shared checklist and partner‑owned MVP tasks.
+
 ## Frontend sandbox
 
 A lightweight Next.js client lives under `ui/` so you can test the triage workflow without crafting curl commands.
