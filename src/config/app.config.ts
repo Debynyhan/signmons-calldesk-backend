@@ -10,6 +10,10 @@ export interface AppConfig {
   port: number;
   databaseUrl: string;
   adminApiToken: string;
+  identityIssuer: string;
+  identityAudience: string;
+  devAuthEnabled: boolean;
+  devAuthSecret: string;
   corsOrigins: string[];
 }
 
@@ -24,6 +28,12 @@ export default registerAs("app", (): AppConfig => {
       .filter(Boolean) ?? [];
   const corsOrigins = rawOrigins.length > 0 ? rawOrigins : DEFAULT_CORS_ORIGINS;
 
+  const identityProjectId = process.env.IDENTITY_PROJECT_ID ?? "signmons";
+  const identityIssuer =
+    process.env.IDENTITY_ISSUER ??
+    `https://securetoken.google.com/${identityProjectId}`;
+  const identityAudience = process.env.IDENTITY_AUDIENCE ?? identityProjectId;
+
   return {
     environment: (process.env.NODE_ENV as NodeEnvironment) ?? "development",
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
@@ -36,6 +46,11 @@ export default registerAs("app", (): AppConfig => {
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
+    identityIssuer,
+    identityAudience,
+    devAuthEnabled:
+      (process.env.DEV_AUTH_ENABLED ?? "false").toLowerCase() === "true",
+    devAuthSecret: process.env.DEV_AUTH_SECRET ?? "dev-auth-secret",
     corsOrigins,
   };
 });

@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import styles from "./page.module.css";
 import {
   ApiError,
+  DevAuthInput,
   TenantResponse,
   TriageResponse,
   createTenant,
@@ -45,11 +46,20 @@ const formatAssistantResponse = (payload: TriageResponse): string => {
 
 export default function Home() {
   const apiBase = useMemo(() => getApiBaseUrl(), []);
+  const [devAuthForm, setDevAuthForm] = useState({
+    token: process.env.NEXT_PUBLIC_DEV_AUTH_TOKEN ?? "",
+    role: process.env.NEXT_PUBLIC_DEV_AUTH_ROLE ?? "admin",
+    userId: process.env.NEXT_PUBLIC_DEV_AUTH_USER_ID ?? "dev-user",
+    tenantId: "",
+  });
 
   const [tenantForm, setTenantForm] = useState({
     name: "demo_hvac",
-    displayName: "Demo HVAC Contractor",
-    instructions: defaultInstructions,
+    timezone: "",
+    settings: {
+      displayName: "Demo HVAC Contractor",
+      instructions: defaultInstructions,
+    },
     adminToken: "",
   });
   const [tenantLoading, setTenantLoading] = useState(false);
@@ -65,6 +75,20 @@ export default function Home() {
   const [triageError, setTriageError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<ConversationEntry[]>([]);
   const [lastResponse, setLastResponse] = useState<TriageResponse | null>(null);
+
+  const devAuthInput = useMemo<DevAuthInput | undefined>(() => {
+    const token = devAuthForm.token.trim();
+    if (!token) {
+      return undefined;
+    }
+    const tenantId = devAuthForm.tenantId.trim();
+    return {
+      token,
+      role: devAuthForm.role.trim() || "admin",
+      userId: devAuthForm.userId.trim() || "dev-user",
+      tenantId: tenantId.length ? tenantId : undefined,
+    };
+  }, [devAuthForm]);
 
   const lastJob = useMemo(() => {
     if (
@@ -84,8 +108,13 @@ export default function Home() {
 
   const handleTenantSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!tenantForm.adminToken.trim()) {
-      setTenantError("Admin token is required.");
+    if (!tenantForm.adminToken.trim() && !devAuthInput) {
+      setTenantError("Admin token or dev auth is required.");
+      return;
+    }
+    const instructions = tenantForm.settings.instructions?.trim() ?? "";
+    if (instructions.length < 10) {
+      setTenantError("Instructions must be at least 10 characters.");
       return;
     }
 
@@ -93,11 +122,19 @@ export default function Home() {
     setTenantError(null);
 
     try {
-      const response = await createTenant(tenantForm);
+      const response = await createTenant(
+        {
+          ...tenantForm,
+          timezone: tenantForm.timezone.trim() || undefined,
+        },
+        devAuthInput,
+      );
       setTenantResult(response);
       addConversationEntry({
         role: "system",
-        content: `Tenant created: ${response.displayName} (${response.tenantId})`,
+        content: `Tenant created: ${
+          response.settings?.displayName ?? response.name
+        } (${response.tenantId})`,
         timestamp: new Date().toLocaleTimeString(),
       });
     } catch (error) {
@@ -135,7 +172,7 @@ export default function Home() {
     });
 
     try {
-      const response = await sendTriage(triageForm);
+      const response = await sendTriage(triageForm, devAuthInput);
       setLastResponse(response);
       addConversationEntry({
         role: "assistant",
@@ -174,6 +211,94 @@ export default function Home() {
       <main className={styles.grid}>
         <section className={styles.card}>
           <header>
+            <h2>Dev auth</h2>
+            <p>
+              Optional shortcut to bypass Firebase in development. Leave blank
+              to use normal auth.
+            </p>
+          </header>
+
+          <form
+            className={styles.form}
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <label className={styles.label}>
+              Dev auth token
+              <input
+                className={styles.input}
+                name="devAuthToken"
+                type="password"
+                value={devAuthForm.token}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    token: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="dev-auth-secret"
+              />
+            </label>
+
+            <label className={styles.label}>
+              Role
+              <input
+                className={styles.input}
+                name="devAuthRole"
+                value={devAuthForm.role}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    role: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="admin"
+              />
+            </label>
+
+            <label className={styles.label}>
+              User ID
+              <input
+                className={styles.input}
+                name="devAuthUserId"
+                value={devAuthForm.userId}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    userId: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="dev-user"
+              />
+            </label>
+
+            <label className={styles.label}>
+              Tenant ID override (optional)
+              <input
+                className={styles.input}
+                name="devAuthTenantId"
+                value={devAuthForm.tenantId}
+                onChange={(event) =>
+                  setDevAuthForm((prev) => ({
+                    ...prev,
+                    tenantId: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="tenant UUID"
+              />
+            </label>
+
+            <p className={styles.hint}>
+              Dev auth headers are sent only when a token is provided.
+            </p>
+          </form>
+        </section>
+
+        <section className={styles.card}>
+          <header>
             <h2>Onboard a tenant</h2>
             <p>
               Create tenants securely by posting to{" "}
@@ -201,15 +326,35 @@ export default function Home() {
             </label>
 
             <label className={styles.label}>
+              Timezone (optional)
+              <input
+                className={styles.input}
+                name="timezone"
+                value={tenantForm.timezone}
+                onChange={(event) =>
+                  setTenantForm((prev) => ({
+                    ...prev,
+                    timezone: event.target.value,
+                  }))
+                }
+                autoComplete="off"
+                placeholder="America/Chicago"
+              />
+            </label>
+
+            <label className={styles.label}>
               Display name
               <input
                 className={styles.input}
                 name="displayName"
-                value={tenantForm.displayName}
+                value={tenantForm.settings.displayName ?? ""}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
                     ...prev,
-                    displayName: event.target.value,
+                    settings: {
+                      ...prev.settings,
+                      displayName: event.target.value,
+                    },
                   }))
                 }
                 autoComplete="off"
@@ -223,11 +368,14 @@ export default function Home() {
               <textarea
                 className={styles.textarea}
                 name="instructions"
-                value={tenantForm.instructions}
+                value={tenantForm.settings.instructions ?? ""}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
                     ...prev,
-                    instructions: event.target.value,
+                    settings: {
+                      ...prev.settings,
+                      instructions: event.target.value,
+                    },
                   }))
                 }
                 rows={4}
@@ -250,7 +398,7 @@ export default function Home() {
                 }
                 autoComplete="off"
                 placeholder="Enter token at runtime"
-                required
+                required={!devAuthInput}
               />
             </label>
 
@@ -280,7 +428,8 @@ export default function Home() {
                     <strong>ID:</strong> {tenantResult.tenantId}
                   </li>
                   <li>
-                    <strong>Display:</strong> {tenantResult.displayName}
+                    <strong>Display:</strong>{" "}
+                    {tenantResult.settings?.displayName ?? tenantResult.name}
                   </li>
                 </ul>
               </div>

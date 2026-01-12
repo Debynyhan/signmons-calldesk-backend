@@ -5,12 +5,19 @@ export const envValidationSchema = Joi.object({
     .valid("development", "production", "test")
     .default("development"),
   OPENAI_API_KEY: Joi.string().min(10).required(),
+  IDENTITY_PROJECT_ID: Joi.string().default("signmons"),
+  IDENTITY_ISSUER: Joi.string().uri().optional(),
+  IDENTITY_AUDIENCE: Joi.string().optional(),
   DATABASE_URL: Joi.string()
     .uri({ scheme: ["postgres", "postgresql"] })
     .default(
       "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk",
     ),
   ADMIN_API_TOKEN: Joi.string().min(12).default("changeme-admin-token"),
+  DEV_AUTH_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  DEV_AUTH_SECRET: Joi.string().min(8).optional().allow(""),
   ENABLE_GPT5_1_CODEX: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),

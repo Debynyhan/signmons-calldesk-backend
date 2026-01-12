@@ -2,20 +2,40 @@ const DEFAULT_API_URL = "http://localhost:3000";
 
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? DEFAULT_API_URL;
+const devAuthToken = process.env.NEXT_PUBLIC_DEV_AUTH_TOKEN?.trim();
+const devAuthRole = process.env.NEXT_PUBLIC_DEV_AUTH_ROLE?.trim() || "admin";
+const devAuthUserId =
+  process.env.NEXT_PUBLIC_DEV_AUTH_USER_ID?.trim() || "dev-user";
 
 type JsonRecord = Record<string, unknown>;
 
+export interface DevAuthInput {
+  token: string;
+  role?: string;
+  userId?: string;
+  tenantId?: string;
+}
+
+export interface TenantSettingsInput {
+  displayName?: string;
+  instructions?: string;
+  diagnosticFeeCents?: number;
+  emergencySurchargeEnabled?: boolean;
+  emergencySurchargeAmountCents?: number;
+}
+
 export interface TenantRequest {
   name: string;
-  displayName: string;
-  instructions: string;
+  timezone?: string;
+  settings?: TenantSettingsInput;
   adminToken: string;
 }
 
 export interface TenantResponse {
   tenantId: string;
-  displayName: string;
-  instructions: string;
+  name: string;
+  timezone: string;
+  settings: TenantSettingsInput;
   prompt: string;
 }
 
@@ -23,6 +43,8 @@ export interface TriageRequest {
   tenantId: string;
   sessionId: string;
   message: string;
+  channel?: "VOICE" | "SMS" | "WEBCHAT";
+  metadata?: Record<string, unknown>;
 }
 
 export type TriageResponse =
@@ -62,11 +84,15 @@ async function postJson<T>(
   path: string,
   body: JsonRecord,
   headers: Record<string, string> = {},
+  devAuth?: DevAuthInput,
 ): Promise<T> {
+  const tenantId =
+    typeof body.tenantId === "string" ? body.tenantId : undefined;
   const response = await fetch(`${apiBase}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...buildDevAuthHeaders(tenantId, devAuth),
       ...headers,
     },
     cache: "no-store",
@@ -92,20 +118,44 @@ async function postJson<T>(
 
 export async function createTenant(
   input: TenantRequest,
+  devAuth?: DevAuthInput,
 ): Promise<TenantResponse> {
   const { adminToken, ...payload } = input;
 
   return postJson<TenantResponse>("/tenants", payload, {
     "x-admin-token": adminToken.trim(),
-  });
+  }, devAuth);
 }
 
 export async function sendTriage(
   input: TriageRequest,
+  devAuth?: DevAuthInput,
 ): Promise<TriageResponse> {
-  return postJson<TriageResponse>("/ai/triage", input);
+  return postJson<TriageResponse>("/ai/triage", input, {}, devAuth);
 }
 
 export function getApiBaseUrl(): string {
   return apiBase;
+}
+
+function buildDevAuthHeaders(
+  tenantId?: string,
+  devAuth?: DevAuthInput,
+): Record<string, string> {
+  const token = devAuth?.token ?? devAuthToken;
+  if (!token) {
+    return {};
+  }
+  const role =
+    devAuth?.role?.trim().toLowerCase() ||
+    devAuthRole.trim().toLowerCase() ||
+    "admin";
+  const userId = devAuth?.userId?.trim() || devAuthUserId;
+  const resolvedTenantId = devAuth?.tenantId ?? tenantId;
+  return {
+    "x-dev-auth": token,
+    "x-dev-role": role,
+    "x-dev-user-id": userId,
+    ...(resolvedTenantId ? { "x-dev-tenant-id": resolvedTenantId } : {}),
+  };
 }
