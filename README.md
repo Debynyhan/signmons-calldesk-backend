@@ -23,6 +23,49 @@ NestJS backend powering the Signmons CallDesk AI dispatcher. Provides `/ai/triag
      }'
    ```
 
+## Dev Auth (MVP shortcut)
+
+To avoid Firebase setup during MVP, you can enable a lightweight dev auth mode.
+Set `DEV_AUTH_ENABLED=true` and `DEV_AUTH_SECRET` in `.env`, then send headers:
+`x-dev-auth`, `x-dev-role`, `x-dev-user-id`, and optionally `x-dev-tenant-id`.
+The frontend sandbox can pick these up from `NEXT_PUBLIC_DEV_AUTH_*`.
+
+Example:
+```bash
+DEV_AUTH_ENABLED=true
+DEV_AUTH_SECRET=dev-auth-secret
+```
+
+In the UI, fill the Dev auth panel with the same token and (optionally) set a
+tenant ID override if you want to force all requests to a tenant.
+
+## MVP local setup (no cloud spend)
+
+Use local Postgres + dev auth + free-tier API keys. Example `.env`:
+```bash
+NODE_ENV=development
+AI_PROVIDER=openai
+PORT=3000
+DATABASE_URL=postgresql://calldesk:call_backend_v1@localhost:5432/calldesk?schema=calldesk
+FRONTEND_ORIGINS=http://localhost:3000,http://localhost:3101
+ENABLED_TOOLS=create_job
+DEV_AUTH_ENABLED=true
+DEV_AUTH_SECRET=dev-auth-secret
+OPENAI_API_KEY=replace-with-your-key
+```
+
+Example `ui/.env.local`:
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_DEV_AUTH_TOKEN=dev-auth-secret
+NEXT_PUBLIC_DEV_AUTH_ROLE=admin
+NEXT_PUBLIC_DEV_AUTH_USER_ID=dev-user
+```
+
+## MVP task board
+
+See `TASKS.md` for the shared checklist and partner‑owned MVP tasks.
+
 ## Frontend sandbox
 
 A lightweight Next.js client lives under `ui/` so you can test the triage workflow without crafting curl commands.
@@ -35,17 +78,93 @@ A lightweight Next.js client lives under `ui/` so you can test the triage workfl
    npm run dev
    ```
 3. The UI exposes two panels:
-   - **Onboard Tenant** – submits to `/tenants`. Enter your `ADMIN_API_TOKEN` in the form; it is never stored.
+   - **Onboard Tenant** – submits to `/tenants`. Use dev auth for MVP or a signed admin JWT for production.
    - **AI Triage** – posts messages with `tenantId` + `sessionId` to `/ai/triage`, shows replies, and prints saved jobs.
 
-Keep using admin tokens sparingly and rotate them if you share access.
+Keep admin credentials scoped to development unless you harden auth.
+
+## Stack (Current + Planned)
+
+Google Cloud:
+- **Cloud Run** – runs the NestJS backend.
+- **Cloud SQL** – PostgreSQL for Prisma data.
+- **Vertex AI (Gemini)** – AI dispatcher (planned replacement for OpenAI provider).
+- **Identity Platform** – tenant login isolation.
+- **Cloud Tasks** – job offer + SLA expirations.
+- **Address Validation API** – property location validation.
+
+Third-party:
+- **Stripe Connect** – split payments + contractor onboarding.
+- **Twilio** – voice streams + SMS dispatch.
+- **Resend** – invoices + onboarding email.
+- **Sentry** – monitoring + error reporting.
+- **PostHog** – product analytics + conversion tracking.
 
 ## Environment Variables
 
-- `OPENAI_API_KEY` – required.
+Core runtime:
 - `NODE_ENV` – defaults to `development`.
-- `ENABLE_GPT5_1_CODEX` – optional preview flag for new OpenAI model.
-- `FRONTEND_ORIGINS` – comma-separated list of allowed UI origins for CORS (defaults to `http://localhost:3101`).
+- `PORT` – HTTP port (default: `3000`).
+- `DATABASE_URL` – Cloud SQL connection string for Prisma.
+- `ADMIN_JWT_SECRET` – secret for signing admin JWTs (used by `/tenants`).
+- `FRONTEND_ORIGINS` – comma-separated CORS origins (defaults to `http://localhost:3000,http://localhost:3101`).
+- `ENABLED_TOOLS` – comma-separated tool names (default: `create_job`).
+
+AI providers:
+- `AI_PROVIDER` – `openai` (default) or `vertex`.
+- `OPENAI_API_KEY` – current provider (set if using OpenAI).
+- `ENABLE_GPT5_1_CODEX` – OpenAI preview flag (optional).
+- `VERTEX_AI_PROJECT_ID` – GCP project for Vertex AI (planned).
+- `VERTEX_AI_LOCATION` – Vertex region, e.g. `us-central1` (planned).
+- `VERTEX_AI_MODEL` – Gemini model ID (planned).
+
+Google Cloud platform:
+- `GOOGLE_CLOUD_PROJECT` – base GCP project ID.
+- `GOOGLE_APPLICATION_CREDENTIALS` – service account JSON path (local dev).
+- `CLOUD_SQL_CONNECTION_NAME` – Cloud SQL instance ID for Cloud Run.
+- `CLOUD_TASKS_QUEUE` – queue name for SLA/job offer tasks.
+- `CLOUD_TASKS_LOCATION` – queue region.
+
+Identity Platform:
+- `IDENTITY_PLATFORM_PROJECT_ID` – tenant auth project.
+- `IDENTITY_PLATFORM_WEB_API_KEY` – web API key for auth flows.
+- `IDENTITY_PLATFORM_ISSUER` – issuer URL for JWT validation.
+
+Address validation:
+- `GOOGLE_MAPS_API_KEY` – Address Validation API key.
+
+Stripe Connect:
+- `STRIPE_SECRET_KEY` – Stripe secret key.
+- `STRIPE_WEBHOOK_SECRET` – webhook signature secret.
+- `STRIPE_CONNECT_CLIENT_ID` – Connect client ID.
+
+Twilio:
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_PHONE_NUMBER`
+
+Resend:
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+
+Sentry:
+- `SENTRY_DSN`
+- `SENTRY_ENVIRONMENT`
+- `SENTRY_TRACES_SAMPLE_RATE`
+
+PostHog:
+- `POSTHOG_API_KEY`
+- `POSTHOG_HOST`
+
+Testing:
+- `RUN_E2E` – set `true` to run e2e specs.
+- `TEST_DATABASE_URL` – database URL for e2e runs.
+
+Frontend sandbox (`ui/.env.local`):
+- `NEXT_PUBLIC_API_URL` – UI base API URL.
+- `NEXT_PUBLIC_BACKEND_API_URL` – backend origin for proxying (if used).
+- `NEXT_PUBLIC_ALLOWED_DEV_ORIGINS` – allowed dev origins.
+- `NEXT_PUBLIC_DEMO_TENANT_ID` – default demo tenant.
 
 ## Scripts
 
