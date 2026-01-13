@@ -20,7 +20,7 @@
 - [ ] [Owner: Partner | Status: Todo] Improve UI feedback for API errors.
 - [ ] [Owner: Partner | Status: Todo] Add a short README section with smoke-test usage/output.
 - [ ] [Owner: Partner | Status: Todo] Verify migrations on a clean machine.
-- [ ] [Owner: You | Status: Todo] Add tool execution registry with schemas + executors.
+- [x] [Owner: You | Status: Done] Add tool execution registry with schemas + executors.
 - [ ] [Owner: You | Status: Todo] Add AI output/schema validation (fail closed).
 - [ ] [Owner: You | Status: Todo] Add AI budgets (token caps, retries, timeouts).
 
@@ -38,4 +38,5 @@
 - [ ] [Owner: You | Status: Todo] AI-specific rate limits + per-tenant budgets.
 - [ ] [Owner: You | Status: Todo] Structured AI observability (prompt/model/tool usage).
 - [ ] [Owner: You | Status: Todo] PII redaction before logging + retention policy.
-- [ ] [Owner: You | Status: Todo] Idempotency + confirmation for job creation tool.
+- [x] [Owner: You | Status: Done] Idempotency for job creation tool.
+- [ ] [Owner: You | Status: Todo] Confirmation gate for job creation tool.

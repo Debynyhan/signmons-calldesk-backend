@@ -7,6 +7,8 @@ import {
 } from "@nestjs/common";
 import { ConfigType } from "@nestjs/config";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import appConfig from "../config/app.config";
 
 @Injectable()
@@ -22,12 +24,10 @@ export class PrismaService
       throw new Error("DATABASE_URL is not configured.");
     }
 
+    const pool = new Pool({ connectionString: config.databaseUrl });
+
     super({
-      datasources: {
-        db: {
-          url: config.databaseUrl,
-        },
-      },
+      adapter: new PrismaPg(pool),
       log: ["warn", "error"],
     });
   }

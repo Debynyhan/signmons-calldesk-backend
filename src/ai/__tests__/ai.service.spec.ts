@@ -3,10 +3,6 @@ import { AiService } from "../ai.service";
 import { SanitizationService } from "../../sanitization/sanitization.service";
 import { CallLogService } from "../../logging/call-log.service";
 import type { IAiProvider } from "../interfaces/ai-provider.interface";
-import type {
-  IJobRepository,
-  JobRecord,
-} from "../../jobs/interfaces/job-repository.interface";
 import { AiErrorHandler } from "../ai-error.handler";
 import { LoggingService } from "../../logging/logging.service";
 import type { TenantsService } from "../../tenants/interfaces/tenants-service.interface";
@@ -14,17 +10,15 @@ import { AiProviderService } from "../providers/ai-provider.service";
 import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
+import type {
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../tools/tool.types";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
   existsSync: jest.fn(() => true),
 }));
-
-class ToolSelectorStub {
-  getEnabledToolsForTenant = jest
-    .fn<(tenantId: string) => unknown[]>()
-    .mockReturnValue([]);
-}
 
 describe("AiService", () => {
   const tenantId = "8cf1e75e-14e7-4d4f-afd1-b4416a832ba1";
@@ -35,7 +29,6 @@ describe("AiService", () => {
   let loggingService: jest.Mocked<LoggingService>;
   let sanitizationService: SanitizationService;
   let toolSelector: ToolSelectorService;
-  let jobsRepository: jest.Mocked<IJobRepository>;
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
   let service: AiService;
@@ -53,11 +46,10 @@ describe("AiService", () => {
       error: jest.fn(),
     } as unknown as jest.Mocked<LoggingService>;
     sanitizationService = new SanitizationService();
-    toolSelector = new ToolSelectorStub() as unknown as ToolSelectorService;
-    jobsRepository = {
-      createJobFromToolCall: jest.fn(),
-      listJobs: jest.fn(),
-    } as unknown as jest.Mocked<IJobRepository>;
+    toolSelector = {
+      getEnabledToolsForTenant: jest.fn().mockReturnValue([]),
+      getToolDefinitionForTenant: jest.fn(),
+    } as unknown as ToolSelectorService;
     tenantsService = {
       getTenantContext: jest.fn(),
       createTenant: jest.fn(),
@@ -81,7 +73,6 @@ describe("AiService", () => {
       loggingService,
       sanitizationService,
       toolSelector,
-      jobsRepository,
       tenantsService,
       callLogService,
     );
@@ -143,7 +134,7 @@ describe("AiService", () => {
       ],
     } as never);
 
-    const jobRecord: JobRecord = {
+    const jobRecord = {
       id: "job-1",
       tenantId,
       customerName: "Alice",
@@ -154,7 +145,42 @@ describe("AiService", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    jobsRepository.createJobFromToolCall.mockResolvedValue(jobRecord);
+    const toolExecute = jest.fn<
+      (context: {
+        tenantId: string;
+        sessionId: string;
+        rawArgs?: string;
+      }) => Promise<ToolExecutionResult>
+    >();
+    toolExecute.mockResolvedValue({
+      response: {
+        status: "job_created",
+        job: jobRecord,
+        message: "Job created successfully.",
+      },
+      log: {
+        jobId: jobRecord.id,
+        transcript: JSON.stringify({
+          customerName: "Alice",
+          phone: "123",
+          issueCategory: "HEATING",
+          urgency: "EMERGENCY",
+        }),
+        aiResponse: JSON.stringify(jobRecord),
+        metadata: { toolName: "create_job" },
+      },
+      clearSession: true,
+    });
+    (toolSelector.getToolDefinitionForTenant as jest.Mock).mockReturnValue({
+      tool: {
+        type: "function",
+        function: {
+          name: "create_job",
+          description: "Create job",
+        },
+      },
+      execute: toolExecute,
+    } as ToolDefinition);
 
     const response = await service.triage(tenantId, sessionId, "Create job.");
 
@@ -163,7 +189,7 @@ describe("AiService", () => {
       job: jobRecord,
       message: "Job created successfully.",
     });
-    expect(jobsRepository.createJobFromToolCall).toHaveBeenCalledWith({
+    expect(toolExecute).toHaveBeenCalledWith({
       tenantId,
       sessionId,
       rawArgs: expect.any(String),
@@ -204,6 +230,10 @@ describe("AiProviderService", () => {
     port: 3000,
     databaseUrl: "postgres://user:pass@localhost:5432/db",
     adminApiToken: "token",
+    identityIssuer: "issuer",
+    identityAudience: "audience",
+    devAuthEnabled: false,
+    devAuthSecret: "dev-secret",
     corsOrigins: ["http://localhost:3000"],
   };
 

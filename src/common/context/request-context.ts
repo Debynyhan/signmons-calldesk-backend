@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "async_hooks";
 import type { NextFunction, Request, Response } from "express";
-import type { AuthenticatedUser } from "../../auth/firebase-auth.guard";
+export interface AuthenticatedUser {
+  userId: string;
+  tenantId?: string;
+  role?: string;
+}
 
 export interface RequestContextData {
   requestId?: string;

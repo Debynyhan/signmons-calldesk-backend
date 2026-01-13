@@ -16,26 +16,17 @@ export interface DevAuthInput {
   tenantId?: string;
 }
 
-export interface TenantSettingsInput {
-  displayName?: string;
-  instructions?: string;
-  diagnosticFeeCents?: number;
-  emergencySurchargeEnabled?: boolean;
-  emergencySurchargeAmountCents?: number;
-}
-
 export interface TenantRequest {
   name: string;
-  timezone?: string;
-  settings?: TenantSettingsInput;
+  displayName: string;
+  instructions: string;
   adminToken: string;
 }
 
 export interface TenantResponse {
   tenantId: string;
-  name: string;
-  timezone: string;
-  settings: TenantSettingsInput;
+  displayName: string;
+  instructions: string;
   prompt: string;
 }
 
@@ -43,8 +34,6 @@ export interface TriageRequest {
   tenantId: string;
   sessionId: string;
   message: string;
-  channel?: "VOICE" | "SMS" | "WEBCHAT";
-  metadata?: Record<string, unknown>;
 }
 
 export type TriageResponse =

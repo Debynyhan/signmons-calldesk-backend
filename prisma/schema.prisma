@@ -4,81 +4,671 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model Tenant {
-  id            String    @id @default(uuid())
-  name          String
-  displayName   String
-  instructions  String?
-  prompt        String
-  phoneNumber   String?
-  jobs          Job[]
-  callLogs      CallLog[]
-  featureFlags  Json?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  @@index([name])
 }
 
 model Job {
-  id            String     @id @default(uuid())
-  tenantId      String
-  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerName  String
-  phone         String
-  address       String?
-  issueCategory String
-  urgency       String
-  description   String?
-  preferredTime String?
-  status        JobStatus  @default(PENDING)
-  metadata      Json?
-  callLogs      CallLog[]
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id                      String                @id @default(uuid()) @db.Uuid
+  tenantId                String                @db.Uuid
+  customerId              String                @db.Uuid
+  customerTenantId        String                @db.Uuid
+  propertyAddressId       String                @db.Uuid
+  propertyAddressTenantId String                @db.Uuid
+  serviceCategoryId       String                @db.Uuid
+  serviceCategoryTenantId String                @db.Uuid
+  assignedUserId          String?               @db.Uuid
+  assignedUserTenantId    String?               @db.Uuid
+  status                  JobStatus
+  urgency                 JobUrgency
+  description             String?
+  pricingSnapshot         Json
+  policySnapshot          Json
+  preferredWindowLabel    PreferredWindowLabel?
+  serviceWindowStart      DateTime?
+  serviceWindowEnd        DateTime?
+  offerExpiresAt          DateTime?
+  acceptedAt              DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  deletedAt               DateTime?
+  CommunicationEvent      CommunicationEvent[]
+  ConversationJobLink     ConversationJobLink[]
+  User                    User?                 @relation(fields: [assignedUserId, assignedUserTenantId], references: [id, tenantId])
+  Customer                Customer              @relation(fields: [customerId, customerTenantId], references: [id, tenantId], onDelete: Cascade)
+  PropertyAddress         PropertyAddress       @relation(fields: [propertyAddressId, propertyAddressTenantId], references: [id, tenantId], onDelete: Cascade)
+  ServiceCategory         ServiceCategory       @relation(fields: [serviceCategoryId, serviceCategoryTenantId], references: [id, tenantId], onDelete: Cascade)
+  tenant                  TenantOrganization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  JobOffer                JobOffer[]
+  LedgerEntry             LedgerEntry[]
+  Payment                 Payment?
 
+  @@unique([id, tenantId])
   @@index([tenantId])
-  @@index([status])
+  @@index([assignedUserId, assignedUserTenantId])
+  @@index([customerId, customerTenantId])
+  @@index([propertyAddressId, propertyAddressTenantId])
+  @@index([serviceCategoryId, serviceCategoryTenantId])
+  @@index([tenantId, status, urgency])
 }
 
-model CallLog {
-  id            String        @id @default(uuid())
-  tenantId      String
-  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  jobId         String?
-  job           Job?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
-  direction     CallDirection @default(INBOUND)
-  customerPhone String?
-  transcript    String
-  aiResponse    String?
-  outcome       CallOutcome   @default(UNKNOWN)
-  notes         String?
-  metadata      Json?
-  createdAt     DateTime      @default(now())
-  sessionClosedAt DateTime?
+model AuditLog {
+  id                 String             @id @db.Uuid
+  tenantId           String             @db.Uuid
+  action             String
+  actorType          AuditActorType
+  actorUserId        String?            @db.Uuid
+  actorUserTenantId  String?            @db.Uuid
+  actorId            String
+  entityType         String
+  entityId           String
+  metadata           Json?
+  traceId            String?
+  createdAt          DateTime           @default(now())
+  User               User?              @relation(fields: [actorUserId, actorUserTenantId], references: [id, tenantId])
+  TenantOrganization TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([id, tenantId])
+  @@index([actorUserId, actorUserTenantId])
   @@index([tenantId])
-  @@index([jobId])
+}
+
+model CommunicationContent {
+  id                         String             @id @db.Uuid
+  tenantId                   String             @db.Uuid
+  communicationEventId       String             @db.Uuid
+  communicationEventTenantId String             @db.Uuid
+  templateId                 String?
+  payload                    Json
+  encryptedRaw               String?
+  createdAt                  DateTime           @default(now())
+  CommunicationEvent         CommunicationEvent @relation(fields: [communicationEventId, communicationEventTenantId], references: [id, tenantId], onDelete: Cascade)
+  TenantOrganization         TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([communicationEventId, communicationEventTenantId])
+  @@unique([id, tenantId])
+  @@unique([tenantId, communicationEventId])
+  @@index([tenantId])
+}
+
+model CommunicationEvent {
+  id                   String                 @id @db.Uuid
+  tenantId             String                 @db.Uuid
+  conversationId       String?                @db.Uuid
+  conversationTenantId String?                @db.Uuid
+  jobId                String?                @db.Uuid
+  jobTenantId          String?                @db.Uuid
+  channel              CommunicationChannel
+  direction            CommunicationDirection
+  provider             CommunicationProvider
+  externalId           String?
+  status               CommunicationStatus
+  redactionLevel       RedactionLevel         @default(PARTIAL)
+  occurredAt           DateTime               @default(now())
+  createdAt            DateTime               @default(now())
+  CommunicationContent CommunicationContent?
+  Conversation         Conversation?          @relation(fields: [conversationId, conversationTenantId], references: [id, tenantId])
+  Job                  Job?                   @relation(fields: [jobId, jobTenantId], references: [id, tenantId])
+  TenantOrganization   TenantOrganization     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([conversationId, conversationTenantId, occurredAt])
+  @@index([jobId, jobTenantId, occurredAt])
+  @@index([tenantId, occurredAt])
+}
+
+model Conversation {
+  id                     String                @id @db.Uuid
+  tenantId               String                @db.Uuid
+  customerId             String                @db.Uuid
+  customerTenantId       String                @db.Uuid
+  channel                ConversationChannel
+  status                 ConversationStatus
+  currentFSMState        String
+  collectedData          Json?
+  providerConversationId String?
+  twilioCallSid          String?
+  twilioSmsSid           String?
+  startedAt              DateTime              @default(now())
+  endedAt                DateTime?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime
+  deletedAt              DateTime?
+  CommunicationEvent     CommunicationEvent[]
+  Customer               Customer              @relation(fields: [customerId, customerTenantId], references: [id, tenantId], onDelete: Cascade)
+  TenantOrganization     TenantOrganization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ConversationJobLink    ConversationJobLink[]
+
+  @@unique([id, tenantId])
+  @@index([customerId, customerTenantId])
+  @@index([tenantId])
+}
+
+model ConversationJobLink {
+  id                   String                  @id @db.Uuid
+  tenantId             String                  @db.Uuid
+  conversationId       String                  @db.Uuid
+  conversationTenantId String                  @db.Uuid
+  jobId                String                  @db.Uuid
+  jobTenantId          String                  @db.Uuid
+  relationType         ConversationJobRelation
+  createdAt            DateTime                @default(now())
+  Conversation         Conversation            @relation(fields: [conversationId, conversationTenantId], references: [id, tenantId], onDelete: Cascade)
+  Job                  Job                     @relation(fields: [jobId, jobTenantId], references: [id, tenantId], onDelete: Cascade)
+  TenantOrganization   TenantOrganization      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, conversationId, jobId])
+  @@index([conversationId, conversationTenantId])
+  @@index([jobId, jobTenantId])
+  @@index([tenantId])
+}
+
+model Customer {
+  id                 String             @id @db.Uuid
+  tenantId           String             @db.Uuid
+  phone              String
+  fullName           String
+  email              String?
+  aiMetadata         Json?
+  consentToText      Boolean            @default(false)
+  consentToTextAt    DateTime?
+  marketingOptIn     Boolean            @default(false)
+  marketingOptInAt   DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime
+  deletedAt          DateTime?
+  Conversation       Conversation[]
+  TenantOrganization TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  Job                Job[]
+  PropertyAddress    PropertyAddress[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+}
+
+model CustomerCoverageCheck {
+  id                      String             @id @db.Uuid
+  tenantId                String             @db.Uuid
+  propertyAddressId       String             @db.Uuid
+  propertyAddressTenantId String             @db.Uuid
+  serviceAreaId           String?            @db.Uuid
+  serviceAreaTenantId     String?            @db.Uuid
+  status                  CoverageStatus
+  reasonCode              CoverageReasonCode
+  metadata                Json?
+  checkedAt               DateTime           @default(now())
+  PropertyAddress         PropertyAddress    @relation(fields: [propertyAddressId, propertyAddressTenantId], references: [id, tenantId], onDelete: Cascade)
+  ServiceArea             ServiceArea?       @relation(fields: [serviceAreaId, serviceAreaTenantId], references: [id, tenantId])
+  TenantOrganization      TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([serviceAreaId, serviceAreaTenantId])
+  @@index([tenantId, propertyAddressId, checkedAt])
+}
+
+model JobOffer {
+  id                    String             @id @db.Uuid
+  tenantId              String             @db.Uuid
+  jobId                 String             @db.Uuid
+  jobTenantId           String             @db.Uuid
+  offeredToUserId       String?            @db.Uuid
+  offeredToUserTenantId String?            @db.Uuid
+  channel               JobOfferChannel
+  status                JobOfferStatus
+  tokenHash             String
+  expiresAt             DateTime
+  respondedAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime
+  Job                   Job                @relation(fields: [jobId, jobTenantId], references: [id, tenantId], onDelete: Cascade)
+  User                  User?              @relation(fields: [offeredToUserId, offeredToUserTenantId], references: [id, tenantId])
+  TenantOrganization    TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, tokenHash])
+  @@index([jobId, jobTenantId, status])
+  @@index([offeredToUserId, offeredToUserTenantId, status])
+  @@index([tenantId])
+}
+
+model LedgerEntry {
+  id                 String             @id @db.Uuid
+  tenantId           String             @db.Uuid
+  jobId              String?            @db.Uuid
+  jobTenantId        String?            @db.Uuid
+  paymentId          String?            @db.Uuid
+  paymentTenantId    String?            @db.Uuid
+  type               LedgerEntryType
+  amountCents        Int
+  currency           String             @default("usd")
+  description        String
+  createdAt          DateTime           @default(now())
+  Job                Job?               @relation(fields: [jobId, jobTenantId], references: [id, tenantId])
+  Payment            Payment?           @relation(fields: [paymentId, paymentTenantId], references: [id, tenantId])
+  TenantOrganization TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([jobId, jobTenantId])
+  @@index([paymentId, paymentTenantId])
+  @@index([tenantId])
+}
+
+model Payment {
+  id                        String             @id @db.Uuid
+  tenantId                  String             @db.Uuid
+  jobId                     String             @db.Uuid
+  jobTenantId               String             @db.Uuid
+  status                    PaymentStatus
+  stripePaymentIntentId     String?
+  stripeCheckoutSessionId   String?
+  stripeChargeId            String?
+  destinationAccountId      String?
+  amountTotalCents          Int
+  applicationFeeAmountCents Int
+  currency                  String             @default("usd")
+  refundStatus              RefundStatus       @default(NONE)
+  refundAmountCents         Int?
+  stripeRefundId            String?
+  refundReason              String?
+  transferGroup             String?
+  transferId                String?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime
+  LedgerEntry               LedgerEntry[]
+  Job                       Job                @relation(fields: [jobId, jobTenantId], references: [id, tenantId], onDelete: Cascade)
+  TenantOrganization        TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([jobId, jobTenantId])
+  @@unique([tenantId, jobId])
+  @@index([jobId, jobTenantId])
+  @@index([tenantId])
+  @@index([tenantId, stripeChargeId])
+  @@index([tenantId, stripeCheckoutSessionId])
+  @@index([tenantId, stripePaymentIntentId])
+  @@index([tenantId, stripeRefundId])
+  @@index([tenantId, transferId])
+}
+
+model PropertyAddress {
+  id                    String                  @id @db.Uuid
+  tenantId              String                  @db.Uuid
+  customerId            String                  @db.Uuid
+  customerTenantId      String                  @db.Uuid
+  googlePlaceId         String
+  formattedAddress      String
+  addressComponents     Json
+  latitude              Float
+  longitude             Float
+  accessNotes           String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime
+  deletedAt             DateTime?
+  CustomerCoverageCheck CustomerCoverageCheck[]
+  Job                   Job[]
+  Customer              Customer                @relation(fields: [customerId, customerTenantId], references: [id, tenantId], onDelete: Cascade)
+  TenantOrganization    TenantOrganization      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, googlePlaceId])
+  @@index([customerId, customerTenantId])
+  @@index([tenantId])
+}
+
+model ServiceArea {
+  id                    String                  @id @db.Uuid
+  tenantId              String                  @db.Uuid
+  name                  String
+  type                  ServiceAreaType
+  definition            Json
+  status                ServiceAreaStatus       @default(ACTIVE)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime
+  CustomerCoverageCheck CustomerCoverageCheck[]
+  TenantOrganization    TenantOrganization      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+}
+
+model ServiceCategory {
+  id                       String                  @id @db.Uuid
+  tenantId                 String                  @db.Uuid
+  name                     String
+  basePriceCents           Int                     @default(0)
+  emergencySurchargeCents  Int                     @default(0)
+  estimatedDurationMinutes Int                     @default(60)
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime
+  Job                      Job[]
+  TenantOrganization       TenantOrganization      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  UserServiceCapability    UserServiceCapability[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+}
+
+model StripeEvent {
+  id                 String             @id @db.Uuid
+  tenantId           String             @db.Uuid
+  stripeEventId      String
+  type               String
+  payload            Json
+  processingStatus   StripeEventStatus  @default(PENDING)
+  receivedAt         DateTime           @default(now())
+  processedAt        DateTime?
+  errorMessage       String?
+  TenantOrganization TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, stripeEventId])
+  @@index([tenantId])
+}
+
+model TenantOrganization {
+  id                      String                  @id @db.Uuid
+  name                    String
+  status                  TenantStatus            @default(ACTIVE)
+  timezone                String
+  settings                Json                    @default("{}")
+  stripeCustomerId        String?
+  stripeConnectAccountId  String?
+  connectOnboardingStatus ConnectOnboardingStatus @default(NOT_STARTED)
+  chargesEnabled          Boolean                 @default(false)
+  payoutsEnabled          Boolean                 @default(false)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime
+  AuditLog                AuditLog[]
+  CommunicationContent    CommunicationContent[]
+  CommunicationEvent      CommunicationEvent[]
+  Conversation            Conversation[]
+  ConversationJobLink     ConversationJobLink[]
+  Customer                Customer[]
+  CustomerCoverageCheck   CustomerCoverageCheck[]
+  jobs                    Job[]
+  JobOffer                JobOffer[]
+  LedgerEntry             LedgerEntry[]
+  Payment                 Payment[]
+  PropertyAddress         PropertyAddress[]
+  ServiceArea             ServiceArea[]
+  ServiceCategory         ServiceCategory[]
+  StripeEvent             StripeEvent[]
+  TenantSubscription      TenantSubscription[]
+  User                    User[]
+  UserAvailabilityBlock   UserAvailabilityBlock[]
+  UserServiceCapability   UserServiceCapability[]
+}
+
+model TenantSubscription {
+  id                   String             @id @db.Uuid
+  tenantId             String             @db.Uuid
+  stripeSubscriptionId String
+  status               SubscriptionStatus
+  planId               String
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime
+  TenantOrganization   TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, stripeSubscriptionId])
+  @@index([tenantId])
+}
+
+model User {
+  id                    String                  @id @db.Uuid
+  tenantId              String                  @db.Uuid
+  email                 String
+  fullName              String
+  role                  UserRole
+  status                UserStatus              @default(ACTIVE)
+  phone                 String?
+  isAvailable           Boolean                 @default(false)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime
+  AuditLog              AuditLog[]
+  Job                   Job[]
+  JobOffer              JobOffer[]
+  TenantOrganization    TenantOrganization      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  UserAvailabilityBlock UserAvailabilityBlock[]
+  UserServiceCapability UserServiceCapability[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model UserAvailabilityBlock {
+  id                 String                @id @db.Uuid
+  tenantId           String                @db.Uuid
+  userId             String                @db.Uuid
+  userTenantId       String                @db.Uuid
+  type               AvailabilityBlockType
+  startAt            DateTime
+  endAt              DateTime
+  rrule              String?
+  reason             String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime
+  TenantOrganization TenantOrganization    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  User               User                  @relation(fields: [userId, userTenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId])
+  @@index([userId, userTenantId])
+}
+
+model UserServiceCapability {
+  id                      String             @id @db.Uuid
+  tenantId                String             @db.Uuid
+  userId                  String             @db.Uuid
+  userTenantId            String             @db.Uuid
+  serviceCategoryId       String             @db.Uuid
+  serviceCategoryTenantId String             @db.Uuid
+  proficiency             ProficiencyLevel
+  isEnabled               Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime
+  ServiceCategory         ServiceCategory    @relation(fields: [serviceCategoryId, serviceCategoryTenantId], references: [id, tenantId], onDelete: Cascade)
+  TenantOrganization      TenantOrganization @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  User                    User               @relation(fields: [userId, userTenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, userId, serviceCategoryId])
+  @@index([serviceCategoryId, serviceCategoryTenantId])
+  @@index([tenantId])
+  @@index([userId, userTenantId])
 }
 
 enum JobStatus {
-  PENDING
-  SCHEDULED
+  CREATED
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  IN_PROGRESS
   COMPLETED
   CANCELLED
 }
 
-enum CallDirection {
+enum AuditActorType {
+  USER
+  SYSTEM_AI
+  WEBHOOK
+}
+
+enum AvailabilityBlockType {
+  UNAVAILABLE
+  AVAILABLE_OVERRIDE
+}
+
+enum CommunicationChannel {
+  SMS
+  VOICE
+  WEBCHAT
+  EMAIL
+  PUSH
+}
+
+enum CommunicationDirection {
   INBOUND
   OUTBOUND
 }
 
-enum CallOutcome {
-  UNKNOWN
-  JOB_CREATED
-  ESCALATED
+enum CommunicationProvider {
+  TWILIO
+  SENDGRID
+  FCM
+  OTHER
+}
+
+enum CommunicationStatus {
+  QUEUED
+  SENT
+  DELIVERED
   FAILED
+  RECEIVED
+}
+
+enum ConnectOnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum ConversationChannel {
+  VOICE
+  SMS
+  WEBCHAT
+}
+
+enum ConversationJobRelation {
+  CREATED_FROM
+  ABOUT
+  FOLLOW_UP
+}
+
+enum ConversationStatus {
+  ONGOING
+  COMPLETED
+  ABANDONED
+  FAILED_PAYMENT
+}
+
+enum CoverageReasonCode {
+  NO_MATCH
+  AREA_INACTIVE
+  MISSING_GEO
+  OTHER
+}
+
+enum CoverageStatus {
+  IN_COVERAGE
+  OUT_OF_COVERAGE
+  UNKNOWN
+}
+
+enum JobOfferChannel {
+  DASHBOARD
+  SMS
+  WEBHOOK
+}
+
+enum JobOfferStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum JobUrgency {
+  STANDARD
+  EMERGENCY
+}
+
+enum LedgerEntryType {
+  CHARGE
+  PLATFORM_FEE
+  TENANT_PAYOUT
+  REFUND
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+enum PreferredWindowLabel {
+  ASAP
+  MORNING
+  AFTERNOON
+  EVENING
+}
+
+enum ProficiencyLevel {
+  JUNIOR
+  STANDARD
+  EXPERT
+}
+
+enum RedactionLevel {
+  NONE
+  PARTIAL
+  FULL
+}
+
+enum RefundStatus {
+  NONE
+  PARTIAL
+  FULL
+}
+
+enum ServiceAreaStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ServiceAreaType {
+  ZIP
+  RADIUS
+  POLYGON
+}
+
+enum StripeEventStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum TenantStatus {
+  ACTIVE
+  CHURNED
+  SUSPENDED
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  DISPATCHER
+  TECH
+  READ_ONLY
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
 }

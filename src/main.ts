@@ -25,7 +25,14 @@ async function bootstrap() {
   app.enableCors({
     origin: allowAllOrigins ? true : corsOrigins,
     methods: ["POST", "OPTIONS", "GET"],
-    allowedHeaders: ["Content-Type", "x-admin-token"],
+    allowedHeaders: [
+      "Content-Type",
+      "x-admin-token",
+      "x-dev-auth",
+      "x-dev-role",
+      "x-dev-user-id",
+      "x-dev-tenant-id",
+    ],
     maxAge: 3600,
   });
 
@@ -42,7 +49,10 @@ async function bootstrap() {
     const responseOrigin = origin ?? corsOrigins[0] ?? "*";
 
     res.header("Access-Control-Allow-Origin", responseOrigin);
-    res.header("Access-Control-Allow-Headers", "Content-Type, x-admin-token");
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Content-Type, x-admin-token, x-dev-auth, x-dev-role, x-dev-user-id, x-dev-tenant-id",
+    );
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Vary", "Origin");
 

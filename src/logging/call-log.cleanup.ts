@@ -5,6 +5,14 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
+import { randomUUID } from "crypto";
+import {
+  CommunicationChannel,
+  CommunicationDirection,
+  CommunicationProvider,
+  CommunicationStatus,
+  Prisma,
+} from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
 const DEFAULT_IDLE_MINUTES = 30;
@@ -30,52 +38,77 @@ export class CallLogCleanupService implements OnModuleInit, OnModuleDestroy {
     );
     const cutoff = new Date(Date.now() - idleMinutes * 60 * 1000);
     try {
-      const staleLogs = await this.prisma.callLog.findMany({
+      const staleLogs = await this.prisma.communicationContent.findMany({
         where: {
-          sessionClosedAt: null,
           createdAt: { lte: cutoff },
+          payload: {
+            path: ["type"],
+            equals: "message",
+          },
         },
         select: {
           tenantId: true,
-          metadata: true,
+          payload: true,
+          createdAt: true,
         },
       });
 
       const sessions = new Map<
         string,
-        { tenantId: string; sessionId: string }
+        { tenantId: string; sessionId: string; lastMessageAt: Date }
       >();
       for (const log of staleLogs) {
-        const sessionId = this.extractSessionId(log.metadata);
+        const sessionId = this.extractSessionId(log.payload);
         if (!sessionId) {
           continue;
         }
         const key = `${log.tenantId}:${sessionId}`;
-        if (!sessions.has(key)) {
-          sessions.set(key, { tenantId: log.tenantId, sessionId });
+        const existing = sessions.get(key);
+        if (!existing || existing.lastMessageAt < log.createdAt) {
+          sessions.set(key, {
+            tenantId: log.tenantId,
+            sessionId,
+            lastMessageAt: log.createdAt,
+          });
         }
       }
 
-      const now = new Date();
       let closedCount = 0;
       for (const session of sessions.values()) {
-        const result = await this.prisma.callLog.updateMany({
+        const closed = await this.prisma.communicationContent.findFirst({
           where: {
             tenantId: session.tenantId,
-            sessionClosedAt: null,
-            metadata: {
+            payload: {
               path: ["sessionId"],
               equals: session.sessionId,
             },
+            AND: [
+              {
+                payload: {
+                  path: ["type"],
+                  equals: "session_closed",
+                },
+              },
+            ],
+            createdAt: { gt: session.lastMessageAt },
           },
-          data: { sessionClosedAt: now },
+          select: { id: true },
         });
-        closedCount += result.count;
+
+        if (closed) {
+          continue;
+        }
+
+        await this.createSessionClosedMarker(
+          session.tenantId,
+          session.sessionId,
+        );
+        closedCount += 1;
       }
 
       if (closedCount > 0) {
         this.logger.log(
-          `Marked ${closedCount} call log entries as closed due to ${idleMinutes} minutes of inactivity.`,
+          `Closed ${closedCount} idle sessions after ${idleMinutes} minutes of inactivity.`,
         );
       }
     } catch (error) {
@@ -86,15 +119,43 @@ export class CallLogCleanupService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private extractSessionId(metadata: unknown): string | null {
+  private extractSessionId(payload: Prisma.JsonValue): string | null {
     if (
-      metadata &&
-      typeof metadata === "object" &&
-      "sessionId" in metadata &&
-      typeof (metadata as Record<string, unknown>).sessionId === "string"
+      payload &&
+      typeof payload === "object" &&
+      "sessionId" in payload &&
+      typeof (payload as Record<string, unknown>).sessionId === "string"
     ) {
-      return (metadata as { sessionId: string }).sessionId;
+      return (payload as { sessionId: string }).sessionId;
     }
     return null;
+  }
+
+  private async createSessionClosedMarker(
+    tenantId: string,
+    sessionId: string,
+  ): Promise<void> {
+    const eventId = randomUUID();
+    const contentId = randomUUID();
+    await this.prisma.communicationEvent.create({
+      data: {
+        id: eventId,
+        tenantId,
+        channel: CommunicationChannel.WEBCHAT,
+        direction: CommunicationDirection.OUTBOUND,
+        provider: CommunicationProvider.OTHER,
+        status: CommunicationStatus.SENT,
+        CommunicationContent: {
+          create: {
+            id: contentId,
+            tenantId,
+            payload: {
+              sessionId,
+              type: "session_closed",
+            },
+          },
+        },
+      },
+    });
   }
 }

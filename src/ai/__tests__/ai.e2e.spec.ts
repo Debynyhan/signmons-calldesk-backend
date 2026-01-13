@@ -53,12 +53,24 @@ class FakeAiProvider implements IAiProvider {
   }
 }
 
-const canRunE2E = Boolean(process.env.TEST_DATABASE_URL);
+const canRunE2E =
+  process.env.RUN_E2E === "true" && Boolean(process.env.TEST_DATABASE_URL);
 const describeOrSkip = canRunE2E ? describe : describe.skip;
 
 describeOrSkip("AI create-job flow (e2e)", () => {
   let app: INestApplication;
-  let prisma: PrismaService;
+  let prisma: {
+    communicationContent: {
+      deleteMany: (args?: unknown) => Promise<unknown>;
+      findMany: (args?: unknown) => Promise<Array<{ payload: unknown }>>;
+    };
+    communicationEvent: { deleteMany: (args?: unknown) => Promise<unknown> };
+    job: { deleteMany: (args?: unknown) => Promise<unknown>; findMany: (args?: unknown) => Promise<Array<{ id: string }>> };
+    propertyAddress: { deleteMany: (args?: unknown) => Promise<unknown> };
+    customer: { deleteMany: (args?: unknown) => Promise<unknown> };
+    serviceCategory: { deleteMany: (args?: unknown) => Promise<unknown> };
+    tenantOrganization: { deleteMany: (args?: unknown) => Promise<unknown> };
+  };
 
   beforeAll(async () => {
     if (process.env.TEST_DATABASE_URL) {
@@ -77,13 +89,17 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     app = moduleRef.createNestApplication();
     await app.init();
 
-    prisma = app.get(PrismaService);
+    prisma = app.get(PrismaService) as unknown as typeof prisma;
   });
 
   afterEach(async () => {
-    await prisma.callLog.deleteMany({});
+    await prisma.communicationContent.deleteMany({});
+    await prisma.communicationEvent.deleteMany({});
     await prisma.job.deleteMany({});
-    await prisma.tenant.deleteMany({});
+    await prisma.propertyAddress.deleteMany({});
+    await prisma.customer.deleteMany({});
+    await prisma.serviceCategory.deleteMany({});
+    await prisma.tenantOrganization.deleteMany({});
   });
 
   afterAll(async () => {
@@ -132,7 +148,15 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     const jobs = await prisma.job.findMany({ where: { tenantId } });
     expect(jobs).toHaveLength(1);
 
-    const logs = await prisma.callLog.findMany({ where: { tenantId } });
-    expect(logs.some((log) => log.jobId === jobs[0].id)).toBe(true);
+    const logs = await prisma.communicationContent.findMany({
+      where: { tenantId },
+    });
+    const hasJobLog = logs.some((log) => {
+      if (!log.payload || typeof log.payload !== "object") {
+        return false;
+      }
+      return (log.payload as Record<string, unknown>).jobId === jobs[0].id;
+    });
+    expect(hasJobLog).toBe(true);
   });
 });

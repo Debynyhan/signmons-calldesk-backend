@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { Tenant } from "@prisma/client";
+import type { TenantOrganization } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import {
@@ -22,7 +22,7 @@ export class PrismaTenantsService implements TenantsService {
       throw new NotFoundException("Tenant not found.");
     }
 
-    const tenant = await this.prisma.tenant.findUnique({
+    const tenant = await this.prisma.tenantOrganization.findUnique({
       where: { id: sanitizedId },
     });
 
@@ -49,25 +49,34 @@ export class PrismaTenantsService implements TenantsService {
 
     const prompt = this.buildPrompt(tenantId, displayName, instructions);
 
-    const tenant = await this.prisma.tenant.create({
+    const tenant = await this.prisma.tenantOrganization.create({
       data: {
         id: tenantId,
         name,
-        displayName,
-        instructions,
-        prompt,
+        timezone: "UTC",
+        settings: {
+          displayName,
+          instructions,
+          prompt,
+        },
+        updatedAt: new Date(),
       },
     });
 
     return this.mapTenantToContext(tenant);
   }
 
-  private mapTenantToContext(tenant: Tenant): TenantContext {
+  private mapTenantToContext(tenant: TenantOrganization): TenantContext {
+    const settings = this.parseSettings(tenant.settings);
+    const displayName = settings.displayName ?? tenant.name;
+    const instructions = settings.instructions ?? "";
+    const prompt =
+      settings.prompt ?? this.buildPrompt(tenant.id, displayName, instructions);
     return {
       tenantId: tenant.id,
-      displayName: tenant.displayName,
-      instructions: tenant.instructions ?? "",
-      prompt: tenant.prompt,
+      displayName,
+      instructions,
+      prompt,
     };
   }
 
@@ -86,5 +95,29 @@ export class PrismaTenantsService implements TenantsService {
 
     const trimmedInstructions = instructions?.trim();
     return trimmedInstructions ? `${persona} ${trimmedInstructions}` : persona;
+  }
+
+  private parseSettings(value: unknown): {
+    displayName?: string;
+    instructions?: string;
+    prompt?: string;
+  } {
+    if (!value || typeof value !== "object") {
+      return {};
+    }
+
+    const settings = value as Record<string, unknown>;
+    return {
+      displayName:
+        typeof settings.displayName === "string"
+          ? settings.displayName
+          : undefined,
+      instructions:
+        typeof settings.instructions === "string"
+          ? settings.instructions
+          : undefined,
+      prompt:
+        typeof settings.prompt === "string" ? settings.prompt : undefined,
+    };
   }
 }

@@ -55,11 +55,8 @@ export default function Home() {
 
   const [tenantForm, setTenantForm] = useState({
     name: "demo_hvac",
-    timezone: "",
-    settings: {
-      displayName: "Demo HVAC Contractor",
-      instructions: defaultInstructions,
-    },
+    displayName: "Demo HVAC Contractor",
+    instructions: defaultInstructions,
     adminToken: "",
   });
   const [tenantLoading, setTenantLoading] = useState(false);
@@ -112,7 +109,7 @@ export default function Home() {
       setTenantError("Admin token or dev auth is required.");
       return;
     }
-    const instructions = tenantForm.settings.instructions?.trim() ?? "";
+    const instructions = tenantForm.instructions.trim();
     if (instructions.length < 10) {
       setTenantError("Instructions must be at least 10 characters.");
       return;
@@ -122,19 +119,11 @@ export default function Home() {
     setTenantError(null);
 
     try {
-      const response = await createTenant(
-        {
-          ...tenantForm,
-          timezone: tenantForm.timezone.trim() || undefined,
-        },
-        devAuthInput,
-      );
+      const response = await createTenant(tenantForm, devAuthInput);
       setTenantResult(response);
       addConversationEntry({
         role: "system",
-        content: `Tenant created: ${
-          response.settings?.displayName ?? response.name
-        } (${response.tenantId})`,
+        content: `Tenant created: ${response.displayName} (${response.tenantId})`,
         timestamp: new Date().toLocaleTimeString(),
       });
     } catch (error) {
@@ -326,35 +315,15 @@ export default function Home() {
             </label>
 
             <label className={styles.label}>
-              Timezone (optional)
-              <input
-                className={styles.input}
-                name="timezone"
-                value={tenantForm.timezone}
-                onChange={(event) =>
-                  setTenantForm((prev) => ({
-                    ...prev,
-                    timezone: event.target.value,
-                  }))
-                }
-                autoComplete="off"
-                placeholder="America/Chicago"
-              />
-            </label>
-
-            <label className={styles.label}>
               Display name
               <input
                 className={styles.input}
                 name="displayName"
-                value={tenantForm.settings.displayName ?? ""}
+                value={tenantForm.displayName}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
                     ...prev,
-                    settings: {
-                      ...prev.settings,
-                      displayName: event.target.value,
-                    },
+                    displayName: event.target.value,
                   }))
                 }
                 autoComplete="off"
@@ -368,14 +337,11 @@ export default function Home() {
               <textarea
                 className={styles.textarea}
                 name="instructions"
-                value={tenantForm.settings.instructions ?? ""}
+                value={tenantForm.instructions}
                 onChange={(event) =>
                   setTenantForm((prev) => ({
                     ...prev,
-                    settings: {
-                      ...prev.settings,
-                      instructions: event.target.value,
-                    },
+                    instructions: event.target.value,
                   }))
                 }
                 rows={4}
@@ -429,7 +395,7 @@ export default function Home() {
                   </li>
                   <li>
                     <strong>Display:</strong>{" "}
-                    {tenantResult.settings?.displayName ?? tenantResult.name}
+                    {tenantResult.displayName}
                   </li>
                 </ul>
               </div>

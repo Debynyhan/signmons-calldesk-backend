@@ -9,8 +9,6 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { AI_PROVIDER } from "./ai.constants";
 import type { IAiProvider } from "./interfaces/ai-provider.interface";
-import { JOB_REPOSITORY } from "../jobs/jobs.constants";
-import type { IJobRepository } from "../jobs/interfaces/job-repository.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { AiErrorHandler } from "./ai-error.handler";
@@ -18,6 +16,7 @@ import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
+import type { ToolExecutionResult } from "./tools/tool.types";
 
 @Injectable()
 export class AiService {
@@ -29,7 +28,6 @@ export class AiService {
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly toolSelector: ToolSelectorService,
-    @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
   ) {
@@ -112,19 +110,21 @@ export class AiService {
 
       if (message.tool_calls?.length) {
         const toolCall = message.tool_calls[0];
-        if (toolCall.type === "function" && toolCall.function?.name) {
+        if (this.isFunctionToolCall(toolCall) && toolCall.function?.name) {
           return this.handleToolCall(
             safeTenantId,
             safeSessionId,
             toolCall.function.name,
-            toolCall.function.arguments,
+            toolCall.function.arguments ?? undefined,
           );
         }
 
         return {
           status: "tool_called",
           toolName: toolCall.type,
-          rawArgs: toolCall.function?.arguments ?? null,
+          rawArgs: this.isFunctionToolCall(toolCall)
+            ? toolCall.function?.arguments ?? null
+            : null,
         };
       }
 
@@ -174,7 +174,8 @@ export class AiService {
     name: string,
     rawArgs?: string,
   ) {
-    if (name !== "create_job") {
+    const tool = this.toolSelector.getToolDefinitionForTenant(tenantId, name);
+    if (!tool) {
       return {
         status: "unsupported_tool",
         toolName: name,
@@ -183,25 +184,31 @@ export class AiService {
     }
 
     try {
-      const job = await this.jobsRepository.createJobFromToolCall({
+      const result: ToolExecutionResult = await tool.execute({
         tenantId,
         sessionId,
         rawArgs,
       });
-      await this.callLogService.createLog({
-        tenantId,
-        sessionId,
-        jobId: job.id,
-        transcript: rawArgs ?? "",
-        aiResponse: JSON.stringify(job),
-        metadata: { toolName: name, sessionId },
-      });
-      await this.callLogService.clearSession(tenantId, sessionId);
-      return {
-        status: "job_created",
-        job,
-        message: "Job created successfully.",
-      };
+
+      if (result.log) {
+        await this.callLogService.createLog({
+          tenantId,
+          sessionId,
+          jobId: result.log.jobId,
+          transcript: result.log.transcript,
+          aiResponse: result.log.aiResponse,
+          metadata: {
+            ...(result.log.metadata ?? {}),
+            sessionId,
+          },
+        });
+      }
+
+      if (result.clearSession) {
+        await this.callLogService.clearSession(tenantId, sessionId);
+      }
+
+      return result.response;
     } catch (error) {
       this.errorHandler.handle(error, {
         tenantId,
@@ -212,5 +219,13 @@ export class AiService {
         },
       });
     }
+  }
+
+  private isFunctionToolCall(
+    toolCall: OpenAI.ChatCompletionMessageToolCall,
+  ): toolCall is OpenAI.ChatCompletionMessageToolCall & {
+    function: { name: string; arguments?: string | null };
+  } {
+    return toolCall.type === "function" && "function" in toolCall;
   }
 }
