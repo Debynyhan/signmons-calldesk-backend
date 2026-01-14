@@ -1,7 +1,9 @@
+import { randomUUID } from "crypto";
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
-import type { Job as PrismaJob } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { JobStatus, JobUrgency, PreferredWindowLabel } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
@@ -23,19 +25,79 @@ export class JobsService implements IJobRepository {
     request: CreateJobFromToolCallRequest,
   ): Promise<JobRecord> {
     const tenantId = this.sanitizeTenantId(request.tenantId);
+    const existingJob = await this.findExistingJobForSession(
+      tenantId,
+      request.sessionId,
+    );
+    if (existingJob) {
+      return this.mapJob(existingJob);
+    }
     const payload = this.parsePayload(request.rawArgs);
     const sanitizedPayload = this.sanitizePayload(payload);
 
+    const customer = await this.prisma.customer.upsert({
+      where: {
+        tenantId_phone: {
+          tenantId,
+          phone: sanitizedPayload.phone,
+        },
+      },
+      update: {
+        fullName: sanitizedPayload.customerName,
+        updatedAt: new Date(),
+      },
+      create: {
+        id: randomUUID(),
+        tenantId,
+        phone: sanitizedPayload.phone,
+        fullName: sanitizedPayload.customerName,
+        updatedAt: new Date(),
+      },
+    });
+
+    const serviceCategory = await this.findOrCreateServiceCategory(
+      tenantId,
+      sanitizedPayload.issueCategory,
+    );
+
+    const propertyAddress = await this.prisma.propertyAddress.create({
+      data: {
+        id: randomUUID(),
+        tenantId,
+        customerId: customer.id,
+        customerTenantId: tenantId,
+        googlePlaceId: randomUUID(),
+        formattedAddress: sanitizedPayload.address ?? "Unknown address",
+        addressComponents: {},
+        latitude: 0,
+        longitude: 0,
+        updatedAt: new Date(),
+      },
+    });
+
     const job = await this.prisma.job.create({
       data: {
+        id: randomUUID(),
         tenantId,
-        customerName: sanitizedPayload.customerName,
-        phone: sanitizedPayload.phone,
-        address: sanitizedPayload.address,
-        issueCategory: sanitizedPayload.issueCategory,
-        urgency: sanitizedPayload.urgency,
-        description: sanitizedPayload.description,
-        preferredTime: sanitizedPayload.preferredTime,
+        customerId: customer.id,
+        customerTenantId: tenantId,
+        propertyAddressId: propertyAddress.id,
+        propertyAddressTenantId: tenantId,
+        serviceCategoryId: serviceCategory.id,
+        serviceCategoryTenantId: tenantId,
+        status: JobStatus.CREATED,
+        urgency: this.mapUrgency(sanitizedPayload.urgency),
+        description: sanitizedPayload.description ?? null,
+        preferredWindowLabel: this.mapPreferredWindow(
+          sanitizedPayload.preferredTime,
+        ),
+        pricingSnapshot: {},
+        policySnapshot: {},
+      },
+      include: {
+        Customer: true,
+        PropertyAddress: true,
+        ServiceCategory: true,
       },
     });
 
@@ -47,6 +109,11 @@ export class JobsService implements IJobRepository {
     const jobs = await this.prisma.job.findMany({
       where: { tenantId: sanitizedTenantId },
       orderBy: { createdAt: "desc" },
+      include: {
+        Customer: true,
+        PropertyAddress: true,
+        ServiceCategory: true,
+      },
     });
     return jobs.map((job) => this.mapJob(job));
   }
@@ -97,20 +164,122 @@ export class JobsService implements IJobRepository {
     };
   }
 
-  private mapJob(job: PrismaJob): JobRecord {
+  private mapJob(
+    job: Prisma.JobGetPayload<{
+      include: {
+        Customer: true;
+        PropertyAddress: true;
+        ServiceCategory: true;
+      };
+    }>,
+  ): JobRecord {
     return {
       id: job.id,
       tenantId: job.tenantId,
-      customerName: job.customerName,
-      phone: job.phone,
-      address: job.address ?? undefined,
-      issueCategory: job.issueCategory,
+      customerName: job.Customer.fullName,
+      phone: job.Customer.phone,
+      address: job.PropertyAddress.formattedAddress,
+      issueCategory: job.ServiceCategory.name,
       urgency: job.urgency,
       description: job.description ?? undefined,
-      preferredTime: job.preferredTime ?? undefined,
+      preferredTime: job.preferredWindowLabel ?? undefined,
       status: job.status,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     };
+  }
+
+  private async findExistingJobForSession(
+    tenantId: string,
+    sessionId: string,
+  ): Promise<
+    Prisma.JobGetPayload<{
+      include: {
+        Customer: true;
+        PropertyAddress: true;
+        ServiceCategory: true;
+      };
+    }> | null
+  > {
+    const logs = await this.prisma.communicationContent.findMany({
+      where: {
+        tenantId,
+        payload: {
+          path: ["sessionId"],
+          equals: sessionId,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+      select: { payload: true },
+    });
+
+    const jobId = logs
+      .map((log) => this.extractJobId(log.payload))
+      .find((value): value is string => Boolean(value));
+
+    if (!jobId) {
+      return null;
+    }
+
+    return this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        Customer: true,
+        PropertyAddress: true,
+        ServiceCategory: true,
+      },
+    });
+  }
+
+  private extractJobId(payload: Prisma.JsonValue): string | null {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+    const record = payload as Record<string, unknown>;
+    return typeof record.jobId === "string" ? record.jobId : null;
+  }
+
+  private async findOrCreateServiceCategory(
+    tenantId: string,
+    name: string,
+  ) {
+    const existing = await this.prisma.serviceCategory.findFirst({
+      where: {
+        tenantId,
+        name,
+      },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    return this.prisma.serviceCategory.create({
+      data: {
+        id: randomUUID(),
+        tenantId,
+        name,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  private mapUrgency(value: string): JobUrgency {
+    return value === "EMERGENCY" ? JobUrgency.EMERGENCY : JobUrgency.STANDARD;
+  }
+
+  private mapPreferredWindow(
+    value?: string,
+  ): PreferredWindowLabel | undefined {
+    if (!value) {
+      return undefined;
+    }
+    const normalized = value.trim().toUpperCase();
+    if (normalized in PreferredWindowLabel) {
+      return PreferredWindowLabel[
+        normalized as keyof typeof PreferredWindowLabel
+      ];
+    }
+    return undefined;
   }
 }

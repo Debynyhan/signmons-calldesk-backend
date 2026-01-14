@@ -112,19 +112,21 @@ export class AiService {
 
       if (message.tool_calls?.length) {
         const toolCall = message.tool_calls[0];
-        if (toolCall.type === "function" && toolCall.function?.name) {
+        if (this.isFunctionToolCall(toolCall) && toolCall.function?.name) {
           return this.handleToolCall(
             safeTenantId,
             safeSessionId,
             toolCall.function.name,
-            toolCall.function.arguments,
+            toolCall.function.arguments ?? undefined,
           );
         }
 
         return {
           status: "tool_called",
           toolName: toolCall.type,
-          rawArgs: toolCall.function?.arguments ?? null,
+          rawArgs: this.isFunctionToolCall(toolCall)
+            ? toolCall.function?.arguments ?? null
+            : null,
         };
       }
 
@@ -166,6 +168,14 @@ export class AiService {
         openAIResponseId,
       });
     }
+  }
+
+  private isFunctionToolCall(
+    toolCall: OpenAI.ChatCompletionMessageToolCall,
+  ): toolCall is OpenAI.ChatCompletionMessageToolCall & {
+    function: { name: string; arguments?: string | null };
+  } {
+    return toolCall.type === "function" && "function" in toolCall;
   }
 
   private async handleToolCall(

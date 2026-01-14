@@ -9,7 +9,6 @@ export interface TenantRequest {
   name: string;
   displayName: string;
   instructions: string;
-  adminToken: string;
 }
 
 export interface TenantResponse {
@@ -49,6 +48,18 @@ export type TriageResponse =
     }
   | JsonRecord;
 
+export interface DevAuthConfig {
+  secret?: string;
+  role?: string;
+  userId?: string;
+  tenantId?: string;
+}
+
+export interface RequestAuth {
+  adminToken?: string;
+  devAuth?: DevAuthConfig;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -56,6 +67,37 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+function buildAuthHeaders(
+  auth?: RequestAuth,
+  fallbackTenantId?: string,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const adminToken = auth?.adminToken?.trim();
+  if (adminToken) {
+    headers["x-admin-token"] = adminToken;
+  }
+
+  const secret = auth?.devAuth?.secret?.trim();
+  if (secret) {
+    headers["x-dev-auth"] = secret;
+    const role = auth?.devAuth?.role?.trim();
+    if (role) {
+      headers["x-dev-role"] = role;
+    }
+    const userId = auth?.devAuth?.userId?.trim();
+    if (userId) {
+      headers["x-dev-user-id"] = userId;
+    }
+    const tenantId =
+      auth?.devAuth?.tenantId?.trim() ?? fallbackTenantId?.trim();
+    if (tenantId) {
+      headers["x-dev-tenant-id"] = tenantId;
+    }
+  }
+
+  return headers;
 }
 
 async function postJson<T>(
@@ -92,18 +134,20 @@ async function postJson<T>(
 
 export async function createTenant(
   input: TenantRequest,
+  auth?: RequestAuth,
 ): Promise<TenantResponse> {
-  const { adminToken, ...payload } = input;
-
-  return postJson<TenantResponse>("/tenants", payload, {
-    "x-admin-token": adminToken.trim(),
-  });
+  return postJson<TenantResponse>("/tenants", input, buildAuthHeaders(auth));
 }
 
 export async function sendTriage(
   input: TriageRequest,
+  auth?: RequestAuth,
 ): Promise<TriageResponse> {
-  return postJson<TriageResponse>("/ai/triage", input);
+  return postJson<TriageResponse>(
+    "/ai/triage",
+    input,
+    buildAuthHeaders(auth, input.tenantId),
+  );
 }
 
 export function getApiBaseUrl(): string {

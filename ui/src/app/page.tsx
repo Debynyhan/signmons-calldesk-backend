@@ -1,9 +1,11 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import {
   ApiError,
+  DevAuthConfig,
+  RequestAuth,
   TenantResponse,
   TriageResponse,
   createTenant,
@@ -12,6 +14,7 @@ import {
 } from "@/lib/api";
 
 type ConversationEntry = {
+  id: string;
   role: "caller" | "assistant" | "system";
   content: string;
   timestamp: string;
@@ -36,21 +39,41 @@ const formatAssistantResponse = (payload: TriageResponse): string => {
         job.id ? `Job ID: ${job.id}` : null,
       ]
         .filter(Boolean)
-        .join(" • ");
+        .join(" | ");
     }
   }
 
   return JSON.stringify(payload);
 };
 
+const makeEntry = (role: ConversationEntry["role"], content: string) => ({
+  id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  role,
+  content,
+  timestamp: new Date().toLocaleTimeString(),
+});
+
+const defaultDevAuth: DevAuthConfig = {
+  secret: process.env.NEXT_PUBLIC_DEV_AUTH_SECRET ?? "",
+  role: process.env.NEXT_PUBLIC_DEV_AUTH_ROLE ?? "admin",
+  userId: process.env.NEXT_PUBLIC_DEV_AUTH_USER_ID ?? "dev-admin",
+  tenantId: "",
+};
+
+type AuthMode = "dev" | "admin";
+
 export default function Home() {
   const apiBase = useMemo(() => getApiBaseUrl(), []);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  const [authMode, setAuthMode] = useState<AuthMode>("dev");
+  const [devAuth, setDevAuth] = useState<DevAuthConfig>(defaultDevAuth);
+  const [adminToken, setAdminToken] = useState("");
 
   const [tenantForm, setTenantForm] = useState({
     name: "demo_hvac",
     displayName: "Demo HVAC Contractor",
     instructions: defaultInstructions,
-    adminToken: "",
   });
   const [tenantLoading, setTenantLoading] = useState(false);
   const [tenantError, setTenantError] = useState<string | null>(null);
@@ -66,6 +89,10 @@ export default function Home() {
   const [conversation, setConversation] = useState<ConversationEntry[]>([]);
   const [lastResponse, setLastResponse] = useState<TriageResponse | null>(null);
 
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversation.length]);
+
   const lastJob = useMemo(() => {
     if (
       lastResponse &&
@@ -78,14 +105,28 @@ export default function Home() {
     return null;
   }, [lastResponse]);
 
+  const buildAuth = (): RequestAuth => {
+    if (authMode === "admin") {
+      return { adminToken };
+    }
+
+    return { devAuth };
+  };
+
   const addConversationEntry = (entry: ConversationEntry) => {
     setConversation((prev) => [...prev, entry]);
   };
 
   const handleTenantSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!tenantForm.adminToken.trim()) {
+
+    if (authMode === "admin" && !adminToken.trim()) {
       setTenantError("Admin token is required.");
+      return;
+    }
+
+    if (authMode === "dev" && !devAuth.secret?.trim()) {
+      setTenantError("Dev auth secret is required.");
       return;
     }
 
@@ -93,13 +134,16 @@ export default function Home() {
     setTenantError(null);
 
     try {
-      const response = await createTenant(tenantForm);
+      const response = await createTenant(tenantForm, buildAuth());
       setTenantResult(response);
-      addConversationEntry({
-        role: "system",
-        content: `Tenant created: ${response.displayName} (${response.tenantId})`,
-        timestamp: new Date().toLocaleTimeString(),
-      });
+      setTriageForm((prev) => ({ ...prev, tenantId: response.tenantId }));
+      setDevAuth((prev) => ({ ...prev, tenantId: response.tenantId }));
+      addConversationEntry(
+        makeEntry(
+          "system",
+          `Tenant created: ${response.displayName} (${response.tenantId})`,
+        ),
+      );
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -126,22 +170,15 @@ export default function Home() {
 
     setTriageLoading(true);
     setTriageError(null);
-    const timestamp = new Date().toLocaleTimeString();
 
-    addConversationEntry({
-      role: "caller",
-      content: triageForm.message.trim(),
-      timestamp,
-    });
+    addConversationEntry(makeEntry("caller", triageForm.message.trim()));
 
     try {
-      const response = await sendTriage(triageForm);
+      const response = await sendTriage(triageForm, buildAuth());
       setLastResponse(response);
-      addConversationEntry({
-        role: "assistant",
-        content: formatAssistantResponse(response),
-        timestamp: new Date().toLocaleTimeString(),
-      });
+      addConversationEntry(
+        makeEntry("assistant", formatAssistantResponse(response)),
+      );
       setTriageForm((prev) => ({ ...prev, message: "" }));
     } catch (error) {
       const message =
@@ -149,11 +186,7 @@ export default function Home() {
           ? `${error.status}: ${error.message}`
           : "Triage request failed.";
       setTriageError(message);
-      addConversationEntry({
-        role: "assistant",
-        content: `Error: ${message}`,
-        timestamp: new Date().toLocaleTimeString(),
-      });
+      addConversationEntry(makeEntry("assistant", `Error: ${message}`));
     } finally {
       setTriageLoading(false);
     }
@@ -161,23 +194,133 @@ export default function Home() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <h1>Signmons CallDesk Sandbox</h1>
-          <p>
-            Requests are pointed at <code>{apiBase}</code>. Supply your admin
-            token manually so it never lives in source control.
+      <aside className={styles.sidebar}>
+        <div className={styles.brand}>
+          <p className={styles.kicker}>Signmons CallDesk</p>
+          <h1 className={styles.title}>Dispatch sandbox</h1>
+          <p className={styles.subtle}>
+            Requests are pointed at <code>{apiBase}</code>.
           </p>
         </div>
-      </header>
 
-      <main className={styles.grid}>
-        <section className={styles.card}>
-          <header>
-            <h2>Onboard a tenant</h2>
-            <p>
-              Create tenants securely by posting to{" "}
-              <code>/tenants</code> with a one-time token.
+        <section className={styles.panel}>
+          <header className={styles.panelHeader}>
+            <h2>Dev auth panel</h2>
+            <p className={styles.subtle}>
+              Send dev headers with every request (offline friendly).
+            </p>
+          </header>
+
+          <div className={styles.segmented}>
+            <button
+              type="button"
+              className={
+                authMode === "dev" ? styles.segmentActive : styles.segment
+              }
+              onClick={() => setAuthMode("dev")}
+            >
+              Dev auth
+            </button>
+            <button
+              type="button"
+              className={
+                authMode === "admin" ? styles.segmentActive : styles.segment
+              }
+              onClick={() => setAuthMode("admin")}
+            >
+              Admin token
+            </button>
+          </div>
+
+          {authMode === "dev" ? (
+            <div className={styles.form}>
+              <label className={styles.label}>
+                Dev auth secret
+                <input
+                  className={styles.input}
+                  value={devAuth.secret ?? ""}
+                  onChange={(event) =>
+                    setDevAuth((prev) => ({
+                      ...prev,
+                      secret: event.target.value,
+                    }))
+                  }
+                  placeholder="dev-auth-secret"
+                  autoComplete="off"
+                />
+              </label>
+
+              <label className={styles.label}>
+                Dev role
+                <input
+                  className={styles.input}
+                  value={devAuth.role ?? ""}
+                  onChange={(event) =>
+                    setDevAuth((prev) => ({
+                      ...prev,
+                      role: event.target.value,
+                    }))
+                  }
+                  placeholder="admin"
+                  autoComplete="off"
+                />
+              </label>
+
+              <label className={styles.label}>
+                Dev user ID
+                <input
+                  className={styles.input}
+                  value={devAuth.userId ?? ""}
+                  onChange={(event) =>
+                    setDevAuth((prev) => ({
+                      ...prev,
+                      userId: event.target.value,
+                    }))
+                  }
+                  placeholder="dev-admin"
+                  autoComplete="off"
+                />
+              </label>
+
+              <label className={styles.label}>
+                Dev tenant ID (optional)
+                <input
+                  className={styles.input}
+                  value={devAuth.tenantId ?? ""}
+                  onChange={(event) =>
+                    setDevAuth((prev) => ({
+                      ...prev,
+                      tenantId: event.target.value,
+                    }))
+                  }
+                  placeholder={triageForm.tenantId || "tenant-id"}
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+          ) : (
+            <div className={styles.form}>
+              <label className={styles.label}>
+                Admin token
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={adminToken}
+                  onChange={(event) => setAdminToken(event.target.value)}
+                  placeholder="Enter token at runtime"
+                  autoComplete="off"
+                />
+              </label>
+              <p className={styles.hint}>Only used for admin-only routes.</p>
+            </div>
+          )}
+        </section>
+
+        <section className={styles.panel}>
+          <header className={styles.panelHeader}>
+            <h2>Tenant onboarding</h2>
+            <p className={styles.subtle}>
+              Create a tenant profile and AI instructions.
             </p>
           </header>
 
@@ -230,40 +373,17 @@ export default function Home() {
                     instructions: event.target.value,
                   }))
                 }
-                rows={4}
+                rows={5}
                 required
               />
             </label>
-
-            <label className={styles.label}>
-              Admin token
-              <input
-                className={styles.input}
-                name="adminToken"
-                type="password"
-                value={tenantForm.adminToken}
-                onChange={(event) =>
-                  setTenantForm((prev) => ({
-                    ...prev,
-                    adminToken: event.target.value,
-                  }))
-                }
-                autoComplete="off"
-                placeholder="Enter token at runtime"
-                required
-              />
-            </label>
-
-            <p className={styles.hint}>
-              Tokens are never stored—refresh the page when you are done.
-            </p>
 
             <button
               className={styles.button}
               type="submit"
               disabled={tenantLoading}
             >
-              {tenantLoading ? "Creating…" : "Create tenant"}
+              {tenantLoading ? "Creating..." : "Create tenant"}
             </button>
 
             {tenantError && (
@@ -288,21 +408,32 @@ export default function Home() {
           </form>
         </section>
 
-        <section className={styles.card}>
-          <header>
-            <h2>AI triage</h2>
-            <p>
-              Simulate the caller experience. Provide a tenant ID, session ID,
-              and the caller&apos;s latest message.
-            </p>
-          </header>
+        {lastJob && (
+          <section className={styles.panel}>
+            <header className={styles.panelHeader}>
+              <h2>Latest job</h2>
+              <p className={styles.subtle}>Most recent job created by AI.</p>
+            </header>
+            <pre className={styles.codeBlock}>
+              {JSON.stringify(lastJob, null, 2)}
+            </pre>
+          </section>
+        )}
+      </aside>
 
-          <form className={styles.form} onSubmit={handleTriageSubmit}>
-            <label className={styles.label}>
+      <section className={styles.chat}>
+        <header className={styles.chatHeader}>
+          <div>
+            <h2>Caller conversation</h2>
+            <p className={styles.subtle}>
+              Chat-style feed with the caller at the top.
+            </p>
+          </div>
+          <div className={styles.chatFields}>
+            <label className={styles.chatLabel}>
               Tenant ID
               <input
-                className={styles.input}
-                name="tenantId"
+                className={styles.chatInput}
                 value={triageForm.tenantId}
                 onChange={(event) =>
                   setTriageForm((prev) => ({
@@ -310,15 +441,13 @@ export default function Home() {
                     tenantId: event.target.value,
                   }))
                 }
-                required
+                placeholder="tenant-id"
               />
             </label>
-
-            <label className={styles.label}>
+            <label className={styles.chatLabel}>
               Session ID
               <input
-                className={styles.input}
-                name="sessionId"
+                className={styles.chatInput}
                 value={triageForm.sessionId}
                 onChange={(event) =>
                   setTriageForm((prev) => ({
@@ -326,72 +455,75 @@ export default function Home() {
                     sessionId: event.target.value,
                   }))
                 }
-                required
+                placeholder="caller-123"
               />
             </label>
+          </div>
+        </header>
 
-            <label className={styles.label}>
-              Caller message
-              <textarea
-                className={styles.textarea}
-                name="message"
-                value={triageForm.message}
-                onChange={(event) =>
-                  setTriageForm((prev) => ({
-                    ...prev,
-                    message: event.target.value,
-                  }))
-                }
-                rows={3}
-                required
-              />
-            </label>
+        <div className={styles.messageList}>
+          {conversation.length === 0 ? (
+            <div className={styles.emptyState}>
+              <p className={styles.muted}>
+                No messages yet. Start a triage request below.
+              </p>
+            </div>
+          ) : (
+            conversation.map((entry) => (
+              <div key={entry.id} className={styles.messageRow}>
+                <span className={styles.messageMeta}>
+                  {entry.timestamp} | {entry.role.toUpperCase()}
+                </span>
+                <div
+                  className={`${styles.messageBubble} ${
+                    entry.role === "caller"
+                      ? styles.messageUser
+                      : entry.role === "assistant"
+                        ? styles.messageAssistant
+                        : styles.messageSystem
+                  }`}
+                >
+                  {entry.content}
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={endRef} />
+        </div>
 
+        <form className={styles.composer} onSubmit={handleTriageSubmit}>
+          {triageError && (
+            <p role="alert" className={styles.error}>
+              {triageError}
+            </p>
+          )}
+          <div className={styles.composerRow}>
+            <textarea
+              className={styles.composerInput}
+              name="message"
+              value={triageForm.message}
+              onChange={(event) =>
+                setTriageForm((prev) => ({
+                  ...prev,
+                  message: event.target.value,
+                }))
+              }
+              rows={2}
+              placeholder="Describe the issue from the caller's perspective..."
+            />
             <button
               className={styles.button}
               type="submit"
               disabled={triageLoading}
             >
-              {triageLoading ? "Sending…" : "Send message"}
+              {triageLoading ? "Sending..." : "Send"}
             </button>
-
-            {triageError && (
-              <p role="alert" className={styles.error}>
-                {triageError}
-              </p>
-            )}
-          </form>
-
-          <div className={styles.timeline}>
-            <h3>Conversation</h3>
-            {conversation.length === 0 ? (
-              <p className={styles.muted}>
-                No messages yet. Submit the form above to populate the thread.
-              </p>
-            ) : (
-              <ul className={styles.timelineList}>
-                {conversation.map((entry, index) => (
-                  <li key={`${entry.timestamp}-${index}`}>
-                    <span className={styles.timelineMeta}>
-                      {entry.timestamp} · {entry.role.toUpperCase()}
-                    </span>
-                    <p>{entry.content}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
-
-          {lastJob && (
-            <div className={styles.success}>
-              <h3>Latest job</h3>
-              <pre className={styles.codeBlock}>
-                {JSON.stringify(lastJob, null, 2)}
-              </pre>
-            </div>
-          )}
-        </section>
-      </main>
+          <p className={styles.hint}>
+            The message will appear above. The input stays fixed at the bottom.
+          </p>
+        </form>
+      </section>
     </div>
   );
 }

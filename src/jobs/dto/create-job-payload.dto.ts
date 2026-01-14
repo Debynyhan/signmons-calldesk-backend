@@ -12,7 +12,7 @@ const ISSUE_CATEGORIES = [
 
 type IssueCategory = (typeof ISSUE_CATEGORIES)[number];
 
-type Urgency = "EMERGENCY" | "HIGH" | "STANDARD";
+type Urgency = "EMERGENCY" | "STANDARD";
 
 const transformRequiredString = ({ value }: TransformFnParams): string =>
   typeof value === "string" ? value.trim() : "";
@@ -49,8 +49,8 @@ export class CreateJobPayloadDto {
   })
   issueCategory!: IssueCategory;
 
-  @IsEnum(["EMERGENCY", "HIGH", "STANDARD"], {
-    message: "urgency must be EMERGENCY, HIGH, or STANDARD",
+  @IsEnum(["EMERGENCY", "STANDARD"], {
+    message: "urgency must be EMERGENCY or STANDARD",
   })
   urgency!: Urgency;
 

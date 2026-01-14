@@ -19,7 +19,15 @@ export interface CreateJobFromToolCallRequest {
   rawArgs?: string;
 }
 
-export type JobStatus = "PENDING" | "SCHEDULED" | "COMPLETED" | "CANCELLED";
+export type JobStatus =
+  | "CREATED"
+  | "OFFERED"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "EXPIRED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CANCELLED";
 
 export interface JobRecord {
   id: string;

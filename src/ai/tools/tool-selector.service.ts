@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
+import type { ConfigType } from "@nestjs/config";
 import appConfig from "../../config/app.config";
 import { ToolRegistryService } from "./tool.provider";
 import type { ChatCompletionTool } from "openai/resources/chat/completions/completions";
@@ -18,6 +18,14 @@ export class ToolSelectorService {
     const enabled = new Set(this.config.enabledTools);
     return this.toolRegistry
       .getTools()
-      .filter((tool) => enabled.has(tool.function?.name ?? ""));
+      .filter(
+        (tool) => this.isFunctionTool(tool) && enabled.has(tool.function?.name ?? ""),
+      );
+  }
+
+  private isFunctionTool(
+    tool: ChatCompletionTool,
+  ): tool is ChatCompletionTool & { function: { name: string } } {
+    return tool.type === "function" && "function" in tool;
   }
 }

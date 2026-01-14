@@ -1,5 +1,12 @@
+import { randomUUID } from "crypto";
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import {
+  CommunicationChannel,
+  CommunicationDirection,
+  CommunicationProvider,
+  CommunicationStatus,
+  Prisma,
+} from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 
@@ -33,18 +40,25 @@ export class CallLogService {
     const metadataPayload: Prisma.InputJsonValue = {
       ...(input.metadata ?? {}),
       sessionId: input.sessionId,
+      jobId: input.jobId ?? null,
+      type: "message",
     };
 
-    return this.prisma.callLog.create({
-      data: {
-        tenantId: input.tenantId,
-        jobId: input.jobId ?? null,
-        direction: input.direction ?? "INBOUND",
-        transcript: sanitizedTranscript,
-        aiResponse: sanitizedResponse,
-        metadata: metadataPayload,
-      },
+    await this.createCommunicationEvent({
+      tenantId: input.tenantId,
+      direction: input.direction ?? "INBOUND",
+      message: sanitizedTranscript,
+      payload: metadataPayload,
     });
+
+    if (sanitizedResponse) {
+      await this.createCommunicationEvent({
+        tenantId: input.tenantId,
+        direction: "OUTBOUND",
+        message: sanitizedResponse,
+        payload: metadataPayload,
+      });
+    }
   }
 
   async getRecentMessages(
@@ -58,35 +72,30 @@ export class CallLogService {
       createdAt: Date;
     }>
   > {
-    const logs = await this.prisma.callLog.findMany({
+    const lastClosedAt = await this.getLastSessionClosedAt(tenantId, sessionId);
+    const logs = await this.prisma.communicationContent.findMany({
       where: {
         tenantId,
-        metadata: {
+        createdAt: lastClosedAt ? { gt: lastClosedAt } : undefined,
+        payload: {
           path: ["sessionId"],
           equals: sessionId,
         },
-        sessionClosedAt: null,
+        AND: [
+          {
+            payload: {
+              path: ["type"],
+              equals: "message",
+            },
+          },
+        ],
       },
       orderBy: { createdAt: "desc" },
       take: limit,
     });
 
     return logs
-      .map((log) => [
-        {
-          role: "user" as const,
-          content: log.transcript,
-          createdAt: log.createdAt,
-        },
-        log.aiResponse
-          ? ({
-              role: "assistant" as const,
-              content: log.aiResponse,
-              createdAt: log.createdAt,
-            } as const)
-          : null,
-      ])
-      .flat()
+      .map((log) => this.mapPayloadToMessage(log.payload, log.createdAt))
       .filter(
         (
           entry,
@@ -100,19 +109,111 @@ export class CallLogService {
   }
 
   async clearSession(tenantId: string, sessionId: string): Promise<void> {
-    await this.prisma.callLog.updateMany({
+    await this.createCommunicationEvent({
+      tenantId,
+      direction: "OUTBOUND",
+      message: "",
+      payload: {
+        sessionId,
+        type: "session_closed",
+      },
+    });
+  }
+
+  private async createCommunicationEvent({
+    tenantId,
+    direction,
+    message,
+    payload,
+  }: {
+    tenantId: string;
+    direction: "INBOUND" | "OUTBOUND";
+    message: string;
+    payload: Prisma.InputJsonValue;
+  }) {
+    const eventId = randomUUID();
+    const contentId = randomUUID();
+    const normalizedPayload =
+      payload && typeof payload === "object"
+        ? {
+            ...(payload as Record<string, unknown>),
+            message,
+            role: direction === "INBOUND" ? "user" : "assistant",
+          }
+        : {
+            message,
+            role: direction === "INBOUND" ? "user" : "assistant",
+          };
+
+    await this.prisma.communicationEvent.create({
+      data: {
+        id: eventId,
+        tenantId,
+        channel: CommunicationChannel.WEBCHAT,
+        direction: direction as CommunicationDirection,
+        provider: CommunicationProvider.OTHER,
+        status:
+          direction === "INBOUND"
+            ? CommunicationStatus.RECEIVED
+            : CommunicationStatus.SENT,
+        CommunicationContent: {
+          create: {
+            id: contentId,
+            tenantId,
+            payload: normalizedPayload,
+          },
+        },
+      },
+    });
+  }
+
+  private async getLastSessionClosedAt(
+    tenantId: string,
+    sessionId: string,
+  ): Promise<Date | null> {
+    const marker = await this.prisma.communicationContent.findFirst({
       where: {
         tenantId,
-        metadata: {
+        payload: {
           path: ["sessionId"],
           equals: sessionId,
         },
-        sessionClosedAt: null,
+        AND: [
+          {
+            payload: {
+              path: ["type"],
+              equals: "session_closed",
+            },
+          },
+        ],
       },
-      data: {
-        sessionClosedAt: new Date(),
-      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
     });
+
+    return marker?.createdAt ?? null;
+  }
+
+  private mapPayloadToMessage(
+    payload: Prisma.JsonValue,
+    createdAt: Date,
+  ):
+    | { role: "user" | "assistant"; content: string; createdAt: Date }
+    | null {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+    const data = payload as Record<string, unknown>;
+    const role = data.role;
+    const message = data.message;
+    if (
+      (role !== "user" && role !== "assistant") ||
+      typeof message !== "string"
+    ) {
+      return null;
+    }
+
+    return { role, content: message, createdAt };
   }
 
   private obfuscatePii(value: string): string {
