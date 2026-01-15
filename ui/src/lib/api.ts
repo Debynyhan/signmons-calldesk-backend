@@ -19,7 +19,6 @@ export interface TenantResponse {
 }
 
 export interface TriageRequest {
-  tenantId: string;
   sessionId: string;
   message: string;
 }
@@ -142,11 +141,12 @@ export async function createTenant(
 export async function sendTriage(
   input: TriageRequest,
   auth?: RequestAuth,
+  tenantId?: string,
 ): Promise<TriageResponse> {
   return postJson<TriageResponse>(
     "/ai/triage",
     input,
-    buildAuthHeaders(auth, input.tenantId),
+    buildAuthHeaders(auth, tenantId),
   );
 }
 

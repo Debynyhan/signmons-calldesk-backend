@@ -174,7 +174,11 @@ export default function Home() {
     addConversationEntry(makeEntry("caller", triageForm.message.trim()));
 
     try {
-      const response = await sendTriage(triageForm, buildAuth());
+      const response = await sendTriage(
+        { sessionId: triageForm.sessionId, message: triageForm.message },
+        buildAuth(),
+        triageForm.tenantId,
+      );
       setLastResponse(response);
       addConversationEntry(
         makeEntry("assistant", formatAssistantResponse(response)),

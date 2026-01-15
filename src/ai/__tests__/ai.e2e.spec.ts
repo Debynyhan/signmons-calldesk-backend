@@ -78,6 +78,8 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     }
     process.env.ADMIN_API_TOKEN =
       process.env.ADMIN_API_TOKEN ?? "test-admin-token";
+    process.env.DEV_AUTH_ENABLED = "true";
+    process.env.DEV_AUTH_SECRET = process.env.DEV_AUTH_SECRET ?? "dev-auth-secret";
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -126,8 +128,11 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     const triageResponse = await request(server)
       .post("/ai/triage")
       .set("Content-Type", "application/json")
+      .set("x-dev-auth", process.env.DEV_AUTH_SECRET ?? "dev-auth-secret")
+      .set("x-dev-user-id", "dev-admin")
+      .set("x-dev-role", "admin")
+      .set("x-dev-tenant-id", tenantId)
       .send({
-        tenantId,
         sessionId: "session-abc",
         message: "Caller reports no heat and wants immediate help.",
       })

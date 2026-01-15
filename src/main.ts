@@ -7,6 +7,7 @@ import { SanitizedExceptionFilter } from "./common/filters/sanitized-exception.f
 import { LoggingService } from "./logging/logging.service";
 import appConfig from "./config/app.config";
 import { PrismaService } from "./prisma/prisma.service";
+import { requestContextMiddleware } from "./common/context/request-context";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -36,6 +37,8 @@ async function bootstrap() {
     ],
     maxAge: 3600,
   });
+
+  app.use(requestContextMiddleware);
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin ?? undefined;

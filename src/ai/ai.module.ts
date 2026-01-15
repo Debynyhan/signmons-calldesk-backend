@@ -14,6 +14,8 @@ import { JobsModule } from "../jobs/jobs.module";
 import { TenantsModule } from "../tenants/tenants.module";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
+import { RequestAuthGuard } from "../auth/request-auth.guard";
+import { TenantGuard } from "../common/guards/tenant.guard";
 
 @Module({
   imports: [JobsModule, TenantsModule],
@@ -40,6 +42,8 @@ import { AiErrorHandler } from "./ai-error.handler";
       provide: AI_PROVIDER,
       useClass: AiProviderService,
     },
+    RequestAuthGuard,
+    TenantGuard,
     ToolSelectorService,
     AiErrorHandler,
     AiService,

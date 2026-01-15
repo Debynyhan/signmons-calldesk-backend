@@ -204,6 +204,10 @@ describe("AiProviderService", () => {
     port: 3000,
     databaseUrl: "postgres://user:pass@localhost:5432/db",
     adminApiToken: "token",
+    devAuthEnabled: true,
+    devAuthSecret: "dev-auth-secret",
+    identityIssuer: "http://localhost",
+    identityAudience: "signmons",
     corsOrigins: ["http://localhost:3000"],
   };
 

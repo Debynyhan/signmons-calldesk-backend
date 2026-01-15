@@ -1,86 +1,151 @@
-# Signmons MVP Task Board
+# Signmons CallDesk — Tasks & Sprint Plan (Single Source of Truth)
+
+---
 
 ## Definition of Done (MVP)
-- [ ] TenantOrganization created via Dev Auth (dev headers accepted).
-- [ ] AI triage returns a response and can create a Job with Customer + PropertyAddress + ServiceCategory.
-- [ ] Conversations list shows the session from Conversation + CommunicationEvent/Content.
-- [ ] Jobs list shows the new job with correct status/urgency.
-- [ ] Payment confirmation sent only after Stripe test payment succeeds (SMS/email).
-- [ ] Smoke test script passes end-to-end.
-- [x] README reflects local MVP setup.
-- [ ] Multi-tenant isolation enforced on all reads/writes (no cross-tenant access).
-- [ ] External providers disabled by default in dev (Stripe test mode, Twilio dry-run, Google disabled).
 
-## MVP-Critical Tasks
+> The MVP is complete **only** when all items below are checked.
 
-### Multi-Tenancy & Isolation
-- [ ] [Owner: You | Status: Todo] Request-scoped tenant context provider and validation.
-- [ ] [Owner: You | Status: Todo] Enforce tenantId on all reads/writes (Jobs, Conversations, Communication, Customers, ServiceCategory).
-- [ ] [Owner: You | Status: Todo] Add cross-tenant access tests (cannot read/update other tenants).
-- [ ] [Owner: You | Status: Todo] Decide dev tenant source of truth (header vs body) and enforce consistency.
+* [ ] TenantOrganization created via Dev Auth (dev headers only when enabled)
+* [ ] AI triage creates Customer, PropertyAddress, ServiceCategory, Job (tenant-scoped)
+* [ ] Conversation visible with CommunicationEvent/Content
+* [ ] Job visible with correct status, urgency, tenant isolation
+* [ ] **Stripe payment succeeds BEFORE job confirmation**
+* [ ] SMS/email confirmation sent ONLY after payment success
+* [ ] End-to-end smoke test passes (AI → payment → job → SMS)
+* [ ] Multi-tenant isolation enforced on all reads/writes
+* [ ] External providers disabled by default in dev
 
-### Tenant & Onboarding
-- [ ] [Owner: You | Status: Todo] Verify TenantOrganization creation and settings persisted (displayName/instructions/prompt).
-- [ ] [Owner: Partner | Status: In Progress] Validate UI flows: tenant onboarding, triage, jobs, conversations.
-- [ ] [Owner: Partner | Status: In Progress] Capture bugs/gaps with steps to reproduce.
+---
 
-### AI / Chatbot Behavior
-- [ ] [Owner: You | Status: Todo] Create Conversation per session (channel, status, currentFSMState).
-- [ ] [Owner: You | Status: Todo] Link job to conversation via ConversationJobLink.
-- [ ] [Owner: You | Status: Todo] Output schema validation (fail closed on invalid AI responses).
-- [ ] [Owner: You | Status: Todo] Tool argument validation and normalization (beyond current DTO).
-- [ ] [Owner: You | Status: Todo] AI budgets (token caps, retries, timeouts).
+## Canonical Task Board (TRACK PROGRESS HERE ONLY)
 
-### Job Creation & Data Integrity
-- [ ] [Owner: You | Status: Todo] Confirm job status flow: CREATED before payment, ACCEPTED after payment.
-- [ ] [Owner: You | Status: Todo] Ensure issueCategory maps to ServiceCategory consistently.
-- [ ] [Owner: You | Status: Todo] Address normalization placeholder for dev (no paid APIs).
+### T-01 Multi-Tenant Isolation (P0)
 
-### Payments & Confirmation (Offline Dev)
-- [ ] [Owner: You | Status: Todo] Stripe test-mode flow: Payment + LedgerEntry + StripeEvent.
-- [ ] [Owner: You | Status: Todo] Post-payment confirmation message (SMS/email).
-- [ ] [Owner: You | Status: Todo] Twilio dry-run mode (log only in dev).
-- [ ] [Owner: You | Status: Todo] Email stub (Resend or local log).
-- [ ] [Owner: You | Status: Todo] Provider feature flags: disable external calls by default in dev.
+* [ ] JWT auth claims are authoritative tenant source
+* [ ] Request body tenantId ignored everywhere
+* [ ] Header validated vs claims (prod)
+* [ ] `x-dev-tenant-id` allowed only with `DEV_AUTH_ENABLED=true`
+* [ ] Request-scoped tenant context `{ tenantId, userId, role, requestId }`
+* [ ] TenantGuard enforced after AuthGuard
+* [ ] Prisma queries scoped by tenantId (Jobs, Conversations, Customers, Communication, ServiceCategory)
+* [ ] Cross-tenant tests (read/write/infer blocked)
+* [ ] Tenant isolation documented (dev vs prod rules)
 
-### UI & Admin Panel (MVP)
-- [ ] [Owner: Partner | Status: Todo] Admin panel: tenant settings (displayName/instructions/timezone).
-- [ ] [Owner: Partner | Status: Todo] Admin panel: service categories list/edit (ServiceCategory).
-- [ ] [Owner: Partner | Status: Todo] Admin panel: tools toggles per tenant (enabled tools).
-- [ ] [Owner: Partner | Status: Todo] Conversations timeline UI from CommunicationEvent/Content.
-- [ ] [Owner: Partner | Status: Todo] Jobs list/detail UI with status + urgency + payment badge.
-- [ ] [Owner: Partner | Status: Todo] UX polish: loading states, retry actions, inline errors, dev banner.
+---
 
-### Monetization (MVP)
-- [ ] [Owner: You | Status: Todo] Pricing tier displayed in UI (test mode).
-- [ ] [Owner: You | Status: Todo] Usage summary (jobs created, paid jobs, revenue).
-- [ ] [Owner: You | Status: Todo] Payment-required gate before booking confirmation.
+### T-02 AI Safety & Conversation Integrity (P0)
 
-### QA / Smoke
-- [ ] [Owner: Partner | Status: In Progress] Run `scripts/smoke-test.sh` and record pass/fail.
-- [ ] [Owner: You | Status: Todo] Run AI triage for a new tenant and confirm `job_created`.
-- [ ] [Owner: You | Status: Todo] Verify Jobs list shows the created job.
-- [ ] [Owner: You | Status: Todo] Verify Conversations list shows the session.
+* [ ] Conversation created per session (channel, status, FSM state)
+* [ ] Conversation ↔ Job linking
+* [ ] AI output schema validation (fail closed)
+* [ ] Tool argument validation + normalization
+* [ ] AI budgets (tokens, retries, timeouts)
+* [ ] AI refusal + fallback logging
 
-### MVP-Critical Done
-- [x] Dev auth headers accepted by backend.
-- [x] CORS updated for dev auth headers (incl. x-dev-tenant-id).
-- [x] Tool execution registry with executors.
-- [x] Idempotency for job creation tool.
-- [x] AI logging uses CommunicationEvent/Content + session markers.
-- [x] TenantOrganization settings stored in JSON (displayName/instructions/prompt).
+---
 
-## Post-MVP / Award-Winning SaaS
-- [ ] [Owner: You | Status: Todo] AI policy guard with deterministic guard order.
-- [ ] [Owner: You | Status: Todo] Central AI orchestrator (prompt selection, tool allowlist, retries).
-- [ ] [Owner: You | Status: Todo] Structured AI observability (prompt/model/tool usage, latency, cost).
-- [ ] [Owner: You | Status: Todo] PII redaction + data retention policy.
-- [ ] [Owner: You | Status: Todo] ServiceArea + Coverage checks (ServiceArea, CustomerCoverageCheck).
-- [ ] [Owner: You | Status: Todo] User management + availability blocks.
-- [ ] [Owner: You | Status: Todo] Job offers workflow (JobOffer + outbound comms).
-- [ ] [Owner: You | Status: Todo] Stripe Connect onboarding (TenantSubscription + Connect).
-- [ ] [Owner: You | Status: Todo] Human override + feedback capture for AI runs.
-- [ ] [Owner: You | Status: Todo] Stripe billing portal + invoices (self-serve).
-- [ ] [Owner: You | Status: Todo] Dunning/retry flows for failed payments.
-- [ ] [Owner: You | Status: Todo] Revenue analytics dashboard (ARR, conversion, churn).
-- [ ] [Owner: You | Status: Todo] In-app onboarding checklist + activation funnel.
+### T-03 Job Lifecycle & Data Integrity (P0)
+
+* [ ] Job lifecycle enforced: CREATED → ACCEPTED
+* [ ] issueCategory → ServiceCategory mapping verified
+* [ ] Address normalization placeholder (dev-safe)
+* [ ] Job creation idempotent
+* [ ] Audit trail includes tenantId everywhere
+
+---
+
+### T-04 Payment-First Booking (Stripe) (P0)
+
+* [ ] Diagnostic fee required before booking
+* [ ] Emergency vs non-emergency pricing explicit
+* [ ] Stripe test-mode Payment Intent created
+* [ ] Payment metadata includes tenantId, sessionId, urgency
+* [ ] Customer consent captured before payment
+* [ ] Payment verification via webhook
+* [ ] Job confirmation only after `payment_intent.succeeded`
+* [ ] Duplicate attempts idempotent
+* [ ] Payment ↔ Job linkage persisted
+
+---
+
+### T-05 Confirmation & Messaging (Twilio) (P0)
+
+* [ ] SMS sent only after job creation
+* [ ] Tenant-branded copy
+* [ ] No sensitive payment data in messages
+* [ ] SMS failure does not roll back payment/job
+* [ ] Observability: tenantId, paymentIntentId, jobId, SMS SID
+* [ ] Twilio dry-run enabled in dev
+
+---
+
+### T-06 Admin & UI (P1)
+
+* [ ] Admin panel: tenant settings
+* [ ] ServiceCategory list/edit
+* [ ] Tool toggles per tenant
+* [ ] Conversations timeline UI
+* [ ] Jobs list + detail view with payment badge
+* [ ] UX polish (loading, retries, inline errors, dev banner)
+
+---
+
+### T-07 QA & Smoke (P0)
+
+* [ ] `scripts/smoke-test.sh` passes
+* [ ] AI triage → payment → job → SMS validated
+* [ ] Cross-tenant scenarios tested
+* [ ] Providers disabled by default in dev
+
+---
+
+## Sprint Plan (REFERENCES TASK IDS — NO DUPLICATION)
+
+### Sprint 1 — Security Foundations
+
+**Tasks:** T-01
+**Exit:** Cross-tenant access impossible, tests pass
+
+---
+
+### Sprint 2 — AI Reliability & Job Integrity
+
+**Tasks:** T-02, T-03
+**Exit:** AI safely creates jobs with full audit trail
+
+---
+
+### Sprint 3 — Revenue Lock-In
+
+**Tasks:** T-04, T-05
+**Exit:** No unpaid job can exist; payment → job → SMS traceable
+
+---
+
+### Sprint 4 — MVP Polish & Demo Readiness
+
+**Tasks:** T-06, T-07
+**Exit:** Full MVP DoD satisfied, demo-ready
+
+---
+
+## Post-MVP (Award-Winning Track)
+
+* AI policy guard + deterministic orchestration
+* Structured AI observability (cost, latency, prompt versions)
+* PII redaction + retention policies
+* ServiceArea + coverage checks
+* Human override + AI feedback capture
+* Stripe Connect onboarding
+* Billing portal + invoices
+* Dunning & retry flows
+* Revenue analytics (ARR, churn)
+* In-app onboarding checklist
+
+---
+
+## Global Principle
+
+> **If a task is not in the Canonical Task Board, it does not exist.**
+> Sprints only reference tasks — they never redefine them.

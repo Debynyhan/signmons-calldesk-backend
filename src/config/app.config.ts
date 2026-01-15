@@ -10,6 +10,10 @@ export interface AppConfig {
   port: number;
   databaseUrl: string;
   adminApiToken: string;
+  devAuthEnabled: boolean;
+  devAuthSecret: string;
+  identityIssuer: string;
+  identityAudience: string;
   corsOrigins: string[];
 }
 
@@ -36,6 +40,11 @@ export default registerAs("app", (): AppConfig => {
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",
+    devAuthEnabled:
+      (process.env.DEV_AUTH_ENABLED ?? "false").toLowerCase() === "true",
+    devAuthSecret: process.env.DEV_AUTH_SECRET ?? "dev-auth-secret",
+    identityIssuer: process.env.IDENTITY_ISSUER ?? "",
+    identityAudience: process.env.IDENTITY_AUDIENCE ?? "",
     corsOrigins,
   };
 });
