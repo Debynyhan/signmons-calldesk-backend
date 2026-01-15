@@ -14,6 +14,7 @@ export interface AppConfig {
   devAuthSecret: string;
   identityIssuer: string;
   identityAudience: string;
+  firebaseProjectId?: string;
   corsOrigins: string[];
 }
 
@@ -43,8 +44,18 @@ export default registerAs("app", (): AppConfig => {
     devAuthEnabled:
       (process.env.DEV_AUTH_ENABLED ?? "false").toLowerCase() === "true",
     devAuthSecret: process.env.DEV_AUTH_SECRET ?? "dev-auth-secret",
-    identityIssuer: process.env.IDENTITY_ISSUER ?? "",
-    identityAudience: process.env.IDENTITY_AUDIENCE ?? "",
+    identityIssuer:
+      process.env.IDENTITY_ISSUER ??
+      process.env.FIREBASE_ISSUER ??
+      "",
+    identityAudience:
+      process.env.IDENTITY_AUDIENCE ??
+      process.env.FIREBASE_AUDIENCE ??
+      "",
+    firebaseProjectId:
+      process.env.FIREBASE_ADMIN_PROJECT_ID ??
+      process.env.FIREBASE_PROJECT_ID ??
+      process.env.GOOGLE_CLOUD_PROJECT,
     corsOrigins,
   };
 });

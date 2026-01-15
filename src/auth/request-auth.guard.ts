@@ -7,27 +7,20 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 import type { ConfigType } from "@nestjs/config";
+import type { DecodedIdToken } from "firebase-admin/auth";
 import appConfig from "../config/app.config";
 import { setAuthContext } from "../common/context/request-context";
-
-type JwtClaims = {
-  iss?: string;
-  aud?: string | string[];
-  sub?: string;
-  role?: string;
-  tenantId?: string;
-  tenant_id?: string;
-  user_id?: string;
-};
+import { FirebaseAdminService } from "./firebase-admin.service";
 
 @Injectable()
 export class RequestAuthGuard implements CanActivate {
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
+    private readonly firebaseAdmin: FirebaseAdminService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
 
     if (this.config.devAuthEnabled) {
@@ -51,38 +44,17 @@ export class RequestAuthGuard implements CanActivate {
     return true;
   }
 
-  private handleJwtAuth(request: Request): boolean {
-    if (!this.config.identityIssuer || !this.config.identityAudience) {
-      throw new UnauthorizedException("Identity configuration is missing.");
-    }
-
+  private async handleJwtAuth(request: Request): Promise<boolean> {
     const authHeader = request.header("authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) {
       throw new UnauthorizedException("Missing bearer token.");
     }
 
     const token = authHeader.slice("Bearer ".length).trim();
-    // NOTE: Replace with verified JWT (e.g., jose) before production rollout.
-    const claims = decodeJwtPayload(token);
-    if (!claims) {
-      throw new UnauthorizedException("Invalid bearer token.");
-    }
-
-    if (claims.iss !== this.config.identityIssuer) {
-      throw new UnauthorizedException("Invalid token issuer.");
-    }
-
-    const audience = claims.aud;
-    const expectedAudience = this.config.identityAudience;
-    const matchesAudience = Array.isArray(audience)
-      ? audience.includes(expectedAudience)
-      : audience === expectedAudience;
-    if (!matchesAudience) {
-      throw new UnauthorizedException("Invalid token audience.");
-    }
+    const claims = await this.verifyFirebaseToken(token);
 
     const tenantId = claims.tenantId ?? claims.tenant_id;
-    const userId = claims.sub ?? claims.user_id;
+    const userId = claims.sub ?? claims.user_id ?? claims.uid;
     if (!tenantId || !userId) {
       throw new UnauthorizedException("Missing tenant identity.");
     }
@@ -90,15 +62,35 @@ export class RequestAuthGuard implements CanActivate {
     setAuthContext({ userId, tenantId, role: claims.role });
     return true;
   }
+
+  private async verifyFirebaseToken(
+    token: string,
+  ): Promise<DecodedIdToken> {
+    try {
+      const claims = await this.firebaseAdmin
+        .getAuth()
+        .verifyIdToken(token, true);
+      verifyIssuerAndAudience(
+        claims,
+        this.config.identityIssuer,
+        this.config.identityAudience,
+      );
+      return claims;
+    } catch {
+      throw new UnauthorizedException("Invalid bearer token.");
+    }
+  }
 }
 
-function decodeJwtPayload(token: string): JwtClaims | null {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  try {
-    const payload = Buffer.from(parts[1], "base64url").toString("utf-8");
-    return JSON.parse(payload) as JwtClaims;
-  } catch {
-    return null;
+function verifyIssuerAndAudience(
+  claims: DecodedIdToken,
+  issuer?: string,
+  audience?: string,
+): void {
+  if (issuer && claims.iss !== issuer) {
+    throw new UnauthorizedException("Invalid token issuer.");
+  }
+  if (audience && claims.aud !== audience) {
+    throw new UnauthorizedException("Invalid token audience.");
   }
 }

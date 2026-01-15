@@ -14,11 +14,11 @@ import { JobsModule } from "../jobs/jobs.module";
 import { TenantsModule } from "../tenants/tenants.module";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
-import { RequestAuthGuard } from "../auth/request-auth.guard";
 import { TenantGuard } from "../common/guards/tenant.guard";
+import { AuthModule } from "../auth/auth.module";
 
 @Module({
-  imports: [JobsModule, TenantsModule],
+  imports: [JobsModule, TenantsModule, AuthModule],
   controllers: [AiController],
   providers: [
     {
@@ -42,7 +42,6 @@ import { TenantGuard } from "../common/guards/tenant.guard";
       provide: AI_PROVIDER,
       useClass: AiProviderService,
     },
-    RequestAuthGuard,
     TenantGuard,
     ToolSelectorService,
     AiErrorHandler,

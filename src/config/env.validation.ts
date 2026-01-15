@@ -17,6 +17,11 @@ export const envValidationSchema = Joi.object({
   DEV_AUTH_SECRET: Joi.string().min(8).default("dev-auth-secret"),
   IDENTITY_ISSUER: Joi.string().allow("").default(""),
   IDENTITY_AUDIENCE: Joi.string().allow("").default(""),
+  FIREBASE_ADMIN_PROJECT_ID: Joi.string().allow("").default(""),
+  FIREBASE_PROJECT_ID: Joi.string().allow("").default(""),
+  FIREBASE_ISSUER: Joi.string().allow("").default(""),
+  FIREBASE_AUDIENCE: Joi.string().allow("").default(""),
+  GOOGLE_APPLICATION_CREDENTIALS: Joi.string().allow("").default(""),
   ENABLE_GPT5_1_CODEX: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),
