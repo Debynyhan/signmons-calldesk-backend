@@ -13,12 +13,27 @@ NestJS backend powering the Signmons CallDesk AI dispatcher. Provides `/ai/triag
    ```bash
    npm run start:dev
    ```
-4. Hit the AI triage endpoint:
+4. Create a tenant (admin token required):
+   ```bash
+   curl -X POST http://localhost:3000/tenants \
+     -H "Content-Type: application/json" \
+     -H "x-admin-token: dev-admin-token" \
+     -d '{
+       "name": "demo_hvac",
+       "displayName": "Demo HVAC",
+       "instructions": "Handle calls and collect details."
+     }'
+   ```
+5. Hit the AI triage endpoint (tenantId is taken from auth headers, not body):
    ```bash
    curl -X POST http://localhost:3000/ai/triage \
      -H "Content-Type: application/json" \
+     -H "x-dev-auth: dev-auth-secret" \
+     -H "x-dev-user-id: dev-admin" \
+     -H "x-dev-role: admin" \
+     -H "x-dev-tenant-id: <TENANT_ID>" \
      -d '{
-       "tenantId": "demo-tenant",
+       "sessionId": "caller-1",
        "message": "Hi, my furnace stopped blowing warm air."
      }'
    ```
@@ -36,7 +51,7 @@ A lightweight Next.js client lives under `ui/` so you can test the triage workfl
    ```
 3. The UI exposes two panels:
    - **Onboard Tenant** – submits to `/tenants`. Enter your `ADMIN_API_TOKEN` in the form; it is never stored.
-   - **AI Triage** – posts messages with `tenantId` + `sessionId` to `/ai/triage`, shows replies, and prints saved jobs.
+   - **AI Triage** – posts messages with `sessionId` to `/ai/triage`. Tenant identity comes from auth headers (dev or JWT).
 
 Keep using admin tokens sparingly and rotate them if you share access.
 
@@ -46,9 +61,20 @@ Keep using admin tokens sparingly and rotate them if you share access.
 - `NODE_ENV` – defaults to `development`.
 - `ENABLE_GPT5_1_CODEX` – optional preview flag for new OpenAI model.
 - `FRONTEND_ORIGINS` – comma-separated list of allowed UI origins for CORS (defaults to `http://localhost:3101`).
+- `DEV_AUTH_ENABLED` / `DEV_AUTH_SECRET` – allow dev headers for local auth only.
+- `IDENTITY_ISSUER` / `IDENTITY_AUDIENCE` – expected JWT issuer/audience in production.
+- `FIREBASE_PROJECT_ID` – Firebase project id for Admin SDK token verification.
+
+## Tenant Identity Rules (T-01)
+
+- `tenantId` is authoritative from verified auth claims in production.
+- Request body/query params are never trusted for tenant identity.
+- Dev mode uses `x-dev-tenant-id` only when `DEV_AUTH_ENABLED=true`.
 
 ## Scripts
 
 - `npm run start:dev` – watch mode via Nest CLI.
 - `npm run build` – compile TypeScript into `dist`.
 - `npm run start:prod` – run compiled build.
+- `npm run emulator:token` – mint a local Firebase Auth emulator ID token.
+- `npm run verify:token` – verify a Firebase ID token and print key claims.
