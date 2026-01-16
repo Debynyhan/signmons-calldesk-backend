@@ -145,7 +145,7 @@ export class CallLogCleanupService implements OnModuleInit, OnModuleDestroy {
         direction: CommunicationDirection.OUTBOUND,
         provider: CommunicationProvider.OTHER,
         status: CommunicationStatus.SENT,
-        CommunicationContent: {
+        content: {
           create: {
             id: contentId,
             tenantId,

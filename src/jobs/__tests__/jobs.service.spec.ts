@@ -21,14 +21,14 @@ describe("JobsService", () => {
     preferredWindowLabel: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-    Customer: {
+    customer: {
       fullName: "Alice",
       phone: "1234567890",
     },
-    PropertyAddress: {
+    propertyAddress: {
       formattedAddress: "Unknown address",
     },
-    ServiceCategory: {
+    serviceCategory: {
       name: "HEATING",
     },
   };

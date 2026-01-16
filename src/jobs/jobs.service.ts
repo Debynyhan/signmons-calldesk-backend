@@ -95,9 +95,9 @@ export class JobsService implements IJobRepository {
         policySnapshot: {},
       },
       include: {
-        Customer: true,
-        PropertyAddress: true,
-        ServiceCategory: true,
+        customer: true,
+        propertyAddress: true,
+        serviceCategory: true,
       },
     });
 
@@ -110,9 +110,9 @@ export class JobsService implements IJobRepository {
       where: { tenantId: sanitizedTenantId },
       orderBy: { createdAt: "desc" },
       include: {
-        Customer: true,
-        PropertyAddress: true,
-        ServiceCategory: true,
+        customer: true,
+        propertyAddress: true,
+        serviceCategory: true,
       },
     });
     return jobs.map((job) => this.mapJob(job));
@@ -167,19 +167,19 @@ export class JobsService implements IJobRepository {
   private mapJob(
     job: Prisma.JobGetPayload<{
       include: {
-        Customer: true;
-        PropertyAddress: true;
-        ServiceCategory: true;
+        customer: true;
+        propertyAddress: true;
+        serviceCategory: true;
       };
     }>,
   ): JobRecord {
     return {
       id: job.id,
       tenantId: job.tenantId,
-      customerName: job.Customer.fullName,
-      phone: job.Customer.phone,
-      address: job.PropertyAddress.formattedAddress,
-      issueCategory: job.ServiceCategory.name,
+      customerName: job.customer.fullName,
+      phone: job.customer.phone,
+      address: job.propertyAddress.formattedAddress,
+      issueCategory: job.serviceCategory.name,
       urgency: job.urgency,
       description: job.description ?? undefined,
       preferredTime: job.preferredWindowLabel ?? undefined,
@@ -195,9 +195,9 @@ export class JobsService implements IJobRepository {
   ): Promise<
     Prisma.JobGetPayload<{
       include: {
-        Customer: true;
-        PropertyAddress: true;
-        ServiceCategory: true;
+        customer: true;
+        propertyAddress: true;
+        serviceCategory: true;
       };
     }> | null
   > {
@@ -225,9 +225,9 @@ export class JobsService implements IJobRepository {
     return this.prisma.job.findUnique({
       where: { id: jobId },
       include: {
-        Customer: true,
-        PropertyAddress: true,
-        ServiceCategory: true,
+        customer: true,
+        propertyAddress: true,
+        serviceCategory: true,
       },
     });
   }

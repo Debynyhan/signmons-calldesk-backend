@@ -156,7 +156,7 @@ export class CallLogService {
           direction === "INBOUND"
             ? CommunicationStatus.RECEIVED
             : CommunicationStatus.SENT,
-        CommunicationContent: {
+        content: {
           create: {
             id: contentId,
             tenantId,

@@ -13,7 +13,7 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "prisma generate && node scripts/link-prisma-client.js",
     "verify:token": "ts-node scripts/verify-firebase-token.ts",
     "emulator:token": "ts-node scripts/emulator-mint-token.ts"
   },
