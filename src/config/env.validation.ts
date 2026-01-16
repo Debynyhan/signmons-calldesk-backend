@@ -27,4 +27,14 @@ export const envValidationSchema = Joi.object({
     .default("false"),
   ENABLED_TOOLS: Joi.string().default("create_job"),
   PORT: Joi.number().min(0).max(65535).default(3000),
+}).custom((values, helpers) => {
+  if (
+    values.NODE_ENV === "production" &&
+    String(values.DEV_AUTH_ENABLED).toLowerCase() === "true"
+  ) {
+    return helpers.error("any.invalid", {
+      message: "DEV_AUTH_ENABLED cannot be true in production.",
+    });
+  }
+  return values;
 });

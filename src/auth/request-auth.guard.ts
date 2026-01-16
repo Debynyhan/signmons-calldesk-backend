@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
@@ -24,7 +25,14 @@ export class RequestAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
 
     if (this.config.devAuthEnabled) {
+      if (this.config.environment === "production") {
+        throw new ForbiddenException("Dev auth is disabled in production.");
+      }
       return this.handleDevAuth(request);
+    }
+
+    if (this.hasDevHeaders(request)) {
+      throw new ForbiddenException("Dev auth headers are not allowed.");
     }
 
     return this.handleJwtAuth(request);
@@ -44,6 +52,15 @@ export class RequestAuthGuard implements CanActivate {
     return true;
   }
 
+  private hasDevHeaders(request: Request): boolean {
+    return (
+      request.header("x-dev-auth") !== undefined ||
+      request.header("x-dev-role") !== undefined ||
+      request.header("x-dev-user-id") !== undefined ||
+      request.header("x-dev-tenant-id") !== undefined
+    );
+  }
+
   private async handleJwtAuth(request: Request): Promise<boolean> {
     const authHeader = request.header("authorization") ?? "";
     if (!authHeader.startsWith("Bearer ")) {
@@ -57,6 +74,9 @@ export class RequestAuthGuard implements CanActivate {
     const userId = claims.sub ?? claims.user_id ?? claims.uid;
     if (!tenantId || !userId) {
       throw new UnauthorizedException("Missing tenant identity.");
+    }
+    if (!claims.role) {
+      throw new UnauthorizedException("Missing role claim.");
     }
 
     setAuthContext({ userId, tenantId, role: claims.role });

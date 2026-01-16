@@ -22,15 +22,15 @@
 
 ### T-01 Multi-Tenant Isolation (P0)
 
-* [ ] JWT auth claims are authoritative tenant source
-* [ ] Request body tenantId ignored everywhere
-* [ ] Header validated vs claims (prod)
-* [ ] `x-dev-tenant-id` allowed only with `DEV_AUTH_ENABLED=true`
-* [ ] Request-scoped tenant context `{ tenantId, userId, role, requestId }`
-* [ ] TenantGuard enforced after AuthGuard
-* [ ] Prisma queries scoped by tenantId (Jobs, Conversations, Customers, Communication, ServiceCategory)
-* [ ] Cross-tenant tests (read/write/infer blocked)
-* [ ] Tenant isolation documented (dev vs prod rules)
+* [x] JWT auth claims are authoritative tenant source
+* [x] Request body tenantId ignored everywhere
+* [x] Header validated vs claims (prod)
+* [x] `x-dev-tenant-id` allowed only with `DEV_AUTH_ENABLED=true`
+* [x] Request-scoped tenant context `{ tenantId, userId, role, requestId }`
+* [x] TenantGuard enforced after AuthGuard
+* [x] Prisma queries scoped by tenantId (Jobs, Conversations, Customers, Communication, ServiceCategory)
+* [x] Cross-tenant tests (read/write/infer blocked)
+* [x] Tenant isolation documented (dev vs prod rules)
 
 ---
 

@@ -11,7 +11,7 @@ export class FirebaseAdminService {
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
   ) {
-    if (admin.apps.length > 0) {
+    if (admin.apps.length > 0 && admin.apps[0]) {
       this.app = admin.apps[0];
       return;
     }
