@@ -163,6 +163,41 @@ export class ConversationsService {
     });
   }
 
+  async updateVoiceTranscript(params: {
+    tenantId: string;
+    callSid: string;
+    transcript: string;
+  }) {
+    const normalized = this.sanitizationService.normalizeWhitespace(
+      params.transcript,
+    );
+    if (!normalized) {
+      return null;
+    }
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        twilioCallSid: params.callSid,
+      },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const merged = {
+      ...current,
+      lastTranscript: normalized,
+    } as Prisma.InputJsonValue;
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+    });
+  }
+
   private async resolveVoiceCustomer(params: {
     tenantId: string;
     callSid: string;

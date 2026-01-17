@@ -53,6 +53,7 @@ describe("VoiceController", () => {
       .useValue({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
       })
       .compile();
 
@@ -95,6 +96,7 @@ describe("VoiceController", () => {
       .useValue({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
       })
       .compile();
 
@@ -148,6 +150,7 @@ describe("VoiceController", () => {
       .useValue({
         ensureVoiceConsentConversation,
         getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
       })
       .compile();
 
@@ -206,6 +209,7 @@ describe("VoiceController", () => {
       .useValue({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
       })
       .compile();
 
@@ -259,6 +263,7 @@ describe("VoiceController", () => {
       .useValue({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
+        updateVoiceTranscript: jest.fn(),
       })
       .compile();
 
@@ -294,6 +299,7 @@ describe("VoiceController", () => {
       id: "conversation-1",
       collectedData: { voiceConsent: { granted: true } },
     });
+    const updateVoiceTranscript = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -315,6 +321,7 @@ describe("VoiceController", () => {
       .useValue({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
+        updateVoiceTranscript,
       })
       .compile();
 
@@ -326,8 +333,72 @@ describe("VoiceController", () => {
       .send({ To: "+12167448929", CallSid: "CA123" })
       .expect(200);
 
+    expect(updateVoiceTranscript).not.toHaveBeenCalled();
     expect(response.text).toContain("Please say that again");
     expect(response.text).toContain("<Gather");
+
+    await app.close();
+  });
+
+  it("captures and normalizes speech results", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true } },
+    });
+    const updateVoiceTranscript = jest.fn();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+      })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "  no   heat  ",
+      })
+      .expect(200);
+
+    expect(updateVoiceTranscript).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      transcript: "no heat",
+    });
+    expect(response.text).toContain("We have captured your response");
 
     await app.close();
   });

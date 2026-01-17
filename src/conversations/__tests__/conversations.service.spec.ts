@@ -138,4 +138,28 @@ describe("ConversationsService", () => {
 
     expect(prisma.conversation.update).not.toHaveBeenCalled();
   });
+
+  it("stores normalized transcript on voice turn", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: { voiceConsent: { granted: true } },
+    } as never);
+    prisma.conversation.update.mockResolvedValue({ id: "conv-1" } as never);
+
+    await service.updateVoiceTranscript({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      transcript: "  no   heat  ",
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            lastTranscript: "no heat",
+          }),
+        }),
+      }),
+    );
+  });
 });

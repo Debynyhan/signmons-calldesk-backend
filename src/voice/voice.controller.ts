@@ -85,9 +85,17 @@ export class VoiceController {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
     const speechResult = this.extractSpeechResult(req);
-    if (!speechResult) {
+    const normalizedSpeech = speechResult
+      ? speechResult.replace(/\s+/g, " ").trim()
+      : "";
+    if (!normalizedSpeech) {
       return this.replyWithTwiml(res, this.buildRepromptTwiml());
     }
+    await this.conversationsService.updateVoiceTranscript({
+      tenantId: tenant.id,
+      callSid,
+      transcript: normalizedSpeech,
+    });
     return this.replyWithTwiml(
       res,
       this.buildTwiml(
