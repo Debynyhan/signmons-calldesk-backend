@@ -12,7 +12,6 @@ const ISSUE_CATEGORIES = [
   "COOLING",
   "PLUMBING",
   "ELECTRICAL",
-  "DRAINS",
   "GENERAL",
 ] as const;
 

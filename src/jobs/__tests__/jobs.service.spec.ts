@@ -155,6 +155,8 @@ describe("JobsService", () => {
         }),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.customer.upsert).not.toHaveBeenCalled();
+    expect(prisma.serviceCategory.findFirst).not.toHaveBeenCalled();
     expect(prisma.job.create).not.toHaveBeenCalled();
   });
 
@@ -194,6 +196,60 @@ describe("JobsService", () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
+  it("maps known issueCategory synonyms to canonical values", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+    prisma.customer.upsert.mockResolvedValue({ id: "cust-1" } as never);
+    prisma.serviceCategory.findFirst.mockResolvedValue({ id: "svc-1" } as never);
+    prisma.propertyAddress.create.mockResolvedValue({ id: "addr-1" } as never);
+    prisma.job.create.mockResolvedValue(jobRecord as never);
+
+    await service.createJobFromToolCall({
+      tenantId,
+      sessionId,
+      rawArgs: JSON.stringify({
+        customerName: "Alice",
+        phone: "1234567890",
+        issueCategory: "No heat",
+        urgency: "STANDARD",
+      }),
+    });
+
+    expect(prisma.serviceCategory.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          name: "HEATING",
+        }),
+      }),
+    );
+  });
+
+  it("normalizes issueCategory case and whitespace", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+    prisma.customer.upsert.mockResolvedValue({ id: "cust-1" } as never);
+    prisma.serviceCategory.findFirst.mockResolvedValue({ id: "svc-1" } as never);
+    prisma.propertyAddress.create.mockResolvedValue({ id: "addr-1" } as never);
+    prisma.job.create.mockResolvedValue(jobRecord as never);
+
+    await service.createJobFromToolCall({
+      tenantId,
+      sessionId,
+      rawArgs: JSON.stringify({
+        customerName: "Alice",
+        phone: "1234567890",
+        issueCategory: "  aC   not   COOLING ",
+        urgency: "STANDARD",
+      }),
+    });
+
+    expect(prisma.serviceCategory.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          name: "COOLING",
+        }),
+      }),
+    );
   });
 
   it("accepts a job when payment succeeded", async () => {

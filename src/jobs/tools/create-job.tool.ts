@@ -28,14 +28,13 @@ export const CREATE_JOB_TOOL: ChatCompletionTool = {
             "COOLING",
             "PLUMBING",
             "ELECTRICAL",
-            "DRAINS",
             "GENERAL",
           ],
         },
         urgency: {
           type: "string",
           description: "Urgency classification based on safety/discomfort.",
-          enum: ["EMERGENCY", "HIGH", "STANDARD"],
+          enum: ["EMERGENCY", "STANDARD"],
         },
         description: {
           type: "string",

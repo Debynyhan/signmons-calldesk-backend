@@ -48,7 +48,7 @@
 ### T-03 Job Lifecycle & Data Integrity (P0)
 
 * [x] Job lifecycle enforced: CREATED → ACCEPTED
-* [ ] issueCategory → ServiceCategory mapping verified
+* [x] issueCategory → ServiceCategory mapping verified
 * [ ] Address normalization placeholder (dev-safe)
 * [ ] Job creation idempotent
 * [ ] Audit trail includes tenantId everywhere

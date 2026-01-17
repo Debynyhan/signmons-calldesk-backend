@@ -435,27 +435,37 @@ export class JobsService implements IJobRepository {
     if (typeof value !== "string") return "" as never;
     const normalized = this.sanitizationService
       .normalizeWhitespace(value)
-      .toUpperCase()
-      .replace(/[^A-Z\s]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
-    const mapped = {
-      HEAT: "HEATING",
-      HEATER: "HEATING",
-      FURNACE: "HEATING",
-      HVAC: "HEATING",
-      AC: "COOLING",
-      "AIR CONDITIONING": "COOLING",
-      COOL: "COOLING",
-      ELECTRIC: "ELECTRICAL",
-      ELECTRICAL: "ELECTRICAL",
-      PLUMB: "PLUMBING",
-      PLUMBING: "PLUMBING",
-      DRAIN: "DRAINS",
-      DRAINS: "DRAINS",
-    } as Record<string, CreateJobPayload["issueCategory"]>;
-    return (
-      mapped[normalized] ?? (normalized as CreateJobPayload["issueCategory"])
-    );
+    const mapped: Record<string, CreateJobPayload["issueCategory"]> = {
+      heating: "HEATING",
+      heat: "HEATING",
+      "no heat": "HEATING",
+      "heat not working": "HEATING",
+      heater: "HEATING",
+      furnace: "HEATING",
+      "furnace down": "HEATING",
+      hvac: "HEATING",
+      cooling: "COOLING",
+      cool: "COOLING",
+      ac: "COOLING",
+      "air conditioning": "COOLING",
+      "no ac": "COOLING",
+      "ac not cooling": "COOLING",
+      plumbing: "PLUMBING",
+      plumb: "PLUMBING",
+      leak: "PLUMBING",
+      "pipe leak": "PLUMBING",
+      electrical: "ELECTRICAL",
+      electric: "ELECTRICAL",
+      wiring: "ELECTRICAL",
+      general: "GENERAL",
+      "general service": "GENERAL",
+      "maintenance": "GENERAL",
+    };
+    return mapped[normalized] ?? ("" as never);
   }
 
   private normalizeUrgency(value: unknown): CreateJobPayload["urgency"] {
