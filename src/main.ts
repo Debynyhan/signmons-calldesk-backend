@@ -2,6 +2,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ConfigType } from "@nestjs/config";
 import type { NextFunction, Request, Response } from "express";
+import express from "express";
 import { AppModule } from "./app.module";
 import { SanitizedExceptionFilter } from "./common/filters/sanitized-exception.filter";
 import { LoggingService } from "./logging/logging.service";
@@ -37,6 +38,8 @@ async function bootstrap() {
     ],
     maxAge: 3600,
   });
+
+  app.use(express.urlencoded({ extended: false }));
 
   app.use(requestContextMiddleware);
 

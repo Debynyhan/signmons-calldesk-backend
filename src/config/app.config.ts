@@ -19,6 +19,12 @@ export interface AppConfig {
   identityIssuer: string;
   identityAudience: string;
   firebaseProjectId?: string;
+  voiceEnabled: boolean;
+  twilioAccountSid: string;
+  twilioAuthToken: string;
+  twilioPhoneNumber: string;
+  twilioSignatureCheck: boolean;
+  twilioWebhookBaseUrl: string;
   corsOrigins: string[];
 }
 
@@ -64,6 +70,14 @@ export default registerAs("app", (): AppConfig => {
       process.env.FIREBASE_ADMIN_PROJECT_ID ??
       process.env.FIREBASE_PROJECT_ID ??
       process.env.GOOGLE_CLOUD_PROJECT,
+    voiceEnabled:
+      (process.env.VOICE_ENABLED ?? "false").toLowerCase() === "true",
+    twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
+    twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
+    twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER ?? "",
+    twilioSignatureCheck:
+      (process.env.TWILIO_SIGNATURE_CHECK ?? "true").toLowerCase() === "true",
+    twilioWebhookBaseUrl: process.env.TWILIO_WEBHOOK_BASE_URL ?? "",
     corsOrigins,
   };
 });
