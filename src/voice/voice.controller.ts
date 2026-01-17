@@ -14,6 +14,7 @@ import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { ConversationsService } from "../conversations/conversations.service";
 import { CallLogService } from "../logging/call-log.service";
+import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
 import { setRequestContextData } from "../common/context/request-context";
 
@@ -27,6 +28,7 @@ export class VoiceController {
     private readonly conversationsService: ConversationsService,
     private readonly callLogService: CallLogService,
     private readonly aiService: AiService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   @Post("inbound")
@@ -140,16 +142,30 @@ export class VoiceController {
         },
       );
       if (aiResult.status === "reply" && "reply" in aiResult) {
-        return this.replyWithTwiml(res, this.buildTwiml(aiResult.reply));
+        const safeReply = this.capAiReply(aiResult.reply);
+        if (this.shouldGatherMore(safeReply)) {
+          return this.replyWithTwiml(res, this.buildSayGatherTwiml(safeReply));
+        }
+        return this.replyWithTwiml(res, this.buildTwiml(safeReply));
       }
       if (aiResult.status === "job_created" && "message" in aiResult) {
-        return this.replyWithTwiml(
-          res,
-          this.buildTwiml(aiResult.message ?? "Your request has been booked."),
+        const message = this.capAiReply(
+          aiResult.message ?? "Your request has been booked.",
         );
+        return this.replyWithTwiml(res, this.buildTwiml(message));
       }
       return this.replyWithTwiml(res, this.unroutableTwiml());
     } catch {
+      this.loggingService.warn(
+        {
+          event: "ai.preview_fallback",
+          tenantId: tenant.id,
+          callSid,
+          conversationId,
+          reason: "voice_triage_failed",
+        },
+        VoiceController.name,
+      );
       return this.replyWithTwiml(
         res,
         this.buildTwiml(
@@ -242,6 +258,15 @@ export class VoiceController {
     )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
   }
 
+  private buildSayGatherTwiml(message: string): string {
+    const actionUrl = this.buildWebhookUrl("/api/voice/turn");
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
+      message,
+    )}</Say><Gather input="speech" action="${this.escapeXml(
+      actionUrl,
+    )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
+  }
+
   private buildRepromptTwiml(): string {
     const actionUrl = this.buildWebhookUrl("/api/voice/turn");
     const message = "Sorry, I didn't catch that. Please say that again.";
@@ -264,6 +289,18 @@ export class VoiceController {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&apos;");
+  }
+
+  private capAiReply(value: string): string {
+    const trimmed = value?.trim() ?? "";
+    if (!trimmed) {
+      return "Thanks. We'll follow up shortly.";
+    }
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
+  }
+
+  private shouldGatherMore(reply: string): boolean {
+    return reply.trim().endsWith("?");
   }
 
   private extractToNumber(req: Request): string | null {

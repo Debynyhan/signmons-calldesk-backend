@@ -90,15 +90,15 @@
 
 #### Voice Output
 
-* [ ] AI responses converted to `<Say>`
-* [ ] Follow-up `<Gather>` issued when FSM requires more input
-* [ ] Call ends cleanly on job creation or refusal
+* [x] AI responses converted to `<Say>`
+* [x] Follow-up `<Gather>` issued when FSM requires more input
+* [x] Call ends cleanly on job creation or refusal
 
 #### Safety & Observability
 
-* [ ] AI refusal detected on voice path
-* [ ] Voice refusal logged with tenantId, conversationId, model, reason
-* [ ] Fallback logged when preview model fails
+* [x] AI refusal detected on voice path
+* [x] Voice refusal logged with tenantId, conversationId, model, reason
+* [x] Fallback logged when preview model fails
 * [ ] Voice interaction capped (max turns / timeout)
 
 ---
