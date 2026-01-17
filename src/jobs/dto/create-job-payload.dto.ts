@@ -1,5 +1,11 @@
 import { Transform, TransformFnParams } from "class-transformer";
-import { IsEnum, IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 const ISSUE_CATEGORIES = [
   "HEATING",
@@ -30,11 +36,13 @@ const transformOptionalString = ({
 export class CreateJobPayloadDto {
   @Transform(transformRequiredString)
   @IsString()
+  @MinLength(1)
   @MaxLength(120)
   customerName!: string;
 
   @Transform(transformRequiredString)
   @IsString()
+  @MinLength(1)
   @MaxLength(40)
   phone!: string;
 

@@ -236,22 +236,17 @@ export class AiService {
   }
 
   private validateAssistantMessage(message: OpenAI.ChatCompletionMessage) {
-    if (message.tool_calls?.length) {
-      const toolCall = message.tool_calls[0];
-      if (!this.isFunctionToolCall(toolCall) || !toolCall.function?.name) {
-        throw new BadRequestException("Invalid tool call response.");
+      if (message.tool_calls?.length) {
+        const toolCall = message.tool_calls[0];
+        if (!this.isFunctionToolCall(toolCall) || !toolCall.function?.name) {
+          throw new BadRequestException("Invalid tool call response.");
+        }
+        const rawArgs = toolCall.function.arguments ?? "";
+        if (!rawArgs.trim()) {
+          throw new BadRequestException("Tool call arguments missing.");
+        }
+        return { type: "tool" as const, toolCall };
       }
-      const rawArgs = toolCall.function.arguments ?? "";
-      if (!rawArgs.trim()) {
-        throw new BadRequestException("Tool call arguments missing.");
-      }
-      try {
-        JSON.parse(rawArgs);
-      } catch {
-        throw new BadRequestException("Tool call arguments are invalid JSON.");
-      }
-      return { type: "tool" as const, toolCall };
-    }
 
     const replyPayload = Array.isArray(message.content)
       ? message.content

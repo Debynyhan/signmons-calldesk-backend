@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { JobsService } from "../jobs.service";
 import { SanitizationService } from "../../sanitization/sanitization.service";
 import type { PrismaService } from "../../prisma/prisma.service";
@@ -101,5 +102,92 @@ describe("JobsService", () => {
 
     expect(result.id).toBe(jobRecord.id);
     expect(prisma.job.create).toHaveBeenCalled();
+  });
+
+  it("fails closed when required fields are missing", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.createJobFromToolCall({
+        tenantId,
+        sessionId,
+        rawArgs: JSON.stringify({ urgency: "STANDARD" }),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when phone is invalid", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.createJobFromToolCall({
+        tenantId,
+        sessionId,
+        rawArgs: JSON.stringify({
+          customerName: "Alice",
+          phone: "abc",
+          issueCategory: "HEATING",
+          urgency: "STANDARD",
+        }),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when issueCategory is unknown", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.createJobFromToolCall({
+        tenantId,
+        sessionId,
+        rawArgs: JSON.stringify({
+          customerName: "Alice",
+          phone: "1234567890",
+          issueCategory: "GARBAGE",
+          urgency: "STANDARD",
+        }),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when preferredTime is invalid", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.createJobFromToolCall({
+        tenantId,
+        sessionId,
+        rawArgs: JSON.stringify({
+          customerName: "Alice",
+          phone: "1234567890",
+          issueCategory: "HEATING",
+          urgency: "STANDARD",
+          preferredTime: "sometime next week",
+        }),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when unexpected fields are present", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.createJobFromToolCall({
+        tenantId,
+        sessionId,
+        rawArgs: JSON.stringify({
+          customerName: "Alice",
+          phone: "1234567890",
+          issueCategory: "HEATING",
+          urgency: "STANDARD",
+          extraField: "nope",
+        }),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.create).not.toHaveBeenCalled();
   });
 });

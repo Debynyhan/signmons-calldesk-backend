@@ -38,7 +38,7 @@
 
 * [x] Conversation created per session (channel, status, FSM state)
 * [x] Conversation ↔ Job linking
-* [ ] AI output schema validation (fail closed)
+* [x] AI output schema validation (fail closed)
 * [ ] Tool argument validation + normalization
 * [ ] AI budgets (tokens, retries, timeouts)
 * [ ] AI refusal + fallback logging

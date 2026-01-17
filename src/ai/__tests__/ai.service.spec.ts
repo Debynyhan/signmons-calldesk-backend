@@ -256,12 +256,15 @@ describe("AiService", () => {
         },
       ],
     } as never);
+    jobsRepository.createJobFromToolCall.mockImplementation(() => {
+      throw new Error("Invalid job payload.");
+    });
 
     await service.triage(tenantId, sessionId, "Create job.");
     expect(errorHandler.handle).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
-        stage: "triage",
+        stage: "tool_call",
         tenantId,
       }),
     );
