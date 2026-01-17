@@ -53,7 +53,7 @@
 * [x] `/api/voice/inbound` webhook endpoint implemented
 * [x] Tenant resolved by called phone number (`To`)
 * [x] Voice disabled guard (`VOICE_ENABLED=false` returns safe TwiML)
-* [ ] Consent message played before any intake
+* [x] Consent message played before any intake
 * [ ] Conversation created on first call event (`channel=VOICE`)
 * [ ] `requestId` generated and attached to conversation
 * [ ] Twilio Call SID captured and persisted

@@ -66,6 +66,90 @@ export class ConversationsService {
     });
   }
 
+  async ensureVoiceConsentConversation(params: {
+    tenantId: string;
+    callSid: string;
+  }) {
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        twilioCallSid: params.callSid,
+      },
+    });
+
+    if (existing) {
+      const current = existing.collectedData as
+        | { voiceConsent?: { granted?: boolean } }
+        | null
+        | undefined;
+      if (!current?.voiceConsent?.granted) {
+        const merged = {
+          ...(current ?? {}),
+          voiceConsent: {
+            granted: true,
+            method: "implied",
+            timestamp: new Date().toISOString(),
+            callSid: params.callSid,
+          },
+        } as Prisma.InputJsonValue;
+        return this.prisma.conversation.update({
+          where: { id: existing.id },
+          data: { collectedData: merged, updatedAt: new Date() },
+        });
+      }
+      return existing;
+    }
+
+    const placeholderPhone = `unknown-voice-${params.callSid}`;
+    const customer = await this.prisma.customer.create({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        phone: placeholderPhone,
+        fullName: "Unknown Caller",
+        aiMetadata: {
+          source: "VOICE",
+          status: "PROSPECT",
+          callSid: params.callSid,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return this.prisma.conversation.create({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        customerId: customer.id,
+        customerTenantId: params.tenantId,
+        channel: ConversationChannel.VOICE,
+        status: ConversationStatus.ONGOING,
+        currentFSMState: "TRIAGE",
+        collectedData: {
+          source: "VOICE",
+          voiceConsent: {
+            granted: true,
+            method: "implied",
+            timestamp: new Date().toISOString(),
+            callSid: params.callSid,
+          },
+        } as Prisma.InputJsonValue,
+        twilioCallSid: params.callSid,
+      },
+    });
+  }
+
+  async getVoiceConversationByCallSid(params: {
+    tenantId: string;
+    callSid: string;
+  }) {
+    return this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        twilioCallSid: params.callSid,
+      },
+    });
+  }
+
   async linkJobToConversation(params: {
     tenantId: string;
     conversationId: string;

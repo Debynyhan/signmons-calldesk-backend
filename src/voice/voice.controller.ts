@@ -11,6 +11,7 @@ import { validateRequest } from "twilio";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
+import { ConversationsService } from "../conversations/conversations.service";
 
 @Controller("api/voice")
 export class VoiceController {
@@ -19,6 +20,7 @@ export class VoiceController {
     private readonly config: AppConfig,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
+    private readonly conversationsService: ConversationsService,
   ) {}
 
   @Post("inbound")
@@ -34,11 +36,17 @@ export class VoiceController {
     if (!tenant) {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
+    const callSid = this.extractCallSid(req);
+    if (!callSid) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
+    await this.conversationsService.ensureVoiceConsentConversation({
+      tenantId: tenant.id,
+      callSid,
+    });
     return this.replyWithTwiml(
       res,
-      this.buildTwiml(
-        "Thanks for calling. Voice intake is currently in setup. Please try again later.",
-      ),
+      this.buildConsentTwiml(),
     );
   }
 
@@ -47,6 +55,30 @@ export class VoiceController {
     this.verifySignature(req);
     if (!this.config.voiceEnabled) {
       return this.replyWithTwiml(res, this.disabledTwiml());
+    }
+    const toNumber = this.extractToNumber(req);
+    const tenant = toNumber
+      ? await this.tenantsService.resolveTenantByPhone(toNumber)
+      : null;
+    if (!tenant) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
+    const callSid = this.extractCallSid(req);
+    if (!callSid) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
+    const conversation = await this.conversationsService.getVoiceConversationByCallSid(
+      {
+        tenantId: tenant.id,
+        callSid,
+      },
+    );
+    const consentGranted = Boolean(
+      (conversation?.collectedData as { voiceConsent?: { granted?: boolean } })
+        ?.voiceConsent?.granted,
+    );
+    if (!consentGranted) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
     }
     return this.replyWithTwiml(
       res,
@@ -128,18 +160,44 @@ export class VoiceController {
     );
   }
 
-  private extractToNumber(req: Request): string | null {
-    const value = req.body?.To ?? req.body?.to;
-    return typeof value === "string" ? value : null;
+  private buildConsentTwiml(): string {
+    const actionUrl = this.buildWebhookUrl("/api/voice/turn");
+    const consent =
+      "This call may be transcribed and handled by automated systems for service and quality purposes. By continuing, you consent to this process.";
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
+      consent,
+    )}</Say><Gather input="speech" action="${this.escapeXml(
+      actionUrl,
+    )}" method="POST"/></Response>`;
   }
 
-  private buildTwiml(message: string): string {
-    const escaped = message
+  private buildWebhookUrl(path: string): string {
+    const baseUrl = this.config.twilioWebhookBaseUrl?.replace(/\/$/, "");
+    return baseUrl ? `${baseUrl}${path}` : path;
+  }
+
+  private escapeXml(value: string): string {
+    return value
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&apos;");
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escaped}</Say><Hangup/></Response>`;
+  }
+
+  private extractToNumber(req: Request): string | null {
+    const value = req.body?.To ?? req.body?.to;
+    return typeof value === "string" ? value : null;
+  }
+
+  private extractCallSid(req: Request): string | null {
+    const value = req.body?.CallSid ?? req.body?.callSid;
+    return typeof value === "string" ? value : null;
+  }
+
+  private buildTwiml(message: string): string {
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
+      message,
+    )}</Say><Hangup/></Response>`;
   }
 }
