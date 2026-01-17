@@ -36,7 +36,7 @@
 
 ### T-02 AI Safety & Conversation Integrity (P0)
 
-* [ ] Conversation created per session (channel, status, FSM state)
+* [x] Conversation created per session (channel, status, FSM state)
 * [ ] Conversation ↔ Job linking
 * [ ] AI output schema validation (fail closed)
 * [ ] Tool argument validation + normalization

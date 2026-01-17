@@ -14,6 +14,7 @@ export interface CreateCallLogInput {
   tenantId: string;
   sessionId: string;
   jobId?: string;
+  conversationId?: string;
   transcript: string;
   aiResponse?: string;
   direction?: "INBOUND" | "OUTBOUND";
@@ -46,6 +47,7 @@ export class CallLogService {
 
     await this.createCommunicationEvent({
       tenantId: input.tenantId,
+      conversationId: input.conversationId,
       direction: input.direction ?? "INBOUND",
       message: sanitizedTranscript,
       payload: metadataPayload,
@@ -54,6 +56,7 @@ export class CallLogService {
     if (sanitizedResponse) {
       await this.createCommunicationEvent({
         tenantId: input.tenantId,
+        conversationId: input.conversationId,
         direction: "OUTBOUND",
         message: sanitizedResponse,
         payload: metadataPayload,
@@ -108,9 +111,14 @@ export class CallLogService {
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
-  async clearSession(tenantId: string, sessionId: string): Promise<void> {
+  async clearSession(
+    tenantId: string,
+    sessionId: string,
+    conversationId?: string,
+  ): Promise<void> {
     await this.createCommunicationEvent({
       tenantId,
+      conversationId,
       direction: "OUTBOUND",
       message: "",
       payload: {
@@ -122,11 +130,13 @@ export class CallLogService {
 
   private async createCommunicationEvent({
     tenantId,
+    conversationId,
     direction,
     message,
     payload,
   }: {
     tenantId: string;
+    conversationId?: string;
     direction: "INBOUND" | "OUTBOUND";
     message: string;
     payload: Prisma.InputJsonValue;
@@ -149,6 +159,8 @@ export class CallLogService {
       data: {
         id: eventId,
         tenantId,
+        conversationId: conversationId ?? undefined,
+        conversationTenantId: conversationId ? tenantId : undefined,
         channel: CommunicationChannel.WEBCHAT,
         direction: direction as CommunicationDirection,
         provider: CommunicationProvider.OTHER,

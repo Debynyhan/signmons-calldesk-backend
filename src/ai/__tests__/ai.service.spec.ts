@@ -14,6 +14,7 @@ import { AiProviderService } from "../providers/ai-provider.service";
 import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
+import { ConversationsService } from "../../conversations/conversations.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -38,6 +39,7 @@ describe("AiService", () => {
   let jobsRepository: jest.Mocked<IJobRepository>;
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
+  let conversationsService: jest.Mocked<ConversationsService>;
   let service: AiService;
 
   beforeEach(() => {
@@ -74,6 +76,12 @@ describe("AiService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
+    conversationsService = {
+      ensureConversation: jest.fn(),
+    } as unknown as jest.Mocked<ConversationsService>;
+    conversationsService.ensureConversation.mockResolvedValue({
+      id: "conversation-1",
+    } as never);
 
     service = new AiService(
       aiProvider,
@@ -84,6 +92,7 @@ describe("AiService", () => {
       jobsRepository,
       tenantsService,
       callLogService,
+      conversationsService,
     );
   });
 
@@ -108,6 +117,7 @@ describe("AiService", () => {
       expect.objectContaining({
         tenantId,
         sessionId,
+        conversationId: "conversation-1",
         transcript: "Hello there, I need help.",
         aiResponse: "Hello there!",
         metadata: expect.objectContaining({ openAIResponseId: "resp-1" }),
@@ -173,12 +183,14 @@ describe("AiService", () => {
         tenantId,
         sessionId,
         jobId: jobRecord.id,
+        conversationId: "conversation-1",
         metadata: expect.objectContaining({ toolName: "create_job" }),
       }),
     );
     expect(callLogService.clearSession).toHaveBeenCalledWith(
       tenantId,
       sessionId,
+      "conversation-1",
     );
   });
 

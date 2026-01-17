@@ -18,6 +18,7 @@ import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
+import { ConversationsService } from "../conversations/conversations.service";
 
 @Injectable()
 export class AiService {
@@ -32,6 +33,7 @@ export class AiService {
     @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
+    private readonly conversationsService: ConversationsService,
   ) {
     try {
       const promptPath = join(
@@ -83,6 +85,10 @@ export class AiService {
 
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);
+      const conversation = await this.conversationsService.ensureConversation(
+        safeTenantId,
+        safeSessionId,
+      );
       const tenantContextPrompt = tenantContext.prompt;
       const recentMessages = await this.callLogService.getRecentMessages(
         safeTenantId,
@@ -116,6 +122,7 @@ export class AiService {
           return this.handleToolCall(
             safeTenantId,
             safeSessionId,
+            conversation.id,
             toolCall.function.name,
             toolCall.function.arguments ?? undefined,
           );
@@ -148,6 +155,7 @@ export class AiService {
       await this.callLogService.createLog({
         tenantId: safeTenantId,
         sessionId: safeSessionId,
+        conversationId: conversation.id,
         transcript: userMessage,
         aiResponse: replyPayload,
         metadata: {
@@ -181,6 +189,7 @@ export class AiService {
   private async handleToolCall(
     tenantId: string,
     sessionId: string,
+    conversationId: string,
     name: string,
     rawArgs?: string,
   ) {
@@ -202,11 +211,16 @@ export class AiService {
         tenantId,
         sessionId,
         jobId: job.id,
+        conversationId,
         transcript: rawArgs ?? "",
         aiResponse: JSON.stringify(job),
         metadata: { toolName: name, sessionId },
       });
-      await this.callLogService.clearSession(tenantId, sessionId);
+      await this.callLogService.clearSession(
+        tenantId,
+        sessionId,
+        conversationId,
+      );
       return {
         status: "job_created",
         job,

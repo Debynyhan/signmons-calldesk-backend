@@ -76,6 +76,11 @@ describeOrSkip("AI create-job flow (e2e)", () => {
       findMany: (args?: unknown) => Promise<Array<{ payload: unknown }>>;
     };
     communicationEvent: { deleteMany: (args?: unknown) => Promise<unknown> };
+    conversation: {
+      deleteMany: (args?: unknown) => Promise<unknown>;
+      findFirst: (args?: unknown) => Promise<{ currentFSMState?: string } | null>;
+    };
+    conversationJobLink: { deleteMany: (args?: unknown) => Promise<unknown> };
     job: { deleteMany: (args?: unknown) => Promise<unknown>; findMany: (args?: unknown) => Promise<Array<{ id: string }>> };
     propertyAddress: { deleteMany: (args?: unknown) => Promise<unknown> };
     customer: { deleteMany: (args?: unknown) => Promise<unknown> };
@@ -110,6 +115,8 @@ describeOrSkip("AI create-job flow (e2e)", () => {
   afterEach(async () => {
     await prisma.communicationContent.deleteMany({});
     await prisma.communicationEvent.deleteMany({});
+    await prisma.conversationJobLink.deleteMany({});
+    await prisma.conversation.deleteMany({});
     await prisma.job.deleteMany({});
     await prisma.propertyAddress.deleteMany({});
     await prisma.customer.deleteMany({});
@@ -173,6 +180,18 @@ describeOrSkip("AI create-job flow (e2e)", () => {
       return (log.payload as Record<string, unknown>).jobId === jobs[0].id;
     });
     expect(hasJobLog).toBe(true);
+
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        tenantId,
+        collectedData: {
+          path: ["sessionId"],
+          equals: "session-abc",
+        },
+      },
+    });
+    expect(conversation).toBeTruthy();
+    expect(conversation?.currentFSMState).toBe("TRIAGE");
   });
 
   it("isolates tenants across AI triage logs and jobs", async () => {
@@ -258,5 +277,26 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     expect(tenantBLogs.length).toBeGreaterThan(0);
     expect(hasForeignJobId(tenantALogs, tenantBJobId)).toBe(false);
     expect(hasForeignJobId(tenantBLogs, tenantAJobId)).toBe(false);
+
+    const tenantAConversation = await prisma.conversation.findFirst({
+      where: {
+        tenantId: tenantAId,
+        collectedData: {
+          path: ["sessionId"],
+          equals: "session-a",
+        },
+      },
+    });
+    const tenantBConversation = await prisma.conversation.findFirst({
+      where: {
+        tenantId: tenantBId,
+        collectedData: {
+          path: ["sessionId"],
+          equals: "session-b",
+        },
+      },
+    });
+    expect(tenantAConversation).toBeTruthy();
+    expect(tenantBConversation).toBeTruthy();
   });
 });

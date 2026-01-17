@@ -16,6 +16,7 @@ import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
 import { TenantGuard } from "../common/guards/tenant.guard";
 import { AuthModule } from "../auth/auth.module";
+import { ConversationsService } from "../conversations/conversations.service";
 
 @Module({
   imports: [JobsModule, TenantsModule, AuthModule],
@@ -44,6 +45,7 @@ import { AuthModule } from "../auth/auth.module";
     },
     TenantGuard,
     ToolSelectorService,
+    ConversationsService,
     AiErrorHandler,
     AiService,
   ],
