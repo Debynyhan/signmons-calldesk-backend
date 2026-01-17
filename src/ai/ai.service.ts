@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
 } from "@nestjs/common";
+import type { ConfigType } from "@nestjs/config";
 import OpenAI from "openai";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -19,6 +20,7 @@ import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
 import { ConversationsService } from "../conversations/conversations.service";
+import appConfig from "../config/app.config";
 
 @Injectable()
 export class AiService {
@@ -34,6 +36,8 @@ export class AiService {
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
     private readonly conversationsService: ConversationsService,
+    @Inject(appConfig.KEY)
+    private readonly config: ConfigType<typeof appConfig>,
   ) {
     try {
       const promptPath = join(
@@ -111,6 +115,7 @@ export class AiService {
       const response = await this.aiProviderService.createCompletion({
         messages,
         tools: tools.length ? tools : undefined,
+        maxTokens: this.config.aiMaxTokens,
       });
       openAIResponseId = response.id;
       const choice = response.choices[0];
@@ -236,11 +241,22 @@ export class AiService {
   }
 
   private validateAssistantMessage(message: OpenAI.ChatCompletionMessage) {
-      if (message.tool_calls?.length) {
-        const toolCall = message.tool_calls[0];
-        if (!this.isFunctionToolCall(toolCall) || !toolCall.function?.name) {
-          throw new BadRequestException("Invalid tool call response.");
-        }
+    if (message.tool_calls?.length) {
+      if (message.tool_calls.length > this.config.aiMaxToolCalls) {
+        this.loggingService.warn(
+          {
+            event: "ai_budget_triggered",
+            budget: "AI_MAX_TOOL_CALLS",
+            limit: this.config.aiMaxToolCalls,
+          },
+          AiService.name,
+        );
+        throw new BadRequestException("Too many tool calls.");
+      }
+      const toolCall = message.tool_calls[0];
+      if (!this.isFunctionToolCall(toolCall) || !toolCall.function?.name) {
+        throw new BadRequestException("Invalid tool call response.");
+      }
         const rawArgs = toolCall.function.arguments ?? "";
         if (!rawArgs.trim()) {
           throw new BadRequestException("Tool call arguments missing.");

@@ -8,6 +8,7 @@ export interface CompletionRequestOptions {
   messages: ChatCompletionMessageParam[];
   tools?: ChatCompletionTool[];
   toolChoice?: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
+  maxTokens?: number;
 }
 
 export interface IAiProvider {

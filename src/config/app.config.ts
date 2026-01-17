@@ -7,6 +7,10 @@ export interface AppConfig {
   openAiApiKey: string;
   enablePreviewModel: boolean;
   enabledTools: string[];
+  aiMaxTokens: number;
+  aiMaxToolCalls: number;
+  aiTimeoutMs: number;
+  aiMaxRetries: number;
   port: number;
   databaseUrl: string;
   adminApiToken: string;
@@ -38,6 +42,10 @@ export default registerAs("app", (): AppConfig => {
       .split(",")
       .map((tool) => tool.trim())
       .filter(Boolean),
+    aiMaxTokens: Number(process.env.AI_MAX_TOKENS ?? 800),
+    aiMaxToolCalls: Number(process.env.AI_MAX_TOOL_CALLS ?? 1),
+    aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 15000),
+    aiMaxRetries: Number(process.env.AI_MAX_RETRIES ?? 1),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",

@@ -29,12 +29,7 @@ export class AiProviderService implements IAiProvider {
   ): Promise<OpenAI.ChatCompletion> {
     const model = this.selectModel();
     try {
-      return await this.client.createCompletion({
-        model,
-        messages: options.messages,
-        tools: options.tools,
-        tool_choice: options.toolChoice ?? "auto",
-      });
+      return await this.requestWithRetry(model, options);
     } catch (error) {
       const shouldFallback =
         model === this.previewModel && this.isPreviewUnavailable(error);
@@ -44,12 +39,7 @@ export class AiProviderService implements IAiProvider {
           AiProviderService.name,
         );
         try {
-          return await this.client.createCompletion({
-            model: this.defaultModel,
-            messages: options.messages,
-            tools: options.tools,
-            tool_choice: options.toolChoice ?? "auto",
-          });
+          return await this.requestWithRetry(this.defaultModel, options);
         } catch (fallbackError) {
           this.handleProviderError(fallbackError, options, this.defaultModel);
         }
@@ -89,5 +79,63 @@ export class AiProviderService implements IAiProvider {
         toolCount: options.tools?.length ?? 0,
       },
     });
+  }
+
+  private async requestWithRetry(
+    model: string,
+    options: CompletionRequestOptions,
+  ): Promise<OpenAI.ChatCompletion> {
+    const maxRetries = Math.max(0, this.config.aiMaxRetries ?? 0);
+    let attempt = 0;
+    while (true) {
+      try {
+        return await this.requestWithTimeout(model, options);
+      } catch (error) {
+        if (attempt >= maxRetries) {
+          throw error;
+        }
+        attempt += 1;
+        this.loggingService.warn(
+          {
+            event: "ai_budget_triggered",
+            budget: "AI_MAX_RETRIES",
+            limit: maxRetries,
+            attempt,
+          },
+          AiProviderService.name,
+        );
+      }
+    }
+  }
+
+  private async requestWithTimeout(
+    model: string,
+    options: CompletionRequestOptions,
+  ): Promise<OpenAI.ChatCompletion> {
+    const timeoutMs = Math.max(1000, this.config.aiTimeoutMs ?? 15000);
+    const request = this.client.createCompletion({
+      model,
+      messages: options.messages,
+      tools: options.tools,
+      tool_choice: options.toolChoice ?? "auto",
+      max_tokens: options.maxTokens,
+    });
+
+    const timeout = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        clearTimeout(timer);
+        this.loggingService.warn(
+          {
+            event: "ai_budget_triggered",
+            budget: "AI_TIMEOUT_MS",
+            limit: timeoutMs,
+          },
+          AiProviderService.name,
+        );
+        reject(new Error("AI request timed out."));
+      }, timeoutMs);
+    });
+
+    return Promise.race([request, timeout]);
   }
 }

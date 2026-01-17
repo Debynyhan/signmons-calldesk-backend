@@ -40,6 +40,7 @@ describe("AiService", () => {
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
   let conversationsService: jest.Mocked<ConversationsService>;
+  let config: ReturnType<typeof appConfig>;
   let service: AiService;
 
   beforeEach(() => {
@@ -83,6 +84,24 @@ describe("AiService", () => {
     conversationsService.ensureConversation.mockResolvedValue({
       id: "conversation-1",
     } as never);
+    config = {
+      environment: "test",
+      openAiApiKey: "test",
+      enablePreviewModel: false,
+      enabledTools: [],
+      aiMaxTokens: 800,
+      aiMaxToolCalls: 1,
+      aiTimeoutMs: 15000,
+      aiMaxRetries: 1,
+      port: 3000,
+      databaseUrl: "postgres://user:pass@localhost:5432/db",
+      adminApiToken: "token",
+      devAuthEnabled: true,
+      devAuthSecret: "dev-auth-secret",
+      identityIssuer: "http://localhost",
+      identityAudience: "signmons",
+      corsOrigins: ["http://localhost:3000"],
+    };
 
     service = new AiService(
       aiProvider,
@@ -94,6 +113,7 @@ describe("AiService", () => {
       tenantsService,
       callLogService,
       conversationsService,
+      config,
     );
   });
 
@@ -277,6 +297,10 @@ describe("AiProviderService", () => {
     openAiApiKey: "test",
     enablePreviewModel: true,
     enabledTools: [],
+    aiMaxTokens: 800,
+    aiMaxToolCalls: 1,
+    aiTimeoutMs: 15000,
+    aiMaxRetries: 1,
     port: 3000,
     databaseUrl: "postgres://user:pass@localhost:5432/db",
     adminApiToken: "token",
@@ -320,6 +344,7 @@ describe("AiProviderService", () => {
     const fallbackResponse = { id: "resp", choices: [] } as never;
     client.createCompletion
       .mockRejectedValueOnce(new Error("model not found"))
+      .mockRejectedValueOnce(new Error("model not found"))
       .mockResolvedValueOnce(fallbackResponse);
 
     const response = await provider.createCompletion({
@@ -327,6 +352,15 @@ describe("AiProviderService", () => {
     });
 
     expect(response).toBe(fallbackResponse);
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai_budget_triggered",
+        budget: "AI_MAX_RETRIES",
+        limit: mockConfig.aiMaxRetries,
+        attempt: 1,
+      }),
+      AiProviderService.name,
+    );
     expect(loggingService.warn).toHaveBeenCalledWith(
       expect.stringContaining("Preview model"),
       AiProviderService.name,
@@ -337,6 +371,8 @@ describe("AiProviderService", () => {
   it("reports errors when fallback also fails", async () => {
     client.createCompletion
       .mockRejectedValueOnce(new Error("model not found"))
+      .mockRejectedValueOnce(new Error("model not found"))
+      .mockRejectedValueOnce(new Error("fallback failed"))
       .mockRejectedValueOnce(new Error("fallback failed"));
 
     await expect(provider.createCompletion({ messages: [] })).rejects.toThrow(
@@ -349,6 +385,27 @@ describe("AiProviderService", () => {
         stage: "completion",
         metadata: expect.objectContaining({ model: "gpt-4o-mini" }),
       }),
+    );
+  });
+
+  it("retries once when the provider fails before succeeding", async () => {
+    const response = { id: "resp", choices: [] } as never;
+    client.createCompletion
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce(response);
+
+    const result = await provider.createCompletion({ messages: [] });
+
+    expect(result).toBe(response);
+    expect(client.createCompletion).toHaveBeenCalledTimes(2);
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai_budget_triggered",
+        budget: "AI_MAX_RETRIES",
+        limit: mockConfig.aiMaxRetries,
+        attempt: 1,
+      }),
+      AiProviderService.name,
     );
   });
 });

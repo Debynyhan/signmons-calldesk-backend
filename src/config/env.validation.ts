@@ -26,6 +26,10 @@ export const envValidationSchema = Joi.object({
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),
   ENABLED_TOOLS: Joi.string().default("create_job"),
+  AI_MAX_TOKENS: Joi.number().min(1).max(8000).default(800),
+  AI_MAX_TOOL_CALLS: Joi.number().min(0).max(5).default(1),
+  AI_TIMEOUT_MS: Joi.number().min(1000).max(60000).default(15000),
+  AI_MAX_RETRIES: Joi.number().min(0).max(5).default(1),
   PORT: Joi.number().min(0).max(65535).default(3000),
 }).custom((values, helpers) => {
   if (
