@@ -56,7 +56,7 @@
 * [x] Consent message played before any intake
 * [x] Conversation created on first call event (`channel=VOICE`)
 * [x] `requestId` generated and attached to conversation
-* [ ] Twilio Call SID captured and persisted
+* [x] Twilio Call SID captured and persisted
 
 #### Caller Identity
 
