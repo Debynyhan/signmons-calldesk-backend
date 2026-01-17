@@ -21,6 +21,7 @@ import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import appConfig from "../config/app.config";
+import { getRequestContext } from "../common/context/request-context";
 
 @Injectable()
 export class AiService {
@@ -121,7 +122,12 @@ export class AiService {
       const choice = response.choices[0];
       const { message } = choice;
 
-      const validation = this.validateAssistantMessage(message);
+      const responseModel = response.model;
+      const validation = this.validateAssistantMessage(
+        message,
+        safeTenantId,
+        responseModel,
+      );
 
       if (validation.type === "tool") {
         const toolCall = validation.toolCall;
@@ -132,6 +138,7 @@ export class AiService {
             conversation.id,
             toolCall.function.name,
             toolCall.function.arguments ?? undefined,
+            responseModel,
           );
         }
 
@@ -189,6 +196,7 @@ export class AiService {
     conversationId: string,
     name: string,
     rawArgs?: string,
+    model?: string,
   ) {
     if (name !== "create_job") {
       return {
@@ -229,6 +237,12 @@ export class AiService {
         message: "Job created successfully.",
       };
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        this.logAiEvent(tenantId, "ai.invalid_output", {
+          model,
+          reason: "tool_args_invalid",
+        });
+      }
       this.errorHandler.handle(error, {
         tenantId,
         toolName: name,
@@ -240,9 +254,25 @@ export class AiService {
     }
   }
 
-  private validateAssistantMessage(message: OpenAI.ChatCompletionMessage) {
+  private validateAssistantMessage(
+    message: OpenAI.ChatCompletionMessage,
+    tenantId: string,
+    model?: string,
+  ) {
+    if (typeof message.refusal === "string" && message.refusal.trim()) {
+      this.logAiEvent(tenantId, "ai.refusal", {
+        model,
+        reason: message.refusal.trim(),
+      });
+      throw new BadRequestException("AI refused the request.");
+    }
+
     if (message.tool_calls?.length) {
       if (message.tool_calls.length > this.config.aiMaxToolCalls) {
+        this.logAiEvent(tenantId, "ai.invalid_output", {
+          model,
+          reason: "too_many_tool_calls",
+        });
         this.loggingService.warn(
           {
             event: "ai_budget_triggered",
@@ -255,10 +285,18 @@ export class AiService {
       }
       const toolCall = message.tool_calls[0];
       if (!this.isFunctionToolCall(toolCall) || !toolCall.function?.name) {
+        this.logAiEvent(tenantId, "ai.invalid_output", {
+          model,
+          reason: "invalid_tool_call",
+        });
         throw new BadRequestException("Invalid tool call response.");
       }
         const rawArgs = toolCall.function.arguments ?? "";
         if (!rawArgs.trim()) {
+          this.logAiEvent(tenantId, "ai.invalid_output", {
+            model,
+            reason: "missing_tool_args",
+          });
           throw new BadRequestException("Tool call arguments missing.");
         }
         return { type: "tool" as const, toolCall };
@@ -276,9 +314,34 @@ export class AiService {
 
     const trimmed = replyPayload.trim();
     if (!trimmed) {
+      this.logAiEvent(tenantId, "ai.invalid_output", {
+        model,
+        reason: "empty_reply",
+      });
       throw new BadRequestException("AI response was empty.");
     }
 
     return { type: "reply" as const, reply: trimmed };
+  }
+
+  private logAiEvent(
+    tenantId: string,
+    event: "ai.refusal" | "ai.invalid_output",
+    details: { model?: string; reason: string; promptVersion?: string },
+  ) {
+    const context = getRequestContext();
+    const payload: Record<string, unknown> = {
+      event,
+      tenantId,
+      requestId: context?.requestId,
+      model: details.model,
+      reason: details.reason,
+    };
+
+    if (details.promptVersion) {
+      payload.promptVersion = details.promptVersion;
+    }
+
+    this.loggingService.warn(payload, AiService.name);
   }
 }

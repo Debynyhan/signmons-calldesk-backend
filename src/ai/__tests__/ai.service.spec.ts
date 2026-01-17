@@ -245,6 +245,14 @@ describe("AiService", () => {
     } as never);
 
     await service.triage(tenantId, sessionId, "Hello");
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai.invalid_output",
+        tenantId,
+        reason: "empty_reply",
+      }),
+      AiService.name,
+    );
     expect(errorHandler.handle).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({
@@ -285,6 +293,39 @@ describe("AiService", () => {
       expect.any(Error),
       expect.objectContaining({
         stage: "tool_call",
+        tenantId,
+      }),
+    );
+  });
+
+  it("logs refusals when the model declines", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-5",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            refusal: "policy_violation",
+          },
+        },
+      ],
+    } as never);
+
+    await service.triage(tenantId, sessionId, "Disallowed request.");
+
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai.refusal",
+        tenantId,
+        reason: "policy_violation",
+      }),
+      AiService.name,
+    );
+    expect(errorHandler.handle).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        stage: "triage",
         tenantId,
       }),
     );
@@ -354,17 +395,20 @@ describe("AiProviderService", () => {
     expect(response).toBe(fallbackResponse);
     expect(loggingService.warn).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "ai_budget_triggered",
-        budget: "AI_MAX_RETRIES",
-        limit: mockConfig.aiMaxRetries,
-        attempt: 1,
+        event: "ai.preview_fallback",
+        model: "gpt-5.1-codex",
+        fallbackModel: "gpt-4o-mini",
+        reason: "preview_unavailable",
       }),
       AiProviderService.name,
     );
-    expect(loggingService.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Preview model"),
-      AiProviderService.name,
+    const previewLogs = loggingService.warn.mock.calls.filter(
+      ([payload]) =>
+        typeof payload === "object" &&
+        payload !== null &&
+        (payload as { event?: string }).event === "ai.preview_fallback",
     );
+    expect(previewLogs).toHaveLength(1);
     expect(errorHandler.handle).not.toHaveBeenCalled();
   });
 

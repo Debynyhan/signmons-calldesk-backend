@@ -41,7 +41,7 @@
 * [x] AI output schema validation (fail closed)
 * [x] Tool argument validation + normalization
 * [x] AI budgets (tokens, retries, timeouts)
-* [ ] AI refusal + fallback logging
+* [x] AI refusal + fallback logging
 
 ---
 

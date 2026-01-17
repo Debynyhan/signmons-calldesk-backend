@@ -8,11 +8,11 @@ export class LoggingService {
     this.logger.error(message, error?.stack, context);
   }
 
-  warn(message: string, context?: string) {
-    this.logger.warn(message, context);
+  warn(message: unknown, context?: string) {
+    this.logger.warn(message as never, context);
   }
 
-  log(message: string, context?: string) {
-    this.logger.log(message, context);
+  log(message: unknown, context?: string) {
+    this.logger.log(message as never, context);
   }
 }

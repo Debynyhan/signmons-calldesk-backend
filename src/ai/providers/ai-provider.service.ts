@@ -10,6 +10,7 @@ import type {
 } from "../interfaces/ai-provider.interface";
 import { AiErrorHandler } from "../ai-error.handler";
 import { LoggingService } from "../../logging/logging.service";
+import { getRequestContext } from "../../common/context/request-context";
 
 @Injectable()
 export class AiProviderService implements IAiProvider {
@@ -34,10 +35,11 @@ export class AiProviderService implements IAiProvider {
       const shouldFallback =
         model === this.previewModel && this.isPreviewUnavailable(error);
       if (shouldFallback) {
-        this.loggingService.warn(
-          `Preview model ${this.previewModel} unavailable. Falling back to ${this.defaultModel}.`,
-          AiProviderService.name,
-        );
+        this.logAiEvent("ai.preview_fallback", {
+          model: this.previewModel,
+          reason: "preview_unavailable",
+          fallbackModel: this.defaultModel,
+        });
         try {
           return await this.requestWithRetry(this.defaultModel, options);
         } catch (fallbackError) {
@@ -92,6 +94,12 @@ export class AiProviderService implements IAiProvider {
         return await this.requestWithTimeout(model, options);
       } catch (error) {
         if (attempt >= maxRetries) {
+          this.logAiEvent("ai.retry_exhausted", {
+            model,
+            reason: "provider_failure",
+            attempts: attempt + 1,
+            limit: maxRetries,
+          });
           throw error;
         }
         attempt += 1;
@@ -137,5 +145,39 @@ export class AiProviderService implements IAiProvider {
     });
 
     return Promise.race([request, timeout]);
+  }
+
+  private logAiEvent(
+    event: "ai.preview_fallback" | "ai.retry_exhausted",
+    details: {
+      model?: string;
+      reason: string;
+      fallbackModel?: string;
+      attempts?: number;
+      limit?: number;
+    },
+  ) {
+    const context = getRequestContext();
+    const payload: Record<string, unknown> = {
+      event,
+      tenantId: context?.tenantId,
+      requestId: context?.requestId,
+      model: details.model,
+      reason: details.reason,
+    };
+
+    if (details.fallbackModel) {
+      payload.fallbackModel = details.fallbackModel;
+    }
+
+    if (typeof details.attempts === "number") {
+      payload.attempts = details.attempts;
+    }
+
+    if (typeof details.limit === "number") {
+      payload.limit = details.limit;
+    }
+
+    this.loggingService.warn(payload, AiProviderService.name);
   }
 }
