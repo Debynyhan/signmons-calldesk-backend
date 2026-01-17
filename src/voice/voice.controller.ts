@@ -8,11 +8,14 @@ import {
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { validateRequest } from "twilio";
+import { CommunicationChannel } from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { ConversationsService } from "../conversations/conversations.service";
 import { CallLogService } from "../logging/call-log.service";
+import { AiService } from "../ai/ai.service";
+import { setRequestContextData } from "../common/context/request-context";
 
 @Controller("api/voice")
 export class VoiceController {
@@ -23,6 +26,7 @@ export class VoiceController {
     private readonly tenantsService: TenantsService,
     private readonly conversationsService: ConversationsService,
     private readonly callLogService: CallLogService,
+    private readonly aiService: AiService,
   ) {}
 
   @Post("inbound")
@@ -101,6 +105,7 @@ export class VoiceController {
       confidence,
     });
     if (updatedConversation) {
+      // Text only, no audio blobs.
       await this.callLogService.createVoiceTranscriptLog({
         tenantId: tenant.id,
         conversationId: updatedConversation.id,
@@ -110,12 +115,48 @@ export class VoiceController {
         occurredAt: new Date(),
       });
     }
-    return this.replyWithTwiml(
-      res,
-      this.buildTwiml(
-        "Thanks. We have captured your response. We'll follow up shortly.",
-      ),
-    );
+    const conversationId = updatedConversation?.id ?? conversation?.id;
+    if (!conversationId) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
+
+    const requestId = this.getRequestId(req);
+    setRequestContextData({
+      tenantId: tenant.id,
+      requestId,
+      callSid,
+      conversationId,
+      channel: "VOICE",
+    });
+
+    try {
+      const aiResult = await this.aiService.triage(
+        tenant.id,
+        callSid,
+        normalizedSpeech,
+        {
+          conversationId,
+          channel: CommunicationChannel.VOICE,
+        },
+      );
+      if (aiResult.status === "reply" && "reply" in aiResult) {
+        return this.replyWithTwiml(res, this.buildTwiml(aiResult.reply));
+      }
+      if (aiResult.status === "job_created" && "message" in aiResult) {
+        return this.replyWithTwiml(
+          res,
+          this.buildTwiml(aiResult.message ?? "Your request has been booked."),
+        );
+      }
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    } catch {
+      return this.replyWithTwiml(
+        res,
+        this.buildTwiml(
+          "We're having trouble handling your call. Please try again later.",
+        ),
+      );
+    }
   }
 
   @Post("fallback")

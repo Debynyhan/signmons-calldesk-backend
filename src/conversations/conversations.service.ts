@@ -164,6 +164,15 @@ export class ConversationsService {
     });
   }
 
+  async getConversationById(params: { tenantId: string; conversationId: string }) {
+    return this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+    });
+  }
+
   async updateVoiceTranscript(params: {
     tenantId: string;
     callSid: string;

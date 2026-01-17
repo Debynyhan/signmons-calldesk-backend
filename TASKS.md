@@ -79,14 +79,14 @@
   * role = USER
   * channel = VOICE
 * [x] Voice turns appended in chronological order
-* [ ] No audio blobs stored (text only)
+* [x] No audio blobs stored (text only)
 
 #### AI Execution
 
-* [ ] Voice transcripts routed through existing AI pipeline
-* [ ] Same schema validation, budgets, retries enforced
-* [ ] Tool calls allowed from VOICE channel
-* [ ] AI responses persisted as `CommunicationContent` (ASSISTANT)
+* [x] Voice transcripts routed through existing AI pipeline
+* [x] Same schema validation, budgets, retries enforced
+* [x] Tool calls allowed from VOICE channel
+* [x] AI responses persisted as `CommunicationContent` (ASSISTANT)
 
 #### Voice Output
 

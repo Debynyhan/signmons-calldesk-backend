@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing";
 import { ConfigModule } from "@nestjs/config";
 import request from "supertest";
+import { BadRequestException } from "@nestjs/common";
 import { VoiceModule } from "../voice.module";
 import appConfig from "../../config/app.config";
 import { envValidationSchema } from "../../config/env.validation";
@@ -8,6 +9,13 @@ import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
 import { PrismaTenantsService } from "../../tenants/tenants.service";
 import { ConversationsService } from "../../conversations/conversations.service";
 import { CallLogService } from "../../logging/call-log.service";
+import { AiService } from "../../ai/ai.service";
+import { JobsToolRegistrar } from "../../jobs/tools/jobs-tool.registrar";
+import { AI_PROVIDER } from "../../ai/ai.constants";
+import { AiErrorHandler } from "../../ai/ai-error.handler";
+import { LoggingService } from "../../logging/logging.service";
+import { AlertingService } from "../../logging/alerting.service";
+import { ToolSelectorService } from "../../ai/tools/tool-selector.service";
 
 const validateRequestMock = jest.fn();
 
@@ -33,6 +41,7 @@ describe("VoiceController", () => {
     process.env.TWILIO_PHONE_NUMBER = "+12167448929";
     process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
     validateRequestMock.mockReturnValue(false);
+    const aiService = { triage: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -45,7 +54,7 @@ describe("VoiceController", () => {
         }),
         VoiceModule,
       ],
-    })
+      })
       .overrideProvider(PrismaTenantsService)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(TENANTS_SERVICE)
@@ -58,6 +67,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -78,6 +101,7 @@ describe("VoiceController", () => {
     process.env.TWILIO_SIGNATURE_CHECK = "false";
     process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
     validateRequestMock.mockReturnValue(true);
+    const aiService = { triage: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -103,6 +127,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -131,6 +169,7 @@ describe("VoiceController", () => {
       id: "tenant-1",
       voiceNumber: "+12167448929",
     });
+    const aiService = { triage: jest.fn() };
     const ensureVoiceConsentConversation = jest.fn().mockResolvedValue({
       id: "conversation-1",
     });
@@ -159,6 +198,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -195,6 +248,7 @@ describe("VoiceController", () => {
     validateRequestMock.mockReturnValue(true);
 
     const resolveTenantByPhone = jest.fn().mockResolvedValue(null);
+    const aiService = { triage: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -220,6 +274,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -251,6 +319,7 @@ describe("VoiceController", () => {
       id: "conversation-1",
       collectedData: {},
     });
+    const aiService = { triage: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -276,6 +345,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -314,6 +397,12 @@ describe("VoiceController", () => {
       id: "conversation-1",
     });
     const createVoiceTranscriptLog = jest.fn();
+    const aiService = {
+      triage: jest.fn().mockResolvedValue({
+        status: "reply",
+        reply: "Thanks for calling.",
+      }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -339,6 +428,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -375,6 +478,12 @@ describe("VoiceController", () => {
       id: "conversation-1",
     });
     const createVoiceTranscriptLog = jest.fn();
+    const aiService = {
+      triage: jest.fn().mockResolvedValue({
+        status: "reply",
+        reply: "Thanks for calling.",
+      }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -400,6 +509,20 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -427,13 +550,23 @@ describe("VoiceController", () => {
       callSid: "CA123",
       transcript: "no heat",
       confidence: 0.78,
+      occurredAt: expect.any(Date),
     });
-    expect(response.text).toContain("We have captured your response");
+    expect(aiService.triage).toHaveBeenCalledWith(
+      "tenant-1",
+      "CA123",
+      "no heat",
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        channel: expect.any(String),
+      }),
+    );
+    expect(response.text).toContain("Thanks for calling.");
 
     await app.close();
   });
 
-  it("ignores invalid confidence values", async () => {
+  it("returns safe TwiML when AI triage fails", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -452,6 +585,11 @@ describe("VoiceController", () => {
       id: "conversation-1",
     });
     const createVoiceTranscriptLog = jest.fn();
+    const aiService = {
+      triage: jest
+        .fn()
+        .mockRejectedValue(new BadRequestException("AI refused the request.")),
+    };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -477,6 +615,102 @@ describe("VoiceController", () => {
       })
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "no heat",
+        Confidence: "0.78",
+      })
+      .expect(200);
+
+    expect(aiService.triage).toHaveBeenCalled();
+    expect(response.text).toContain(
+      "We&apos;re having trouble handling your call",
+    );
+
+    await app.close();
+  });
+
+  it("ignores invalid confidence values", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true } },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn();
+    const aiService = { triage: jest.fn() };
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+      })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -506,6 +740,7 @@ describe("VoiceController", () => {
       callSid: "CA123",
       transcript: "no heat",
       confidence: undefined,
+      occurredAt: expect.any(Date),
     });
 
     await app.close();

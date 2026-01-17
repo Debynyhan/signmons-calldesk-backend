@@ -22,6 +22,7 @@ import { CallLogService } from "../logging/call-log.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import appConfig from "../config/app.config";
 import { getRequestContext } from "../common/context/request-context";
+import { CommunicationChannel } from "@prisma/client";
 
 @Injectable()
 export class AiService {
@@ -59,7 +60,12 @@ export class AiService {
     }
   }
 
-  async triage(tenantId: string, sessionId: string, userMessage: string) {
+  async triage(
+    tenantId: string,
+    sessionId: string,
+    userMessage: string,
+    options?: { conversationId?: string; channel?: CommunicationChannel },
+  ) {
     if (!this.systemPrompt) {
       throw new InternalServerErrorException(
         "AI is not configured on the server.",
@@ -90,10 +96,19 @@ export class AiService {
 
       const tenantContext =
         await this.tenantsService.getTenantContext(safeTenantId);
-      const conversation = await this.conversationsService.ensureConversation(
-        safeTenantId,
-        safeSessionId,
-      );
+      const conversation = options?.conversationId
+        ? await this.conversationsService.getConversationById({
+            tenantId: safeTenantId,
+            conversationId: options.conversationId,
+          })
+        : await this.conversationsService.ensureConversation(
+            safeTenantId,
+            safeSessionId,
+          );
+
+      if (!conversation) {
+        throw new BadRequestException("Conversation not found.");
+      }
       const tenantContextPrompt = tenantContext.prompt;
       const recentMessages = await this.callLogService.getRecentMessages(
         safeTenantId,
@@ -139,6 +154,7 @@ export class AiService {
             toolCall.function.name,
             toolCall.function.arguments ?? undefined,
             responseModel,
+            options?.channel,
           );
         }
 
@@ -166,6 +182,7 @@ export class AiService {
           sessionId: safeSessionId,
           openAIResponseId,
         },
+        channel: options?.channel,
       });
 
       return reply;
@@ -197,6 +214,7 @@ export class AiService {
     name: string,
     rawArgs?: string,
     model?: string,
+    channel?: CommunicationChannel,
   ) {
     if (name !== "create_job") {
       return {
@@ -225,6 +243,7 @@ export class AiService {
         transcript: rawArgs ?? "",
         aiResponse: JSON.stringify(job),
         metadata: { toolName: name, sessionId },
+        channel,
       });
       await this.callLogService.clearSession(
         tenantId,
@@ -337,6 +356,14 @@ export class AiService {
       model: details.model,
       reason: details.reason,
     };
+
+    if (context?.callSid) {
+      payload.callSid = context.callSid;
+    }
+
+    if (context?.conversationId) {
+      payload.conversationId = context.conversationId;
+    }
 
     if (details.promptVersion) {
       payload.promptVersion = details.promptVersion;

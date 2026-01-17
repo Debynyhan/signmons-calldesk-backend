@@ -19,6 +19,7 @@ export interface CreateCallLogInput {
   aiResponse?: string;
   direction?: "INBOUND" | "OUTBOUND";
   metadata?: Record<string, unknown>;
+  channel?: CommunicationChannel;
 }
 
 @Injectable()
@@ -51,6 +52,7 @@ export class CallLogService {
       direction: input.direction ?? "INBOUND",
       message: sanitizedTranscript,
       payload: metadataPayload,
+      channel: input.channel,
     });
 
     if (sanitizedResponse) {
@@ -60,6 +62,7 @@ export class CallLogService {
         direction: "OUTBOUND",
         message: sanitizedResponse,
         payload: metadataPayload,
+        channel: input.channel,
       });
     }
   }

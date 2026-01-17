@@ -4,12 +4,16 @@ import type { PrismaService } from "../../prisma/prisma.service";
 
 describe("CallLogService", () => {
   let prisma: {
+    communicationEvent: { create: jest.Mock };
     communicationContent: { findMany: jest.Mock };
   };
   let service: CallLogService;
 
   beforeEach(() => {
     prisma = {
+      communicationEvent: {
+        create: jest.fn(),
+      },
       communicationContent: {
         findMany: jest.fn(),
       },
@@ -56,5 +60,30 @@ describe("CallLogService", () => {
       "first",
       "second",
     ]);
+  });
+
+  it("stores voice transcripts with text-only payload", async () => {
+    prisma.communicationEvent.create.mockResolvedValue({} as never);
+
+    await service.createVoiceTranscriptLog({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      callSid: "CA123",
+      transcript: "Caller said no heat.",
+      confidence: 0.82,
+      occurredAt: new Date("2026-01-01T10:00:00.000Z"),
+    });
+
+    const payload =
+      prisma.communicationEvent.create.mock.calls[0][0].data.content.create
+        .payload;
+    expect(payload).toMatchObject({
+      type: "voice_transcript",
+      callSid: "CA123",
+      transcript: "Caller said no heat.",
+      confidence: 0.82,
+    });
+    expect(payload).not.toHaveProperty("RecordingUrl");
+    expect(payload).not.toHaveProperty("recordingUrl");
   });
 });

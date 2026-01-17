@@ -12,6 +12,9 @@ export interface RequestContextData {
   tenantId?: string;
   role?: string;
   impersonatedTenantId?: string;
+  callSid?: string;
+  conversationId?: string;
+  channel?: "WEBCHAT" | "VOICE";
 }
 
 const requestContext = new AsyncLocalStorage<RequestContextData>();
@@ -52,4 +55,19 @@ export function getRequestContext(): RequestContextData | undefined {
 
 export function hasTenantContext(): boolean {
   return Boolean(requestContext.getStore()?.tenantId);
+}
+
+export function setRequestContextData(
+  update: Partial<RequestContextData>,
+): void {
+  const store = requestContext.getStore();
+  if (!store) return;
+  Object.assign(store, update);
+}
+
+export function runWithRequestContext<T>(
+  initial: RequestContextData,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return requestContext.run(initial, fn);
 }
