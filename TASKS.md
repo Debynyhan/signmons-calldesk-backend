@@ -47,7 +47,7 @@
 
 ### T-03 Job Lifecycle & Data Integrity (P0)
 
-* [ ] Job lifecycle enforced: CREATED → ACCEPTED
+* [x] Job lifecycle enforced: CREATED → ACCEPTED
 * [ ] issueCategory → ServiceCategory mapping verified
 * [ ] Address normalization placeholder (dev-safe)
 * [ ] Job creation idempotent
