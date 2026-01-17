@@ -69,6 +69,7 @@ export class ConversationsService {
   async ensureVoiceConsentConversation(params: {
     tenantId: string;
     callSid: string;
+    requestId?: string;
   }) {
     const existing = await this.prisma.conversation.findFirst({
       where: {
@@ -82,15 +83,22 @@ export class ConversationsService {
         | { voiceConsent?: { granted?: boolean } }
         | null
         | undefined;
-      if (!current?.voiceConsent?.granted) {
+      const needsConsent = !current?.voiceConsent?.granted;
+      const needsRequestId = !current?.requestId && params.requestId;
+      if (needsConsent || needsRequestId) {
         const merged = {
           ...(current ?? {}),
-          voiceConsent: {
-            granted: true,
-            method: "implied",
-            timestamp: new Date().toISOString(),
-            callSid: params.callSid,
-          },
+          ...(needsRequestId ? { requestId: params.requestId } : {}),
+          ...(needsConsent
+            ? {
+                voiceConsent: {
+                  granted: true,
+                  method: "implied",
+                  timestamp: new Date().toISOString(),
+                  callSid: params.callSid,
+                },
+              }
+            : {}),
         } as Prisma.InputJsonValue;
         return this.prisma.conversation.update({
           where: { id: existing.id },
@@ -126,6 +134,7 @@ export class ConversationsService {
         currentFSMState: "TRIAGE",
         collectedData: {
           source: "VOICE",
+          requestId: params.requestId,
           voiceConsent: {
             granted: true,
             method: "implied",
