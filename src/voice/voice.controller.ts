@@ -9,19 +9,30 @@ import {
 import type { Request, Response } from "express";
 import { validateRequest } from "twilio";
 import appConfig, { type AppConfig } from "../config/app.config";
+import { TENANTS_SERVICE } from "../tenants/tenants.constants";
+import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 
 @Controller("api/voice")
 export class VoiceController {
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
+    @Inject(TENANTS_SERVICE)
+    private readonly tenantsService: TenantsService,
   ) {}
 
   @Post("inbound")
-  handleInbound(@Req() req: Request, @Res() res: Response) {
+  async handleInbound(@Req() req: Request, @Res() res: Response) {
     this.verifySignature(req);
     if (!this.config.voiceEnabled) {
       return this.replyWithTwiml(res, this.disabledTwiml());
+    }
+    const toNumber = this.extractToNumber(req);
+    const tenant = toNumber
+      ? await this.tenantsService.resolveTenantByPhone(toNumber)
+      : null;
+    if (!tenant) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
     }
     return this.replyWithTwiml(
       res,
@@ -32,7 +43,7 @@ export class VoiceController {
   }
 
   @Post("turn")
-  handleTurn(@Req() req: Request, @Res() res: Response) {
+  async handleTurn(@Req() req: Request, @Res() res: Response) {
     this.verifySignature(req);
     if (!this.config.voiceEnabled) {
       return this.replyWithTwiml(res, this.disabledTwiml());
@@ -109,6 +120,17 @@ export class VoiceController {
     return this.buildTwiml(
       "Voice intake is currently unavailable. Please try again later.",
     );
+  }
+
+  private unroutableTwiml(): string {
+    return this.buildTwiml(
+      "We're unable to route your call at this time.",
+    );
+  }
+
+  private extractToNumber(req: Request): string | null {
+    const value = req.body?.To ?? req.body?.to;
+    return typeof value === "string" ? value : null;
   }
 
   private buildTwiml(message: string): string {

@@ -66,6 +66,19 @@ export class PrismaTenantsService implements TenantsService {
     return this.mapTenantToContext(tenant);
   }
 
+  async resolveTenantByPhone(
+    toNumber: string,
+  ): Promise<TenantOrganization | null> {
+    const normalized = this.normalizePhone(toNumber);
+    if (!normalized) {
+      return null;
+    }
+
+    return this.prisma.tenantOrganization.findFirst({
+      where: { voiceNumber: normalized },
+    });
+  }
+
   private mapTenantToContext(tenant: TenantOrganization): TenantContext {
     const settings = this.parseSettings(tenant.settings);
     const displayName = settings.displayName ?? tenant.name;
@@ -119,5 +132,20 @@ export class PrismaTenantsService implements TenantsService {
       prompt:
         typeof settings.prompt === "string" ? settings.prompt : undefined,
     };
+  }
+
+  private normalizePhone(value: string): string {
+    if (typeof value !== "string") return "";
+    const digits = value.replace(/\D/g, "");
+    if (digits.length === 10) {
+      return `+1${digits}`;
+    }
+    if (digits.length === 11 && digits.startsWith("1")) {
+      return `+${digits}`;
+    }
+    if (digits.length >= 8 && digits.length <= 15) {
+      return `+${digits}`;
+    }
+    return "";
   }
 }

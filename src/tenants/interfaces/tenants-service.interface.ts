@@ -1,3 +1,5 @@
+import type { TenantOrganization } from "@prisma/client";
+
 export interface TenantContext {
   tenantId: string;
   displayName: string;
@@ -14,4 +16,5 @@ export interface CreateTenantInput {
 export interface TenantsService {
   getTenantContext(tenantId: string): Promise<TenantContext>;
   createTenant(input: CreateTenantInput): Promise<TenantContext>;
+  resolveTenantByPhone(toNumber: string): Promise<TenantOrganization | null>;
 }

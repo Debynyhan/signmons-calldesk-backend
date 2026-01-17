@@ -4,6 +4,8 @@ import request from "supertest";
 import { VoiceModule } from "../voice.module";
 import appConfig from "../../config/app.config";
 import { envValidationSchema } from "../../config/env.validation";
+import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
+import { PrismaTenantsService } from "../../tenants/tenants.service";
 
 const validateRequestMock = jest.fn();
 
@@ -41,7 +43,12 @@ describe("VoiceController", () => {
         }),
         VoiceModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone: jest.fn() })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone: jest.fn() })
+      .compile();
 
     const app = moduleRef.createNestApplication();
     await app.init();
@@ -73,7 +80,12 @@ describe("VoiceController", () => {
         }),
         VoiceModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone: jest.fn() })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone: jest.fn() })
+      .compile();
 
     const app = moduleRef.createNestApplication();
     await app.init();
@@ -86,6 +98,91 @@ describe("VoiceController", () => {
     expect(response.text).toContain("Voice intake is currently unavailable.");
     expect(response.text).toContain("<Response>");
     expect(response.header["content-type"]).toContain("text/xml");
+
+    await app.close();
+  });
+
+  it("routes inbound calls by To number", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/inbound")
+      .send({ To: "12167448929" })
+      .expect(200);
+
+    expect(resolveTenantByPhone).toHaveBeenCalledWith("12167448929");
+    expect(response.text).not.toContain("unable to route");
+
+    await app.close();
+  });
+
+  it("returns safe TwiML when no tenant matches To number", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue(null);
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/inbound")
+      .send({ To: "+12167448929" })
+      .expect(200);
+
+    expect(resolveTenantByPhone).toHaveBeenCalledWith("+12167448929");
+    expect(response.text).toContain("unable to route your call");
 
     await app.close();
   });

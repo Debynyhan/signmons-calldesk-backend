@@ -51,7 +51,7 @@
 #### Inbound Voice Plumbing
 
 * [x] `/api/voice/inbound` webhook endpoint implemented
-* [ ] Tenant resolved by called phone number (`To`)
+* [x] Tenant resolved by called phone number (`To`)
 * [x] Voice disabled guard (`VOICE_ENABLED=false` returns safe TwiML)
 * [ ] Consent message played before any intake
 * [ ] Conversation created on first call event (`channel=VOICE`)
