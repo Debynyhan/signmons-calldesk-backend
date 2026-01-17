@@ -13,9 +13,7 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "prisma:generate": "prisma generate && node scripts/link-prisma-client.js",
-    "verify:token": "ts-node scripts/verify-firebase-token.ts",
-    "emulator:token": "ts-node scripts/emulator-mint-token.ts"
+    "prisma:generate": "prisma generate"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -24,14 +22,11 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "^6.0.1",
     "@nestjs/throttler": "^6.3.0",
-    "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
-    "firebase-admin": "^13.6.0",
     "joi": "^18.0.2",
     "openai": "^4.78.1",
-    "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -42,21 +37,19 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.10.7",
-    "@types/pg": "^8.16.0",
     "@types/supertest": "^6.0.2",
-    "diff": "^8.0.3",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
-    "jest": "^30.2.0",
+    "jest": "^29.7.0",
     "prettier": "^3.4.2",
-    "prisma": "^6.19.2",
+    "prisma": "^7.2.0",
     "rimraf": "^6.0.1",
     "source-map": "^0.7.4",
     "supertest": "^7.0.0",
-    "ts-jest": "^29.4.6",
+    "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.2",
-    "ts-node": "^1.7.1",
+    "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.48.0"
@@ -77,8 +70,5 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  },
-  "overrides": {
-    "diff": "^8.0.3"
   }
 }
