@@ -63,7 +63,7 @@
 * [x] Caller phone captured from `From`
 * [x] Phone normalized to E.164
 * [x] Customer created or reused by phone
-* [ ] Caller phone stored on Conversation metadata
+* [x] Caller phone stored on Conversation metadata
 
 #### Speech → Text Intake
 

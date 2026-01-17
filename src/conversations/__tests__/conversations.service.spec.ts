@@ -123,4 +123,19 @@ describe("ConversationsService", () => {
     );
     expect(prisma.customer.create).toHaveBeenCalledTimes(2);
   });
+
+  it("does not overwrite callerPhone once set", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: { callerPhone: "+12167448929", voiceConsent: { granted: true } },
+    } as never);
+
+    await service.ensureVoiceConsentConversation({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      callerPhone: "2165550000",
+    });
+
+    expect(prisma.conversation.update).not.toHaveBeenCalled();
+  });
 });
