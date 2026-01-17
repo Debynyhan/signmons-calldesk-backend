@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { Injectable } from "@nestjs/common";
 import {
   ConversationChannel,
+  ConversationJobRelation,
   ConversationStatus,
   Prisma,
 } from "@prisma/client";
@@ -63,5 +64,35 @@ export class ConversationsService {
         } as Prisma.InputJsonValue,
       },
     });
+  }
+
+  async linkJobToConversation(params: {
+    tenantId: string;
+    conversationId: string;
+    jobId: string;
+    relationType?: ConversationJobRelation;
+  }) {
+    try {
+      return await this.prisma.conversationJobLink.create({
+        data: {
+          id: randomUUID(),
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          conversationTenantId: params.tenantId,
+          jobId: params.jobId,
+          jobTenantId: params.tenantId,
+          relationType:
+            params.relationType ?? ConversationJobRelation.CREATED_FROM,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        return null;
+      }
+      throw error;
+    }
   }
 }

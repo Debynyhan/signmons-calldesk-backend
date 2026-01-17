@@ -80,7 +80,10 @@ describeOrSkip("AI create-job flow (e2e)", () => {
       deleteMany: (args?: unknown) => Promise<unknown>;
       findFirst: (args?: unknown) => Promise<{ currentFSMState?: string } | null>;
     };
-    conversationJobLink: { deleteMany: (args?: unknown) => Promise<unknown> };
+    conversationJobLink: {
+      deleteMany: (args?: unknown) => Promise<unknown>;
+      findMany: (args?: unknown) => Promise<Array<{ jobId: string }>>;
+    };
     job: { deleteMany: (args?: unknown) => Promise<unknown>; findMany: (args?: unknown) => Promise<Array<{ id: string }>> };
     propertyAddress: { deleteMany: (args?: unknown) => Promise<unknown> };
     customer: { deleteMany: (args?: unknown) => Promise<unknown> };
@@ -192,6 +195,15 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     });
     expect(conversation).toBeTruthy();
     expect(conversation?.currentFSMState).toBe("TRIAGE");
+
+    const links = await prisma.conversationJobLink.findMany({
+      where: {
+        tenantId,
+        conversationId: conversation?.id,
+        jobId: jobs[0].id,
+      },
+    });
+    expect(links).toHaveLength(1);
   });
 
   it("isolates tenants across AI triage logs and jobs", async () => {
@@ -298,5 +310,20 @@ describeOrSkip("AI create-job flow (e2e)", () => {
     });
     expect(tenantAConversation).toBeTruthy();
     expect(tenantBConversation).toBeTruthy();
+
+    const tenantALinks = await prisma.conversationJobLink.findMany({
+      where: {
+        tenantId: tenantAId,
+        conversationId: tenantAConversation?.id,
+      },
+    });
+    const tenantBLinks = await prisma.conversationJobLink.findMany({
+      where: {
+        tenantId: tenantBId,
+        conversationId: tenantBConversation?.id,
+      },
+    });
+    expect(tenantALinks).toHaveLength(1);
+    expect(tenantBLinks).toHaveLength(1);
   });
 });

@@ -78,6 +78,7 @@ describe("AiService", () => {
     callLogService.getRecentMessages.mockResolvedValue([]);
     conversationsService = {
       ensureConversation: jest.fn(),
+      linkJobToConversation: jest.fn(),
     } as unknown as jest.Mocked<ConversationsService>;
     conversationsService.ensureConversation.mockResolvedValue({
       id: "conversation-1",
@@ -187,6 +188,13 @@ describe("AiService", () => {
         metadata: expect.objectContaining({ toolName: "create_job" }),
       }),
     );
+    expect(conversationsService.linkJobToConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId,
+        conversationId: "conversation-1",
+        jobId: jobRecord.id,
+      }),
+    );
     expect(callLogService.clearSession).toHaveBeenCalledWith(
       tenantId,
       sessionId,
@@ -197,6 +205,59 @@ describe("AiService", () => {
   it("delegates provider errors to the AiErrorHandler", async () => {
     aiProvider.createCompletion.mockRejectedValue(new Error("network"));
     await service.triage(tenantId, sessionId, "Hello");
+    expect(errorHandler.handle).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        stage: "triage",
+        tenantId,
+      }),
+    );
+  });
+
+  it("fails closed when AI returns an empty reply", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-3",
+      choices: [
+        {
+          message: { role: "assistant", content: null },
+        },
+      ],
+    } as never);
+
+    await service.triage(tenantId, sessionId, "Hello");
+    expect(errorHandler.handle).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        stage: "triage",
+        tenantId,
+      }),
+    );
+  });
+
+  it("fails closed when tool args are invalid JSON", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-4",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call-2",
+                type: "function",
+                function: {
+                  name: "create_job",
+                  arguments: "{not-json}",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    } as never);
+
+    await service.triage(tenantId, sessionId, "Create job.");
     expect(errorHandler.handle).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({

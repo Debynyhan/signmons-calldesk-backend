@@ -116,8 +116,10 @@ export class AiService {
       const choice = response.choices[0];
       const { message } = choice;
 
-      if (message.tool_calls?.length) {
-        const toolCall = message.tool_calls[0];
+      const validation = this.validateAssistantMessage(message);
+
+      if (validation.type === "tool") {
+        const toolCall = validation.toolCall;
         if (this.isFunctionToolCall(toolCall) && toolCall.function?.name) {
           return this.handleToolCall(
             safeTenantId,
@@ -137,19 +139,9 @@ export class AiService {
         };
       }
 
-      const replyPayload = Array.isArray(message.content)
-        ? message.content
-            .map((part) =>
-              typeof part === "string"
-                ? part
-                : ((part as { text?: string })?.text ?? ""),
-            )
-            .join(" ")
-        : (message.content ?? "");
-
       const reply = {
         status: "reply" as const,
-        reply: replyPayload,
+        reply: validation.reply,
       };
 
       await this.callLogService.createLog({
@@ -157,7 +149,7 @@ export class AiService {
         sessionId: safeSessionId,
         conversationId: conversation.id,
         transcript: userMessage,
-        aiResponse: replyPayload,
+        aiResponse: validation.reply,
         metadata: {
           sessionId: safeSessionId,
           openAIResponseId,
@@ -207,6 +199,11 @@ export class AiService {
         sessionId,
         rawArgs,
       });
+      await this.conversationsService.linkJobToConversation({
+        tenantId,
+        conversationId,
+        jobId: job.id,
+      });
       await this.callLogService.createLog({
         tenantId,
         sessionId,
@@ -236,5 +233,41 @@ export class AiService {
         },
       });
     }
+  }
+
+  private validateAssistantMessage(message: OpenAI.ChatCompletionMessage) {
+    if (message.tool_calls?.length) {
+      const toolCall = message.tool_calls[0];
+      if (!this.isFunctionToolCall(toolCall) || !toolCall.function?.name) {
+        throw new BadRequestException("Invalid tool call response.");
+      }
+      const rawArgs = toolCall.function.arguments ?? "";
+      if (!rawArgs.trim()) {
+        throw new BadRequestException("Tool call arguments missing.");
+      }
+      try {
+        JSON.parse(rawArgs);
+      } catch {
+        throw new BadRequestException("Tool call arguments are invalid JSON.");
+      }
+      return { type: "tool" as const, toolCall };
+    }
+
+    const replyPayload = Array.isArray(message.content)
+      ? message.content
+          .map((part) =>
+            typeof part === "string"
+              ? part
+              : ((part as { text?: string })?.text ?? ""),
+          )
+          .join(" ")
+      : (message.content ?? "");
+
+    const trimmed = replyPayload.trim();
+    if (!trimmed) {
+      throw new BadRequestException("AI response was empty.");
+    }
+
+    return { type: "reply" as const, reply: trimmed };
   }
 }
