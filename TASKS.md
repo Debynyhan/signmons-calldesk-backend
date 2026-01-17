@@ -67,7 +67,7 @@
 
 #### Speech → Text Intake
 
-* [ ] Twilio `<Gather input="speech">` configured
+* [x] Twilio `<Gather input="speech">` configured
 * [x] `/api/voice/turn` endpoint implemented
 * [ ] Transcript extracted from `SpeechResult`
 * [ ] Confidence score captured when provided

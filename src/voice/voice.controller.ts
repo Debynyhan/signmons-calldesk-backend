@@ -84,6 +84,10 @@ export class VoiceController {
     if (!consentGranted) {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
+    const speechResult = this.extractSpeechResult(req);
+    if (!speechResult) {
+      return this.replyWithTwiml(res, this.buildRepromptTwiml());
+    }
     return this.replyWithTwiml(
       res,
       this.buildTwiml(
@@ -172,7 +176,17 @@ export class VoiceController {
       consent,
     )}</Say><Gather input="speech" action="${this.escapeXml(
       actionUrl,
-    )}" method="POST"/></Response>`;
+    )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
+  }
+
+  private buildRepromptTwiml(): string {
+    const actionUrl = this.buildWebhookUrl("/api/voice/turn");
+    const message = "Sorry, I didn't catch that. Please say that again.";
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
+      message,
+    )}</Say><Gather input="speech" action="${this.escapeXml(
+      actionUrl,
+    )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
   }
 
   private buildWebhookUrl(path: string): string {
@@ -202,6 +216,11 @@ export class VoiceController {
 
   private extractCallSid(req: Request): string | null {
     const value = req.body?.CallSid ?? req.body?.callSid;
+    return typeof value === "string" ? value : null;
+  }
+
+  private extractSpeechResult(req: Request): string | null {
+    const value = req.body?.SpeechResult ?? req.body?.speechResult;
     return typeof value === "string" ? value : null;
   }
 

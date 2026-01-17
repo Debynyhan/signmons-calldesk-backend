@@ -169,6 +169,10 @@ describe("VoiceController", () => {
     });
     expect(response.text).toContain("This call may be transcribed");
     expect(response.text).toContain("<Gather");
+    expect(response.text).toContain('input="speech"');
+    expect(response.text).toContain('method="POST"');
+    expect(response.text).toContain('timeout="5"');
+    expect(response.text).toContain('speechTimeout="auto"');
 
     await app.close();
   });
@@ -271,6 +275,59 @@ describe("VoiceController", () => {
       callSid: "CA123",
     });
     expect(response.text).toContain("unable to route your call");
+
+    await app.close();
+  });
+
+  it("reprompts when no speech result is provided", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true } },
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+      })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({ To: "+12167448929", CallSid: "CA123" })
+      .expect(200);
+
+    expect(response.text).toContain("Please say that again");
+    expect(response.text).toContain("<Gather");
 
     await app.close();
   });
