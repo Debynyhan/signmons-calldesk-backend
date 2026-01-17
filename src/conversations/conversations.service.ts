@@ -8,12 +8,14 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { LoggingService } from "../logging/logging.service";
 
 @Injectable()
 export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async ensureConversation(tenantId: string, sessionId: string) {
@@ -118,19 +120,10 @@ export class ConversationsService {
     const normalizedCallerPhone = params.callerPhone
       ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
       : undefined;
-    const placeholderPhone = `unknown-voice-${params.callSid}`;
-    const customer = await this.prisma.customer.create({
-      data: {
-        id: randomUUID(),
-        tenantId: params.tenantId,
-        phone: normalizedCallerPhone ?? placeholderPhone,
-        fullName: "Unknown Caller",
-        aiMetadata: {
-          source: "VOICE",
-          status: "PROSPECT",
-          callSid: params.callSid,
-        } as Prisma.InputJsonValue,
-      },
+    const customer = await this.resolveVoiceCustomer({
+      tenantId: params.tenantId,
+      callSid: params.callSid,
+      normalizedPhone: normalizedCallerPhone,
     });
 
     return this.prisma.conversation.create({
@@ -166,6 +159,66 @@ export class ConversationsService {
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
+      },
+    });
+  }
+
+  private async resolveVoiceCustomer(params: {
+    tenantId: string;
+    callSid: string;
+    normalizedPhone?: string;
+  }) {
+    if (params.normalizedPhone) {
+      const existing = await this.prisma.customer.findFirst({
+        where: { tenantId: params.tenantId, phone: params.normalizedPhone },
+      });
+      if (existing) {
+        return existing;
+      }
+      try {
+        return await this.prisma.customer.create({
+          data: {
+            id: randomUUID(),
+            tenantId: params.tenantId,
+            phone: params.normalizedPhone,
+            fullName: "Unknown Caller",
+            aiMetadata: {
+              source: "VOICE",
+              status: "PROSPECT",
+              callSid: params.callSid,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      } catch (error) {
+        this.loggingService.warn(
+          {
+            event: "voice_customer_create_failed",
+            tenantId: params.tenantId,
+            phone: params.normalizedPhone,
+          },
+          ConversationsService.name,
+        );
+        const fallback = await this.prisma.customer.findFirst({
+          where: { tenantId: params.tenantId, phone: params.normalizedPhone },
+        });
+        if (fallback) {
+          return fallback;
+        }
+      }
+    }
+
+    const placeholderPhone = `unknown-voice-${params.callSid}`;
+    return this.prisma.customer.create({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        phone: placeholderPhone,
+        fullName: "Unknown Caller",
+        aiMetadata: {
+          source: "VOICE",
+          status: "PROSPECT",
+          callSid: params.callSid,
+        } as Prisma.InputJsonValue,
       },
     });
   }
