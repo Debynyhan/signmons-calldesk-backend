@@ -70,7 +70,7 @@
 * [x] Twilio `<Gather input="speech">` configured
 * [x] `/api/voice/turn` endpoint implemented
 * [x] Transcript extracted from `SpeechResult`
-* [ ] Confidence score captured when provided
+* [x] Confidence score captured when provided
 
 #### Conversation Persistence
 

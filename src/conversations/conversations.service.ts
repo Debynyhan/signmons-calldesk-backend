@@ -167,6 +167,7 @@ export class ConversationsService {
     tenantId: string;
     callSid: string;
     transcript: string;
+    confidence?: number;
   }) {
     const normalized = this.sanitizationService.normalizeWhitespace(
       params.transcript,
@@ -190,6 +191,9 @@ export class ConversationsService {
     const merged = {
       ...current,
       lastTranscript: normalized,
+      ...(typeof params.confidence === "number"
+        ? { lastTranscriptConfidence: params.confidence }
+        : {}),
     } as Prisma.InputJsonValue;
 
     return this.prisma.conversation.update({

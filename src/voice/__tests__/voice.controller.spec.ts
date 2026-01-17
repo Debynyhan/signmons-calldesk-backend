@@ -390,6 +390,7 @@ describe("VoiceController", () => {
         To: "+12167448929",
         CallSid: "CA123",
         SpeechResult: "  no   heat  ",
+        Confidence: "0.78",
       })
       .expect(200);
 
@@ -397,8 +398,75 @@ describe("VoiceController", () => {
       tenantId: "tenant-1",
       callSid: "CA123",
       transcript: "no heat",
+      confidence: 0.78,
     });
     expect(response.text).toContain("We have captured your response");
+
+    await app.close();
+  });
+
+  it("ignores invalid confidence values", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true } },
+    });
+    const updateVoiceTranscript = jest.fn();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+      })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "no heat",
+        Confidence: "150",
+      })
+      .expect(200);
+
+    expect(updateVoiceTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      transcript: "no heat",
+      confidence: undefined,
+      }),
+    );
 
     await app.close();
   });

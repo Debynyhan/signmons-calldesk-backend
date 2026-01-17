@@ -91,10 +91,12 @@ export class VoiceController {
     if (!normalizedSpeech) {
       return this.replyWithTwiml(res, this.buildRepromptTwiml());
     }
+    const confidence = this.normalizeConfidence(this.extractConfidence(req));
     await this.conversationsService.updateVoiceTranscript({
       tenantId: tenant.id,
       callSid,
       transcript: normalizedSpeech,
+      confidence,
     });
     return this.replyWithTwiml(
       res,
@@ -230,6 +232,28 @@ export class VoiceController {
   private extractSpeechResult(req: Request): string | null {
     const value = req.body?.SpeechResult ?? req.body?.speechResult;
     return typeof value === "string" ? value : null;
+  }
+
+  private extractConfidence(req: Request): string | null {
+    const value = req.body?.Confidence ?? req.body?.confidence;
+    return typeof value === "string" || typeof value === "number"
+      ? String(value)
+      : null;
+  }
+
+  private normalizeConfidence(value: string | null): number | undefined {
+    if (!value) return undefined;
+    const parsed = Number.parseFloat(value);
+    if (Number.isNaN(parsed)) {
+      return undefined;
+    }
+    if (parsed >= 0 && parsed <= 1) {
+      return parsed;
+    }
+    if (parsed > 1 && parsed <= 100) {
+      return parsed / 100;
+    }
+    return undefined;
   }
 
   private extractFromNumber(req: Request): string | null {
