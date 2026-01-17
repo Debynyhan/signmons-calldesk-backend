@@ -82,20 +82,21 @@ export class ConversationsService {
     });
 
     if (existing) {
-      const current = existing.collectedData as
-        | { voiceConsent?: { granted?: boolean } }
-        | null
-        | undefined;
-      const needsConsent = !current?.voiceConsent?.granted;
-      const needsRequestId = !current?.requestId && params.requestId;
+      const current = (existing.collectedData ?? {}) as {
+        voiceConsent?: { granted?: boolean };
+        requestId?: string;
+        callerPhone?: string;
+      };
+      const needsConsent = !current.voiceConsent?.granted;
+      const needsRequestId = !current.requestId && params.requestId;
       const normalizedCallerPhone = params.callerPhone
         ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
-        : "";
+        : undefined;
       const needsCallerPhone =
-        normalizedCallerPhone && !current?.callerPhone;
+        Boolean(normalizedCallerPhone) && !current.callerPhone;
       if (needsConsent || needsRequestId || needsCallerPhone) {
         const merged = {
-          ...(current ?? {}),
+          ...current,
           ...(needsRequestId ? { requestId: params.requestId } : {}),
           ...(needsCallerPhone ? { callerPhone: normalizedCallerPhone } : {}),
           ...(needsConsent
@@ -117,9 +118,9 @@ export class ConversationsService {
       return existing;
     }
 
-    const normalizedCallerPhone = params.callerPhone
-      ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
-      : undefined;
+      const normalizedCallerPhone = params.callerPhone
+        ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
+        : undefined;
     const customer = await this.resolveVoiceCustomer({
       tenantId: params.tenantId,
       callSid: params.callSid,

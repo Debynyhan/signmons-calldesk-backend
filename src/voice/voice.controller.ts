@@ -43,7 +43,7 @@ export class VoiceController {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
     const requestId = this.getRequestId(req);
-    const callerPhone = this.extractFromNumber(req);
+    const callerPhone = this.extractFromNumber(req) ?? undefined;
     await this.conversationsService.ensureVoiceConsentConversation({
       tenantId: tenant.id,
       callSid,
@@ -107,6 +107,7 @@ export class VoiceController {
         callSid,
         transcript: normalizedSpeech,
         confidence,
+        occurredAt: new Date(),
       });
     }
     return this.replyWithTwiml(

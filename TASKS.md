@@ -74,11 +74,11 @@
 
 #### Conversation Persistence
 
-* [ ] Transcript stored as `CommunicationContent`
+* [x] Transcript stored as `CommunicationContent`
 
   * role = USER
   * channel = VOICE
-* [ ] Voice turns appended in chronological order
+* [x] Voice turns appended in chronological order
 * [ ] No audio blobs stored (text only)
 
 #### AI Execution
