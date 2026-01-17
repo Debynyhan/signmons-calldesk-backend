@@ -36,6 +36,7 @@ describe("ConversationsService", () => {
       tenantId: "tenant-1",
       callSid: "CA123",
       requestId: "req-1",
+      callerPhone: "2167448929",
     });
 
     expect(prisma.conversation.create).toHaveBeenCalledWith(
@@ -44,6 +45,7 @@ describe("ConversationsService", () => {
           twilioCallSid: "CA123",
           collectedData: expect.objectContaining({
             requestId: "req-1",
+            callerPhone: "+12167448929",
             voiceConsent: expect.objectContaining({
               granted: true,
               method: "implied",

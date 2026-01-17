@@ -60,7 +60,7 @@
 
 #### Caller Identity
 
-* [ ] Caller phone captured from `From`
+* [x] Caller phone captured from `From`
 * [ ] Phone normalized to E.164
 * [ ] Customer created or reused by phone
 * [ ] Caller phone stored on Conversation metadata

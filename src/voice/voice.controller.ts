@@ -41,10 +41,12 @@ export class VoiceController {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
     const requestId = this.getRequestId(req);
+    const callerPhone = this.extractFromNumber(req);
     await this.conversationsService.ensureVoiceConsentConversation({
       tenantId: tenant.id,
       callSid,
       requestId,
+      callerPhone,
     });
     return this.replyWithTwiml(
       res,
@@ -200,6 +202,11 @@ export class VoiceController {
 
   private extractCallSid(req: Request): string | null {
     const value = req.body?.CallSid ?? req.body?.callSid;
+    return typeof value === "string" ? value : null;
+  }
+
+  private extractFromNumber(req: Request): string | null {
+    const value = req.body?.From ?? req.body?.from;
     return typeof value === "string" ? value : null;
   }
 

@@ -157,7 +157,7 @@ describe("VoiceController", () => {
     const response = await request(app.getHttpServer())
       .post("/api/voice/inbound")
       .set("x-request-id", "req-123")
-      .send({ To: "12167448929", CallSid: "CA123" })
+      .send({ To: "12167448929", CallSid: "CA123", From: "2167448929" })
       .expect(200);
 
     expect(resolveTenantByPhone).toHaveBeenCalledWith("12167448929");
@@ -165,6 +165,7 @@ describe("VoiceController", () => {
       tenantId: "tenant-1",
       callSid: "CA123",
       requestId: "req-123",
+      callerPhone: "2167448929",
     });
     expect(response.text).toContain("This call may be transcribed");
     expect(response.text).toContain("<Gather");

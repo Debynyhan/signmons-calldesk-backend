@@ -70,6 +70,7 @@ export class ConversationsService {
     tenantId: string;
     callSid: string;
     requestId?: string;
+    callerPhone?: string;
   }) {
     const existing = await this.prisma.conversation.findFirst({
       where: {
@@ -85,10 +86,16 @@ export class ConversationsService {
         | undefined;
       const needsConsent = !current?.voiceConsent?.granted;
       const needsRequestId = !current?.requestId && params.requestId;
-      if (needsConsent || needsRequestId) {
+      const normalizedCallerPhone = params.callerPhone
+        ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
+        : "";
+      const needsCallerPhone =
+        normalizedCallerPhone && !current?.callerPhone;
+      if (needsConsent || needsRequestId || needsCallerPhone) {
         const merged = {
           ...(current ?? {}),
           ...(needsRequestId ? { requestId: params.requestId } : {}),
+          ...(needsCallerPhone ? { callerPhone: normalizedCallerPhone } : {}),
           ...(needsConsent
             ? {
                 voiceConsent: {
@@ -108,12 +115,15 @@ export class ConversationsService {
       return existing;
     }
 
+    const normalizedCallerPhone = params.callerPhone
+      ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
+      : undefined;
     const placeholderPhone = `unknown-voice-${params.callSid}`;
     const customer = await this.prisma.customer.create({
       data: {
         id: randomUUID(),
         tenantId: params.tenantId,
-        phone: placeholderPhone,
+        phone: normalizedCallerPhone ?? placeholderPhone,
         fullName: "Unknown Caller",
         aiMetadata: {
           source: "VOICE",
@@ -135,6 +145,7 @@ export class ConversationsService {
         collectedData: {
           source: "VOICE",
           requestId: params.requestId,
+          callerPhone: normalizedCallerPhone,
           voiceConsent: {
             granted: true,
             method: "implied",
