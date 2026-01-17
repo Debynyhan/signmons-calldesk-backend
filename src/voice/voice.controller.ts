@@ -12,6 +12,7 @@ import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { ConversationsService } from "../conversations/conversations.service";
+import { CallLogService } from "../logging/call-log.service";
 
 @Controller("api/voice")
 export class VoiceController {
@@ -21,6 +22,7 @@ export class VoiceController {
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
     private readonly conversationsService: ConversationsService,
+    private readonly callLogService: CallLogService,
   ) {}
 
   @Post("inbound")
@@ -92,12 +94,21 @@ export class VoiceController {
       return this.replyWithTwiml(res, this.buildRepromptTwiml());
     }
     const confidence = this.normalizeConfidence(this.extractConfidence(req));
-    await this.conversationsService.updateVoiceTranscript({
+    const updatedConversation = await this.conversationsService.updateVoiceTranscript({
       tenantId: tenant.id,
       callSid,
       transcript: normalizedSpeech,
       confidence,
     });
+    if (updatedConversation) {
+      await this.callLogService.createVoiceTranscriptLog({
+        tenantId: tenant.id,
+        conversationId: updatedConversation.id,
+        callSid,
+        transcript: normalizedSpeech,
+        confidence,
+      });
+    }
     return this.replyWithTwiml(
       res,
       this.buildTwiml(

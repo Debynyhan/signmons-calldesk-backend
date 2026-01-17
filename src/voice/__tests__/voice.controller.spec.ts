@@ -7,6 +7,7 @@ import { envValidationSchema } from "../../config/env.validation";
 import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
 import { PrismaTenantsService } from "../../tenants/tenants.service";
 import { ConversationsService } from "../../conversations/conversations.service";
+import { CallLogService } from "../../logging/call-log.service";
 
 const validateRequestMock = jest.fn();
 
@@ -55,6 +56,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog: jest.fn() })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -98,6 +101,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog: jest.fn() })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -152,6 +157,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog: jest.fn() })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -211,6 +218,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog: jest.fn() })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -265,6 +274,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid,
         updateVoiceTranscript: jest.fn(),
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog: jest.fn() })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -299,7 +310,10 @@ describe("VoiceController", () => {
       id: "conversation-1",
       collectedData: { voiceConsent: { granted: true } },
     });
-    const updateVoiceTranscript = jest.fn();
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -323,6 +337,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -355,7 +371,10 @@ describe("VoiceController", () => {
       id: "conversation-1",
       collectedData: { voiceConsent: { granted: true } },
     });
-    const updateVoiceTranscript = jest.fn();
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -379,6 +398,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -396,6 +417,13 @@ describe("VoiceController", () => {
 
     expect(updateVoiceTranscript).toHaveBeenCalledWith({
       tenantId: "tenant-1",
+      callSid: "CA123",
+      transcript: "no heat",
+      confidence: 0.78,
+    });
+    expect(createVoiceTranscriptLog).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      conversationId: "conversation-1",
       callSid: "CA123",
       transcript: "no heat",
       confidence: 0.78,
@@ -420,7 +448,10 @@ describe("VoiceController", () => {
       id: "conversation-1",
       collectedData: { voiceConsent: { granted: true } },
     });
-    const updateVoiceTranscript = jest.fn();
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -444,6 +475,8 @@ describe("VoiceController", () => {
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
       })
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog })
       .compile();
 
     const app = moduleRef.createNestApplication();
@@ -461,12 +494,19 @@ describe("VoiceController", () => {
 
     expect(updateVoiceTranscript).toHaveBeenCalledWith(
       expect.objectContaining({
+        tenantId: "tenant-1",
+        callSid: "CA123",
+        transcript: "no heat",
+        confidence: undefined,
+      }),
+    );
+    expect(createVoiceTranscriptLog).toHaveBeenCalledWith({
       tenantId: "tenant-1",
+      conversationId: "conversation-1",
       callSid: "CA123",
       transcript: "no heat",
       confidence: undefined,
-      }),
-    );
+    });
 
     await app.close();
   });

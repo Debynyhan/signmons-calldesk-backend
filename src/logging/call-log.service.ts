@@ -128,18 +128,58 @@ export class CallLogService {
     });
   }
 
+  async createVoiceTranscriptLog(input: {
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    transcript: string;
+    confidence?: number;
+  }): Promise<void> {
+    const sanitizedTranscript = this.obfuscatePii(
+      this.sanitizationService.sanitizeText(input.transcript),
+    );
+    if (!sanitizedTranscript) {
+      return;
+    }
+
+    const metadataPayload: Prisma.InputJsonValue = {
+      type: "voice_transcript",
+      callSid: input.callSid,
+      transcript: sanitizedTranscript,
+      confidence:
+        typeof input.confidence === "number" ? input.confidence : null,
+    };
+
+    await this.createCommunicationEvent({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      direction: "INBOUND",
+      message: sanitizedTranscript,
+      payload: metadataPayload,
+      channel: CommunicationChannel.VOICE,
+      provider: CommunicationProvider.TWILIO,
+      externalId: input.callSid,
+    });
+  }
+
   private async createCommunicationEvent({
     tenantId,
     conversationId,
     direction,
     message,
     payload,
+    channel = CommunicationChannel.WEBCHAT,
+    provider = CommunicationProvider.OTHER,
+    externalId,
   }: {
     tenantId: string;
     conversationId?: string;
     direction: "INBOUND" | "OUTBOUND";
     message: string;
     payload: Prisma.InputJsonValue;
+    channel?: CommunicationChannel;
+    provider?: CommunicationProvider;
+    externalId?: string;
   }) {
     const eventId = randomUUID();
     const contentId = randomUUID();
@@ -161,9 +201,10 @@ export class CallLogService {
         tenantId,
         conversationId: conversationId ?? undefined,
         conversationTenantId: conversationId ? tenantId : undefined,
-        channel: CommunicationChannel.WEBCHAT,
+        channel,
         direction: direction as CommunicationDirection,
-        provider: CommunicationProvider.OTHER,
+        provider,
+        externalId: externalId ?? undefined,
         status:
           direction === "INBOUND"
             ? CommunicationStatus.RECEIVED
