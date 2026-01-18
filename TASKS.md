@@ -101,6 +101,198 @@
 * [x] Fallback logged when preview model fails
 * [x] Voice interaction capped (max turns / timeout)
 
+### T-02.6 Voice-Grade Data Integrity (P0)
+
+**Objective**
+Deliver a first-class, award-quality AI voice experience that captures accurate customer identity and service details, is interruption-safe, and never persists unconfirmed or low-confidence data. This section defines non-negotiable intake guarantees for Signmons Voice.
+
+**Data Contract**
+
+- [ ] `Conversation.collectedData.candidateName` / `candidateAddress` are untrusted (captured from speech, never persisted to canonical records)
+- [ ] `Conversation.collectedData.confirmedName` / `confirmedAddress` are trusted (persisted only after explicit confirmation)
+- [ ] `Conversation.collectedData.fieldConfirmations` is required and must include:
+  - [ ] `field` (e.g., `name`, `address`)
+  - [ ] `confirmedAt` (ISO timestamp)
+  - [ ] `sourceEventId` (CommunicationEvent ID that triggered confirmation)
+- [ ] `CommunicationContent.payload` must always retain `transcript` + `confidence` as the audit trail
+
+#### T-V01 — Canonical Name Capture & Confirmation (P0)
+
+**Description**
+Capture customer name via voice in a way that matches professional call center standards.
+
+**Requirements**
+
+- [ ] Extract candidate name from speech using AI
+- [ ] Normalize (capitalize, strip filler words)
+- [ ] Do not persist immediately
+- [ ] Read back explicitly for confirmation:
+  - [ ] “I heard Dean Banks. Is that correct?”
+- [ ] Accept only explicit confirmation (yes / correct)
+- [ ] On rejection:
+  - [ ] Clear name field
+  - [ ] Re-ask for name
+- [ ] Lock name after confirmation
+
+**Acceptance Criteria**
+
+- [ ] `confirmedName` is written only after explicit yes/correct confirmation
+- [ ] `confirmedName` is immutable once set
+- [ ] `fieldConfirmations` entry exists for `name` with `confirmedAt` + `sourceEventId`
+- [ ] Test coverage includes rejection → re-ask → success path
+
+#### T-V02 — Address Capture with Verification Loop (P0)
+
+**Description**
+Ensure service address accuracy under noisy, partial, or ambiguous voice input.
+
+**Requirements**
+
+- [ ] Address capture is multi-phase:
+  - [ ] Raw speech capture
+  - [ ] AI extraction
+  - [ ] Normalization / parsing
+  - [ ] Read-back confirmation
+- [ ] Never guess or autocomplete street names
+- [ ] Detect low-confidence or partial addresses
+- [ ] Structured confirmation prompt:
+  - [ ] “I have 20991 Reach Your A… That seems incomplete. Can you repeat the full street name?”
+- [ ] Block job creation until address is confirmed
+
+**Rules**
+
+- [ ] `VOICE_ADDRESS_MIN_CONFIDENCE` required (env-configurable, fail closed below threshold)
+- [ ] If confidence < `VOICE_ADDRESS_MIN_CONFIDENCE` → clarification loop
+- [ ] If repeated ambiguity (>= 2 attempts) → safe escalation (human or SMS follow-up)
+- [ ] Address persistence only after explicit confirmation
+- [ ] Google Places may validate/normalize only after explicit confirmation (no guessing)
+
+**Acceptance Criteria**
+
+- [ ] `confirmedAddress` is written only after explicit confirmation
+- [ ] `fieldConfirmations` entry exists for `address` with `confirmedAt` + `sourceEventId`
+- [ ] Places validation runs only after confirmation
+- [ ] FSM blocks downstream actions without confirmed address
+
+#### T-V03 — Interruption-Safe Voice Turn Handling (P0)
+
+**Description**
+Prevent double-capture, corrupted state, or skipped confirmations during user interruptions.
+
+**Requirements**
+
+- [ ] Each prompt defines an explicit `listening_window`
+- [ ] On user barge-in:
+  - [ ] Stop audio playback
+  - [ ] Route speech only to the expected field
+- [ ] Ignore irrelevant speech during confirmation prompts
+- [ ] Enforce idempotency per voice turn
+
+**Acceptance Criteria**
+
+- [ ] Same utterance never processed twice
+- [ ] Interruptions do not bypass confirmation steps
+- [ ] FSM state remains deterministic across interruptions
+
+#### T-V04 — Voice Interaction Policy Layer (P0)
+
+**Description**
+Introduce a voice-specific policy layer that wraps the FSM without replacing it.
+
+**Responsibilities**
+
+- [ ] Enforce confirmation requirements
+- [ ] Manage turn limits and duration limits
+- [ ] Handle polite clarification and recovery
+- [ ] Determine safe hang-up conditions
+
+**Notes**
+
+* FSM remains the system of record
+* Voice layer acts as a constraint and guardrail, not a decision engine
+
+#### T-V05 — Neural Voice Output via Google TTS (P0)
+
+**Description**
+Replace robotic speech with high-quality neural voice output.
+
+**Requirements**
+
+- [ ] Use Google Cloud Neural2 Text-to-Speech
+- [ ] Generate audio via SSML:
+  - [ ] Natural pauses (`<break>`)
+  - [ ] Emphasis for names, numbers, addresses
+- [ ] Deliver audio via Twilio `<Play>` (not `<Say>`)
+- [ ] Cache repeated prompts where applicable
+- [ ] Implement adapter + config + feature flag
+- [ ] Enable Neural2 voices only when `VOICE_TTS_PROVIDER=google` and `VOICE_ENABLED=true`
+- [ ] Twilio `<Say>` remains the dev fallback
+
+**Acceptance Criteria**
+
+- [ ] No `<Say>` in production voice paths when Neural2 is enabled
+- [ ] Voice output is natural and brand-consistent
+- [ ] p95 voice response latency target documented (placeholder, measure in MVP)
+
+#### T-V06 — Fail-Closed Intake Guarantees (P0)
+
+**Description**
+Ensure the system fails safely rather than guessing.
+
+**Rules**
+
+- [ ] No confirmed name → no job creation
+- [ ] No confirmed address → no job creation
+- [ ] Conflicting data → clarification loop
+- [ ] AI uncertainty → ask again, never assume
+
+**Acceptance Criteria**
+
+- [ ] No canonical records are created without confirmed name + address
+- [ ] Tests prove fail-closed behavior
+
+#### T-V07 — Voice E2E Integrity Tests (P0)
+
+**Description**
+Protect voice flows against regression and hallucination.
+
+**Test Scenarios**
+
+- [ ] Misheard name → correction → confirmation
+- [ ] Partial address → clarification → success
+- [ ] User interrupts confirmation read-back
+- [ ] Silence or no response
+- [ ] AI hallucinated data (must be rejected)
+
+**Acceptance Criteria**
+
+- [ ] All tests pass in CI
+- [ ] No unconfirmed data reaches persistence layer
+
+#### T-V08 — Voice Cost & Quality Telemetry (P1)
+
+**Description**
+Track voice performance and costs during MVP.
+
+**Metrics**
+
+- [ ] STT duration (seconds)
+- [ ] TTS characters generated
+- [ ] Call duration
+- [ ] Average turns per call
+- [ ] Clarification count per field
+
+**Acceptance Criteria**
+
+- [ ] Metrics available per tenant and per call
+- [ ] Enables cost tuning and UX improvement
+
+**Design Principle (Non-Negotiable)**
+
+Voice is a hostile input channel.
+No critical data is trusted without explicit user confirmation.
+FSM remains the source of truth.
+
 ---
 
 ### T-03 Job Lifecycle & Data Integrity (P0)
@@ -213,8 +405,8 @@
 
 ### Sprint 2 — AI Reliability & Job Integrity
 
-**Tasks:** T-02, T-02.5, T-03
-**Exit:** AI safely triages via text or voice
+**Tasks:** T-02, T-02.5, T-02.6, T-03
+**Exit:** AI safely triages via text or voice with voice-grade data integrity guarantees
 
 ### Sprint 3 — Revenue Lock-In
 
