@@ -92,6 +92,32 @@ export class VoiceController {
     if (!consentGranted) {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
+
+    if (!conversation) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
+
+    const now = new Date();
+    const turnState = await this.conversationsService.incrementVoiceTurn({
+      tenantId: tenant.id,
+      conversationId: conversation.id,
+      now,
+    });
+
+    if (!turnState) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
+
+    const maxTurns = Math.max(1, this.config.voiceMaxTurns ?? 6);
+    const maxDurationSec = Math.max(30, this.config.voiceMaxDurationSec ?? 180);
+    const startedAt = new Date(turnState.voiceStartedAt);
+    const elapsedSec = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+    if (turnState.voiceTurnCount > maxTurns || elapsedSec > maxDurationSec) {
+      return this.replyWithTwiml(
+        res,
+        this.buildTwiml("Thanks for calling. We'll follow up shortly."),
+      );
+    }
     const speechResult = this.extractSpeechResult(req);
     const normalizedSpeech = speechResult
       ? speechResult.replace(/\s+/g, " ").trim()

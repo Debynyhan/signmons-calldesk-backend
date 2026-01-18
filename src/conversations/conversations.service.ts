@@ -212,6 +212,56 @@ export class ConversationsService {
     });
   }
 
+  async incrementVoiceTurn(params: {
+    tenantId: string;
+    conversationId: string;
+    now?: Date;
+  }): Promise<{
+    conversation: { id: string; collectedData: Prisma.JsonValue };
+    voiceTurnCount: number;
+    voiceStartedAt: string;
+  } | null> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const previousCount =
+      typeof current.voiceTurnCount === "number" ? current.voiceTurnCount : 0;
+    const now = params.now ?? new Date();
+    const startedAt =
+      typeof current.voiceStartedAt === "string"
+        ? current.voiceStartedAt
+        : now.toISOString();
+    const nextCount = previousCount + 1;
+
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceTurnCount: nextCount,
+      voiceStartedAt: startedAt,
+    };
+
+    const updated = await this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+
+    return {
+      conversation: updated,
+      voiceTurnCount: nextCount,
+      voiceStartedAt: startedAt,
+    };
+  }
+
   private async resolveVoiceCustomer(params: {
     tenantId: string;
     callSid: string;

@@ -99,7 +99,7 @@
 * [x] AI refusal detected on voice path
 * [x] Voice refusal logged with tenantId, conversationId, model, reason
 * [x] Fallback logged when preview model fails
-* [ ] Voice interaction capped (max turns / timeout)
+* [x] Voice interaction capped (max turns / timeout)
 
 ---
 
