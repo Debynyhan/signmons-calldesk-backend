@@ -138,12 +138,12 @@ export class CallLogService {
     transcript: string;
     confidence?: number;
     occurredAt?: Date;
-  }): Promise<void> {
+  }): Promise<string | null> {
     const sanitizedTranscript = this.obfuscatePii(
       this.sanitizationService.sanitizeText(input.transcript),
     );
     if (!sanitizedTranscript) {
-      return;
+      return null;
     }
 
     const metadataPayload: Prisma.InputJsonValue = {
@@ -154,7 +154,7 @@ export class CallLogService {
         typeof input.confidence === "number" ? input.confidence : null,
     };
 
-    await this.createCommunicationEvent({
+    return this.createCommunicationEvent({
       tenantId: input.tenantId,
       conversationId: input.conversationId,
       direction: "INBOUND",
@@ -219,7 +219,7 @@ export class CallLogService {
     provider?: CommunicationProvider;
     externalId?: string;
     occurredAt?: Date;
-  }) {
+  }): Promise<string> {
     const eventId = randomUUID();
     const contentId = randomUUID();
     const normalizedPayload =
@@ -258,6 +258,7 @@ export class CallLogService {
         },
       },
     });
+    return eventId;
   }
 
   private async getLastSessionClosedAt(

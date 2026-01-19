@@ -17,6 +17,7 @@ import { CallLogService } from "../logging/call-log.service";
 import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
 import { setRequestContextData } from "../common/context/request-context";
+import { SanitizationService } from "../sanitization/sanitization.service";
 
 @Controller("api/voice")
 export class VoiceController {
@@ -29,6 +30,7 @@ export class VoiceController {
     private readonly callLogService: CallLogService,
     private readonly aiService: AiService,
     private readonly loggingService: LoggingService,
+    private readonly sanitizationService: SanitizationService,
   ) {}
 
   @Post("inbound")
@@ -132,9 +134,10 @@ export class VoiceController {
       transcript: normalizedSpeech,
       confidence,
     });
+    let transcriptEventId: string | null = null;
     if (updatedConversation) {
       // Text only, no audio blobs.
-      await this.callLogService.createVoiceTranscriptLog({
+      transcriptEventId = await this.callLogService.createVoiceTranscriptLog({
         tenantId: tenant.id,
         conversationId: updatedConversation.id,
         callSid,
@@ -147,6 +150,9 @@ export class VoiceController {
     if (!conversationId) {
       return this.replyWithTwiml(res, this.unroutableTwiml());
     }
+    if (!transcriptEventId) {
+      return this.replyWithTwiml(res, this.unroutableTwiml());
+    }
 
     const requestId = this.getRequestId(req);
     setRequestContextData({
@@ -156,6 +162,166 @@ export class VoiceController {
       conversationId,
       channel: "VOICE",
     });
+
+    const nameState = this.conversationsService.getVoiceNameState(
+      updatedConversation?.collectedData ?? conversation.collectedData,
+    );
+    const currentEventId = transcriptEventId;
+    if (nameState.status !== "CONFIRMED") {
+      const duplicateMissing =
+        !nameState.candidate.value &&
+        nameState.candidate.sourceEventId === currentEventId;
+      if (duplicateMissing) {
+        return this.replyWithTwiml(res, this.buildAskNameTwiml());
+      }
+      const candidateForEvent =
+        Boolean(nameState.candidate.value) &&
+        nameState.candidate.sourceEventId === currentEventId;
+      if (candidateForEvent && nameState.candidate.value) {
+        return this.replyWithTwiml(
+          res,
+          this.buildNameConfirmationTwiml(nameState.candidate.value),
+        );
+      }
+      if (nameState.candidate.value) {
+        const confirmation = this.parseConfirmation(normalizedSpeech);
+        if (confirmation === "confirm") {
+          if (!nameState.locked) {
+            const confirmedAt = new Date().toISOString();
+            const nextNameState: typeof nameState = {
+              ...nameState,
+              confirmed: {
+                value: nameState.candidate.value,
+                sourceEventId: currentEventId,
+                confirmedAt,
+              },
+              status: "CONFIRMED",
+              locked: true,
+            };
+            await this.conversationsService.updateVoiceNameState({
+              tenantId: tenant.id,
+              conversationId,
+              nameState: nextNameState,
+              confirmation: {
+                field: "name",
+                value: nameState.candidate.value,
+                confirmedAt,
+                sourceEventId: currentEventId ?? "",
+                channel: "VOICE",
+              },
+            });
+            this.loggingService.log(
+              {
+                event: "voice.field_confirmed",
+                field: "name",
+                tenantId: tenant.id,
+                conversationId,
+                callSid,
+                sourceEventId: currentEventId,
+              },
+              VoiceController.name,
+            );
+          }
+          return this.replyWithTwiml(
+            res,
+            this.buildSayGatherTwiml("Thanks. Please say your full address."),
+          );
+        }
+        if (confirmation === "reject") {
+          const nextAttempt = nameState.attemptCount + 1;
+          const shouldFailClosed = nextAttempt >= 3;
+          const nextNameState: typeof nameState = {
+            ...nameState,
+            candidate: {
+              value: null,
+              sourceEventId: currentEventId,
+              createdAt: null,
+            },
+            status: "MISSING",
+            attemptCount: nextAttempt,
+          };
+          await this.conversationsService.updateVoiceNameState({
+            tenantId: tenant.id,
+            conversationId,
+            nameState: nextNameState,
+          });
+          if (shouldFailClosed) {
+            return this.replyWithTwiml(
+              res,
+              this.buildTwiml(
+                "Thanks. We'll follow up by text to confirm your details.",
+              ),
+            );
+          }
+          return this.replyWithTwiml(res, this.buildAskNameTwiml());
+        }
+        return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
+      }
+
+      const extracted = await this.aiService.extractNameCandidate(
+        tenant.id,
+        normalizedSpeech,
+      );
+      const candidateName = this.normalizeNameCandidate(extracted ?? "");
+      if (!candidateName) {
+        const nextAttempt = nameState.attemptCount + 1;
+        const shouldFailClosed = nextAttempt >= 3;
+        const nextNameState: typeof nameState = {
+          ...nameState,
+          candidate: {
+            value: null,
+            sourceEventId: currentEventId,
+            createdAt: null,
+          },
+          status: "MISSING",
+          attemptCount: nextAttempt,
+        };
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: nextNameState,
+        });
+        if (shouldFailClosed) {
+          return this.replyWithTwiml(
+            res,
+            this.buildTwiml(
+              "Thanks. We'll follow up by text to confirm your details.",
+            ),
+          );
+        }
+        return this.replyWithTwiml(res, this.buildAskNameTwiml());
+      }
+
+      const nextNameState: typeof nameState = {
+        ...nameState,
+        candidate: {
+          value: candidateName,
+          sourceEventId: currentEventId,
+          createdAt: new Date().toISOString(),
+        },
+        status: "CANDIDATE",
+      };
+      await this.conversationsService.updateVoiceNameState({
+        tenantId: tenant.id,
+        conversationId,
+        nameState: nextNameState,
+      });
+      return this.replyWithTwiml(
+        res,
+        this.buildNameConfirmationTwiml(candidateName),
+      );
+    }
+
+    if (
+      nameState.locked &&
+      nameState.confirmed.sourceEventId &&
+      nameState.confirmed.sourceEventId === currentEventId
+    ) {
+      return this.replyWithTwiml(
+        res,
+        this.buildSayGatherTwiml("Thanks. Please say your full address."),
+      );
+    }
 
     try {
       const aiResult = await this.aiService.triage(
@@ -303,6 +469,19 @@ export class VoiceController {
     )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
   }
 
+  private buildNameConfirmationTwiml(candidate: string): string {
+    const message = `I heard ${candidate}. Is that correct? Please say 'yes' or 'no'.`;
+    return this.buildSayGatherTwiml(message);
+  }
+
+  private buildAskNameTwiml(): string {
+    return this.buildSayGatherTwiml("Sorry about that. Please say your full name.");
+  }
+
+  private buildYesNoRepromptTwiml(): string {
+    return this.buildSayGatherTwiml("Please say 'yes' or 'no'.");
+  }
+
   private buildWebhookUrl(path: string): string {
     const baseUrl = this.config.twilioWebhookBaseUrl?.replace(/\/$/, "");
     return baseUrl ? `${baseUrl}${path}` : path;
@@ -327,6 +506,93 @@ export class VoiceController {
 
   private shouldGatherMore(reply: string): boolean {
     return reply.trim().endsWith("?");
+  }
+
+  private parseConfirmation(
+    transcript: string,
+  ): "confirm" | "reject" | "unknown" {
+    const normalized = this.sanitizationService
+      .normalizeWhitespace(transcript)
+      .toLowerCase()
+      .replace(/[^\w\s']/g, "");
+    const confirm = new Set([
+      "yes",
+      "yeah",
+      "correct",
+      "thats right",
+      "that's right",
+      "right",
+      "affirmative",
+    ]);
+    const reject = new Set([
+      "no",
+      "nope",
+      "incorrect",
+      "not right",
+      "negative",
+    ]);
+    if (confirm.has(normalized)) {
+      return "confirm";
+    }
+    if (reject.has(normalized)) {
+      return "reject";
+    }
+    return "unknown";
+  }
+
+  private normalizeNameCandidate(value: string): string {
+    const cleaned = this.sanitizationService
+      .sanitizeText(value)
+      .toLowerCase()
+      .replace(/[^a-z\s'-.]/g, " ");
+    const stripped = this.stripNameFillers(cleaned);
+    const normalized = this.sanitizationService.normalizeWhitespace(stripped);
+    if (!normalized) {
+      return "";
+    }
+    return this.toTitleCase(normalized);
+  }
+
+  private stripNameFillers(value: string): string {
+    const fillers = [
+      "my name is",
+      "this is",
+      "i am",
+      "im",
+      "i'm",
+      "name is",
+      "its",
+      "it's",
+    ];
+    let result = value;
+    for (const filler of fillers) {
+      if (result.startsWith(filler + " ")) {
+        result = result.slice(filler.length).trim();
+        break;
+      }
+    }
+    return result;
+  }
+
+  private toTitleCase(value: string): string {
+    return value
+      .split(" ")
+      .map((part) => {
+        const [head, ...rest] = part.split(/([-'])/);
+        const rebuilt = [head, ...rest]
+          .map((segment) => {
+            if (segment === "-" || segment === "'") {
+              return segment;
+            }
+            if (!segment) {
+              return "";
+            }
+            return `${segment[0].toUpperCase()}${segment.slice(1)}`;
+          })
+          .join("");
+        return rebuilt;
+      })
+      .join(" ");
   }
 
   private extractToNumber(req: Request): string | null {

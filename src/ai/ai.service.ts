@@ -199,12 +199,74 @@ export class AiService {
     }
   }
 
+  async extractNameCandidate(
+    tenantId: string,
+    transcript: string,
+  ): Promise<string | null> {
+    const safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
+    const safeTranscript = this.sanitizationService.sanitizeText(transcript);
+    if (!safeTenantId || !safeTranscript) {
+      return null;
+    }
+
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content:
+          "Extract the caller's name from the transcript. Return JSON only: {\"name\": string|null}. If no name is present, return {\"name\": null}.",
+      },
+      { role: "user", content: safeTranscript },
+    ];
+
+    try {
+      const response = await this.aiProviderService.createCompletion({
+        messages,
+        toolChoice: "none",
+        maxTokens: Math.min(this.config.aiMaxTokens ?? 800, 60),
+      });
+      const content = response.choices[0]?.message?.content ?? "";
+      const parsed = this.parseNameJson(content);
+      if (!parsed) {
+        return null;
+      }
+      const normalized = this.sanitizationService.sanitizeText(parsed);
+      return normalized ? normalized : null;
+    } catch (error) {
+      this.loggingService.warn(
+        {
+          event: "ai.name_extraction_failed",
+          tenantId: safeTenantId,
+        },
+        AiService.name,
+      );
+      return null;
+    }
+  }
+
   private isFunctionToolCall(
     toolCall: OpenAI.ChatCompletionMessageToolCall,
   ): toolCall is OpenAI.ChatCompletionMessageToolCall & {
     function: { name: string; arguments?: string | null };
   } {
     return toolCall.type === "function" && "function" in toolCall;
+  }
+
+  private parseNameJson(value: string): string | null {
+    if (!value) {
+      return null;
+    }
+    const start = value.indexOf("{");
+    const end = value.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) {
+      return null;
+    }
+    const slice = value.slice(start, end + 1);
+    try {
+      const parsed = JSON.parse(slice) as { name?: unknown };
+      return typeof parsed.name === "string" ? parsed.name : null;
+    } catch {
+      return null;
+    }
   }
 
   private async handleToolCall(

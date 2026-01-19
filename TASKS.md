@@ -123,23 +123,23 @@ Capture customer name via voice in a way that matches professional call center s
 
 **Requirements**
 
-- [ ] Extract candidate name from speech using AI
-- [ ] Normalize (capitalize, strip filler words)
-- [ ] Do not persist immediately
-- [ ] Read back explicitly for confirmation:
-  - [ ] “I heard Dean Banks. Is that correct?”
-- [ ] Accept only explicit confirmation (yes / correct)
-- [ ] On rejection:
-  - [ ] Clear name field
-  - [ ] Re-ask for name
-- [ ] Lock name after confirmation
+- [x] Extract candidate name from speech using AI
+- [x] Normalize (capitalize, strip filler words)
+- [x] Do not persist immediately
+- [x] Read back explicitly for confirmation:
+  - [x] “I heard Dean Banks. Is that correct?”
+- [x] Accept only explicit confirmation (yes / correct)
+- [x] On rejection:
+  - [x] Clear name field
+  - [x] Re-ask for name
+- [x] Lock name after confirmation
 
 **Acceptance Criteria**
 
-- [ ] `confirmedName` is written only after explicit yes/correct confirmation
-- [ ] `confirmedName` is immutable once set
-- [ ] `fieldConfirmations` entry exists for `name` with `confirmedAt` + `sourceEventId`
-- [ ] Test coverage includes rejection → re-ask → success path
+- [x] `confirmedName` is written only after explicit yes/correct confirmation
+- [x] `confirmedName` is immutable once set
+- [x] `fieldConfirmations` entry exists for `name` with `confirmedAt` + `sourceEventId`
+- [x] Test coverage includes rejection → re-ask → success path
 
 #### T-V02 — Address Capture with Verification Loop (P0)
 
