@@ -3,7 +3,12 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import type { Prisma } from "@prisma/client";
-import { JobStatus, JobUrgency, PreferredWindowLabel } from "@prisma/client";
+import {
+  JobStatus,
+  JobUrgency,
+  PaymentStatus,
+  PreferredWindowLabel,
+} from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
@@ -119,6 +124,64 @@ export class JobsService implements IJobRepository {
     return jobs.map((job) => this.mapJob(job));
   }
 
+  async acceptJobAfterPayment(request: {
+    tenantId: string;
+    jobId: string;
+    paymentIntentId?: string;
+  }): Promise<JobRecord> {
+    const tenantId = this.sanitizeTenantId(request.tenantId);
+    const jobId = this.sanitizeJobId(request.jobId);
+    const job = await this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        customer: true,
+        propertyAddress: true,
+        serviceCategory: true,
+      },
+    });
+
+    if (!job || job.tenantId !== tenantId) {
+      throw new BadRequestException("Job not found.");
+    }
+
+    if (job.status === JobStatus.ACCEPTED) {
+      return this.mapJob(job);
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        tenantId,
+        jobId,
+        ...(request.paymentIntentId
+          ? { stripePaymentIntentId: request.paymentIntentId }
+          : {}),
+      },
+    });
+
+    if (!payment) {
+      throw new BadRequestException("Payment not found for job.");
+    }
+
+    if (payment.status !== PaymentStatus.SUCCEEDED) {
+      throw new BadRequestException("Payment has not succeeded.");
+    }
+
+    const updated = await this.prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status: JobStatus.ACCEPTED,
+        updatedAt: new Date(),
+      },
+      include: {
+        customer: true,
+        propertyAddress: true,
+        serviceCategory: true,
+      },
+    });
+
+    return this.mapJob(updated);
+  }
+
   private parseAndNormalizePayload(rawArgs?: string): {
     payload: CreateJobPayload;
     audit: {
@@ -192,6 +255,14 @@ export class JobsService implements IJobRepository {
     const sanitized = this.sanitizationService.sanitizeIdentifier(tenantId);
     if (!sanitized) {
       throw new BadRequestException("Invalid tenant identifier.");
+    }
+    return sanitized;
+  }
+
+  private sanitizeJobId(jobId: string): string {
+    const sanitized = this.sanitizationService.sanitizeIdentifier(jobId);
+    if (!sanitized) {
+      throw new BadRequestException("Invalid job identifier.");
     }
     return sanitized;
   }
@@ -364,27 +435,37 @@ export class JobsService implements IJobRepository {
     if (typeof value !== "string") return "" as never;
     const normalized = this.sanitizationService
       .normalizeWhitespace(value)
-      .toUpperCase()
-      .replace(/[^A-Z\s]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
-    const mapped = {
-      HEAT: "HEATING",
-      HEATER: "HEATING",
-      FURNACE: "HEATING",
-      HVAC: "HEATING",
-      AC: "COOLING",
-      "AIR CONDITIONING": "COOLING",
-      COOL: "COOLING",
-      ELECTRIC: "ELECTRICAL",
-      ELECTRICAL: "ELECTRICAL",
-      PLUMB: "PLUMBING",
-      PLUMBING: "PLUMBING",
-      DRAIN: "DRAINS",
-      DRAINS: "DRAINS",
-    } as Record<string, CreateJobPayload["issueCategory"]>;
-    return (
-      mapped[normalized] ?? (normalized as CreateJobPayload["issueCategory"])
-    );
+    const mapped: Record<string, CreateJobPayload["issueCategory"]> = {
+      heating: "HEATING",
+      heat: "HEATING",
+      "no heat": "HEATING",
+      "heat not working": "HEATING",
+      heater: "HEATING",
+      furnace: "HEATING",
+      "furnace down": "HEATING",
+      hvac: "HEATING",
+      cooling: "COOLING",
+      cool: "COOLING",
+      ac: "COOLING",
+      "air conditioning": "COOLING",
+      "no ac": "COOLING",
+      "ac not cooling": "COOLING",
+      plumbing: "PLUMBING",
+      plumb: "PLUMBING",
+      leak: "PLUMBING",
+      "pipe leak": "PLUMBING",
+      electrical: "ELECTRICAL",
+      electric: "ELECTRICAL",
+      wiring: "ELECTRICAL",
+      general: "GENERAL",
+      "general service": "GENERAL",
+      "maintenance": "GENERAL",
+    };
+    return mapped[normalized] ?? ("" as never);
   }
 
   private normalizeUrgency(value: unknown): CreateJobPayload["urgency"] {

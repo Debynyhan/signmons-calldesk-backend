@@ -13,6 +13,7 @@ import { SanitizationModule } from "./sanitization/sanitization.module";
 import { ToolRegistryModule } from "./ai/tools/tool-registry.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health/health.controller";
+import { VoiceModule } from "./voice/voice.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { HealthController } from "./health/health.controller";
       },
     ]),
     AiModule,
+    VoiceModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

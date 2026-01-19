@@ -166,6 +166,14 @@ export class AiProviderService implements IAiProvider {
       reason: details.reason,
     };
 
+    if (context?.callSid) {
+      payload.callSid = context.callSid;
+    }
+
+    if (context?.conversationId) {
+      payload.conversationId = context.conversationId;
+    }
+
     if (details.fallbackModel) {
       payload.fallbackModel = details.fallbackModel;
     }

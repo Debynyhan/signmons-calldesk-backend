@@ -19,6 +19,7 @@ datasource db {
 model TenantOrganization {
   id                      String   @id @default(uuid()) @db.Uuid
   name                    String
+  voiceNumber             String?  @unique
   status                  TenantStatus @default(ACTIVE)
   timezone                String
   settings                Json     @default("{}")

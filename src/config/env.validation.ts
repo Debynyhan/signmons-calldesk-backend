@@ -30,6 +30,18 @@ export const envValidationSchema = Joi.object({
   AI_MAX_TOOL_CALLS: Joi.number().min(0).max(5).default(1),
   AI_TIMEOUT_MS: Joi.number().min(1000).max(60000).default(15000),
   AI_MAX_RETRIES: Joi.number().min(0).max(5).default(1),
+  VOICE_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  TWILIO_ACCOUNT_SID: Joi.string().allow("").default(""),
+  TWILIO_AUTH_TOKEN: Joi.string().allow("").default(""),
+  TWILIO_PHONE_NUMBER: Joi.string().allow("").default(""),
+  TWILIO_SIGNATURE_CHECK: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("true"),
+  TWILIO_WEBHOOK_BASE_URL: Joi.string().allow("").default(""),
+  VOICE_MAX_TURNS: Joi.number().min(1).max(50).default(6),
+  VOICE_MAX_DURATION_SEC: Joi.number().min(30).max(3600).default(180),
   PORT: Joi.number().min(0).max(65535).default(3000),
 }).custom((values, helpers) => {
   if (
@@ -39,6 +51,19 @@ export const envValidationSchema = Joi.object({
     return helpers.error("any.invalid", {
       message: "DEV_AUTH_ENABLED cannot be true in production.",
     });
+  }
+  if (String(values.VOICE_ENABLED).toLowerCase() === "true") {
+    const missing = [];
+    if (!values.TWILIO_ACCOUNT_SID) missing.push("TWILIO_ACCOUNT_SID");
+    if (!values.TWILIO_AUTH_TOKEN) missing.push("TWILIO_AUTH_TOKEN");
+    if (!values.TWILIO_PHONE_NUMBER) missing.push("TWILIO_PHONE_NUMBER");
+    if (!values.TWILIO_WEBHOOK_BASE_URL)
+      missing.push("TWILIO_WEBHOOK_BASE_URL");
+    if (missing.length) {
+      return helpers.error("any.invalid", {
+        message: `VOICE_ENABLED=true requires: ${missing.join(", ")}`,
+      });
+    }
   }
   return values;
 });

@@ -66,6 +66,19 @@ export class PrismaTenantsService implements TenantsService {
     return this.mapTenantToContext(tenant);
   }
 
+  async resolveTenantByPhone(
+    toNumber: string,
+  ): Promise<TenantOrganization | null> {
+    const normalized = this.sanitizationService.normalizePhoneE164(toNumber);
+    if (!normalized) {
+      return null;
+    }
+
+    return this.prisma.tenantOrganization.findFirst({
+      where: { voiceNumber: normalized },
+    });
+  }
+
   private mapTenantToContext(tenant: TenantOrganization): TenantContext {
     const settings = this.parseSettings(tenant.settings);
     const displayName = settings.displayName ?? tenant.name;
@@ -120,4 +133,5 @@ export class PrismaTenantsService implements TenantsService {
         typeof settings.prompt === "string" ? settings.prompt : undefined,
     };
   }
+
 }

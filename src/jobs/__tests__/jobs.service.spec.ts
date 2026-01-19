@@ -36,10 +36,11 @@ describe("JobsService", () => {
 
   let prisma: {
     communicationContent: { findMany: jest.Mock };
-    job: { findUnique: jest.Mock; create: jest.Mock };
+    job: { findUnique: jest.Mock; create: jest.Mock; update: jest.Mock };
     customer: { upsert: jest.Mock };
     serviceCategory: { findFirst: jest.Mock; create: jest.Mock };
     propertyAddress: { create: jest.Mock };
+    payment: { findFirst: jest.Mock };
   };
   let service: JobsService;
 
@@ -51,6 +52,7 @@ describe("JobsService", () => {
       job: {
         findUnique: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
       },
       customer: {
         upsert: jest.fn(),
@@ -61,6 +63,9 @@ describe("JobsService", () => {
       },
       propertyAddress: {
         create: jest.fn(),
+      },
+      payment: {
+        findFirst: jest.fn(),
       },
     };
 
@@ -150,6 +155,8 @@ describe("JobsService", () => {
         }),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.customer.upsert).not.toHaveBeenCalled();
+    expect(prisma.serviceCategory.findFirst).not.toHaveBeenCalled();
     expect(prisma.job.create).not.toHaveBeenCalled();
   });
 
@@ -189,5 +196,127 @@ describe("JobsService", () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.job.create).not.toHaveBeenCalled();
+  });
+
+  it("maps known issueCategory synonyms to canonical values", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+    prisma.customer.upsert.mockResolvedValue({ id: "cust-1" } as never);
+    prisma.serviceCategory.findFirst.mockResolvedValue({ id: "svc-1" } as never);
+    prisma.propertyAddress.create.mockResolvedValue({ id: "addr-1" } as never);
+    prisma.job.create.mockResolvedValue(jobRecord as never);
+
+    await service.createJobFromToolCall({
+      tenantId,
+      sessionId,
+      rawArgs: JSON.stringify({
+        customerName: "Alice",
+        phone: "1234567890",
+        issueCategory: "No heat",
+        urgency: "STANDARD",
+      }),
+    });
+
+    expect(prisma.serviceCategory.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          name: "HEATING",
+        }),
+      }),
+    );
+  });
+
+  it("normalizes issueCategory case and whitespace", async () => {
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+    prisma.customer.upsert.mockResolvedValue({ id: "cust-1" } as never);
+    prisma.serviceCategory.findFirst.mockResolvedValue({ id: "svc-1" } as never);
+    prisma.propertyAddress.create.mockResolvedValue({ id: "addr-1" } as never);
+    prisma.job.create.mockResolvedValue(jobRecord as never);
+
+    await service.createJobFromToolCall({
+      tenantId,
+      sessionId,
+      rawArgs: JSON.stringify({
+        customerName: "Alice",
+        phone: "1234567890",
+        issueCategory: "  aC   not   COOLING ",
+        urgency: "STANDARD",
+      }),
+    });
+
+    expect(prisma.serviceCategory.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          name: "COOLING",
+        }),
+      }),
+    );
+  });
+
+  it("accepts a job when payment succeeded", async () => {
+    prisma.job.findUnique.mockResolvedValue(jobRecord as never);
+    prisma.payment.findFirst.mockResolvedValue({
+      status: "SUCCEEDED",
+    } as never);
+    prisma.job.update.mockResolvedValue({
+      ...jobRecord,
+      status: "ACCEPTED",
+    } as never);
+
+    const result = await service.acceptJobAfterPayment({
+      tenantId,
+      jobId: jobRecord.id,
+      paymentIntentId: "pi_123",
+    });
+
+    expect(prisma.job.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "ACCEPTED" }),
+      }),
+    );
+    expect(result.status).toBe("ACCEPTED");
+  });
+
+  it("is idempotent when job is already accepted", async () => {
+    prisma.job.findUnique.mockResolvedValue({
+      ...jobRecord,
+      status: "ACCEPTED",
+    } as never);
+
+    const result = await service.acceptJobAfterPayment({
+      tenantId,
+      jobId: jobRecord.id,
+    });
+
+    expect(prisma.payment.findFirst).not.toHaveBeenCalled();
+    expect(prisma.job.update).not.toHaveBeenCalled();
+    expect(result.status).toBe("ACCEPTED");
+  });
+
+  it("rejects acceptance when payment is missing", async () => {
+    prisma.job.findUnique.mockResolvedValue(jobRecord as never);
+    prisma.payment.findFirst.mockResolvedValue(null as never);
+
+    await expect(
+      service.acceptJobAfterPayment({
+        tenantId,
+        jobId: jobRecord.id,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects acceptance when payment has not succeeded", async () => {
+    prisma.job.findUnique.mockResolvedValue(jobRecord as never);
+    prisma.payment.findFirst.mockResolvedValue({
+      status: "FAILED",
+    } as never);
+
+    await expect(
+      service.acceptJobAfterPayment({
+        tenantId,
+        jobId: jobRecord.id,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.job.update).not.toHaveBeenCalled();
   });
 });

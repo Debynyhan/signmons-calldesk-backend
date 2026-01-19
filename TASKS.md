@@ -8,11 +8,12 @@
 
 * [ ] TenantOrganization created via Dev Auth (dev headers only when enabled)
 * [ ] AI triage creates Customer, PropertyAddress, ServiceCategory, Job (tenant-scoped)
-* [ ] Conversation visible with CommunicationEvent/Content
+* [ ] Conversation visible with CommunicationEvent/Content (SMS, WEB, VOICE)
 * [ ] Job visible with correct status, urgency, tenant isolation
 * [ ] **Stripe payment succeeds BEFORE job confirmation**
-* [ ] SMS/email confirmation sent ONLY after payment success
-* [ ] End-to-end smoke test passes (AI → payment → job → SMS)
+* [ ] SMS/email/voice confirmation sent ONLY after payment success
+* [ ] Voice/SMS consent language enforced before interaction
+* [ ] End-to-end smoke test passes (AI → payment → job → SMS/VOICE)
 * [ ] Multi-tenant isolation enforced on all reads/writes
 * [ ] External providers disabled by default in dev
 
@@ -43,6 +44,63 @@
 * [x] AI budgets (tokens, retries, timeouts)
 * [x] AI refusal + fallback logging
 
+---
+
+### T-02.5 Voice Intake & AI Triage (P0)
+
+#### Inbound Voice Plumbing
+
+* [x] `/api/voice/inbound` webhook endpoint implemented
+* [x] Tenant resolved by called phone number (`To`)
+* [x] Voice disabled guard (`VOICE_ENABLED=false` returns safe TwiML)
+* [x] Consent message played before any intake
+* [x] Conversation created on first call event (`channel=VOICE`)
+* [x] `requestId` generated and attached to conversation
+* [x] Twilio Call SID captured and persisted
+
+#### Caller Identity
+
+* [x] Caller phone captured from `From`
+* [x] Phone normalized to E.164
+* [x] Customer created or reused by phone
+* [x] Caller phone stored on Conversation metadata
+
+#### Speech → Text Intake
+
+* [x] Twilio `<Gather input="speech">` configured
+* [x] `/api/voice/turn` endpoint implemented
+* [x] Transcript extracted from `SpeechResult`
+* [x] Confidence score captured when provided
+
+#### Conversation Persistence
+
+* [x] Transcript stored as `CommunicationContent`
+
+  * role = USER
+  * channel = VOICE
+* [x] Voice turns appended in chronological order
+* [x] No audio blobs stored (text only)
+
+#### AI Execution
+
+* [x] Voice transcripts routed through existing AI pipeline
+* [x] Same schema validation, budgets, retries enforced
+* [x] Tool calls allowed from VOICE channel
+* [x] AI responses persisted as `CommunicationContent` (ASSISTANT)
+
+#### Voice Output
+
+* [x] AI responses converted to `<Say>`
+* [x] Follow-up `<Gather>` issued when FSM requires more input
+* [x] Call ends cleanly on job creation or refusal
+
+#### Safety & Observability
+
+* [x] AI refusal detected on voice path
+* [x] Voice refusal logged with tenantId, conversationId, model, reason
+* [x] Fallback logged when preview model fails
+* [x] Voice interaction capped (max turns / timeout)
+
 ### T-02.6 Voice-Grade Data Integrity (P0)
 
 **Objective**
@@ -69,7 +127,7 @@ Capture customer name via voice in a way that matches professional call center s
 - [ ] Normalize (capitalize, strip filler words)
 - [ ] Do not persist immediately
 - [ ] Read back explicitly for confirmation:
-  - [ ] "I heard Dean Banks. Is that correct?"
+  - [ ] “I heard Dean Banks. Is that correct?”
 - [ ] Accept only explicit confirmation (yes / correct)
 - [ ] On rejection:
   - [ ] Clear name field
@@ -81,7 +139,7 @@ Capture customer name via voice in a way that matches professional call center s
 - [ ] `confirmedName` is written only after explicit yes/correct confirmation
 - [ ] `confirmedName` is immutable once set
 - [ ] `fieldConfirmations` entry exists for `name` with `confirmedAt` + `sourceEventId`
-- [ ] Test coverage includes rejection -> re-ask -> success path
+- [ ] Test coverage includes rejection → re-ask → success path
 
 #### T-V02 — Address Capture with Verification Loop (P0)
 
@@ -98,14 +156,14 @@ Ensure service address accuracy under noisy, partial, or ambiguous voice input.
 - [ ] Never guess or autocomplete street names
 - [ ] Detect low-confidence or partial addresses
 - [ ] Structured confirmation prompt:
-  - [ ] "I have 20991 Reach Your A... That seems incomplete. Can you repeat the full street name?"
+  - [ ] “I have 20991 Reach Your A… That seems incomplete. Can you repeat the full street name?”
 - [ ] Block job creation until address is confirmed
 
 **Rules**
 
 - [ ] `VOICE_ADDRESS_MIN_CONFIDENCE` required (env-configurable, fail closed below threshold)
-- [ ] If confidence < `VOICE_ADDRESS_MIN_CONFIDENCE` -> clarification loop
-- [ ] If repeated ambiguity (>= 2 attempts) -> safe escalation (human or SMS follow-up)
+- [ ] If confidence < `VOICE_ADDRESS_MIN_CONFIDENCE` → clarification loop
+- [ ] If repeated ambiguity (>= 2 attempts) → safe escalation (human or SMS follow-up)
 - [ ] Address persistence only after explicit confirmation
 - [ ] Google Places may validate/normalize only after explicit confirmation (no guessing)
 
@@ -132,7 +190,7 @@ Prevent double-capture, corrupted state, or skipped confirmations during user in
 
 **Acceptance Criteria**
 
-- [ ] Same utterance never processed twice (idempotent per voice turn)
+- [ ] Same utterance never processed twice
 - [ ] Interruptions do not bypass confirmation steps
 - [ ] FSM state remains deterministic across interruptions
 
@@ -183,10 +241,10 @@ Ensure the system fails safely rather than guessing.
 
 **Rules**
 
-- [ ] No confirmed name -> no job creation
-- [ ] No confirmed address -> no job creation
-- [ ] Conflicting data -> clarification loop
-- [ ] AI uncertainty -> ask again, never assume
+- [ ] No confirmed name → no job creation
+- [ ] No confirmed address → no job creation
+- [ ] Conflicting data → clarification loop
+- [ ] AI uncertainty → ask again, never assume
 
 **Acceptance Criteria**
 
@@ -200,8 +258,8 @@ Protect voice flows against regression and hallucination.
 
 **Test Scenarios**
 
-- [ ] Misheard name -> correction -> confirmation
-- [ ] Partial address -> clarification -> success
+- [ ] Misheard name → correction → confirmation
+- [ ] Partial address → clarification → success
 - [ ] User interrupts confirmation read-back
 - [ ] Silence or no response
 - [ ] AI hallucinated data (must be rejected)
@@ -259,9 +317,12 @@ FSM remains the source of truth.
 
 ### T-03 Job Lifecycle & Data Integrity (P0)
 
-* [ ] Job lifecycle enforced: CREATED → ACCEPTED
-* [ ] issueCategory → ServiceCategory mapping verified
+* [x] Job lifecycle enforced: CREATED → ACCEPTED
+* [x] issueCategory → ServiceCategory mapping verified
 * [ ] Address normalization placeholder (dev-safe)
+* [ ] Address validation via Google Places (prod only)
+* [ ] Service-area coverage enforced
+* [ ] Invalid/uncovered address fails closed
 * [ ] Job creation idempotent
 * [ ] Audit trail includes tenantId everywhere
 
@@ -281,7 +342,7 @@ FSM remains the source of truth.
 
 ---
 
-### T-05 Confirmation & Messaging (Twilio) (P0)
+### T-05 Confirmation & Messaging (Twilio SMS) (P0)
 
 * [ ] SMS sent only after job creation
 * [ ] Tenant-branded copy
@@ -294,11 +355,14 @@ FSM remains the source of truth.
 
 ### T-06 Admin & UI (P1)
 
-* [ ] Admin panel: tenant settings
-* [ ] ServiceCategory list/edit
-* [ ] Tool toggles per tenant
-* [ ] Conversations timeline UI
-* [ ] Jobs list + detail view with payment badge
+* [ ] Admin dashboard shell (Signmons internal)
+* [ ] TenantOrganization create/edit UI
+* [ ] Tenant user list + role management
+* [ ] ServiceCategory list/edit UI
+* [ ] Provider toggles (AI, SMS, Voice, Address)
+* [ ] Conversations timeline UI (SMS/WEB/VOICE)
+* [ ] Jobs list + job detail view
+* [ ] Payment badge + status indicators
 * [ ] UX polish (loading, retries, inline errors, dev banner)
 
 ---
@@ -306,9 +370,49 @@ FSM remains the source of truth.
 ### T-07 QA & Smoke (P0)
 
 * [ ] `scripts/smoke-test.sh` passes
-* [ ] AI triage → payment → job → SMS validated
+* [ ] AI → payment → job → SMS validated
+* [ ] AI → payment → job → VOICE validated
 * [ ] Cross-tenant scenarios tested
-* [ ] Providers disabled by default in dev
+* [ ] Providers disabled by default in dev verified
+
+---
+
+### T-08 Voice Provider (Twilio Voice) (P0)
+
+* [ ] Twilio account configured
+* [ ] Voice phone number purchased
+* [ ] Voice webhook URLs registered
+* [ ] Tenant ↔ phone number mapping table implemented
+* [ ] Consent message script finalized
+* [ ] Call SID logged on all voice events
+* [ ] Call recording disabled by default
+* [ ] Voice provider hard-disabled in dev
+* [ ] Graceful failure message when provider unavailable
+
+---
+
+### T-09 Media Uploads (P0)
+
+* [ ] GCS buckets per environment
+* [ ] Signed URL upload endpoint
+* [ ] Tenant/job-scoped object paths
+* [ ] MIME type allowlist enforced
+* [ ] File size limits enforced
+* [ ] Virus scan placeholder (future hook)
+* [ ] Media metadata stored (no blobs in DB)
+* [ ] Media uploads disabled by default in dev
+
+---
+
+### Provider Governance (P0)
+
+* [ ] AI disabled by default in dev
+* [ ] SMS disabled by default in dev
+* [ ] Voice disabled by default in dev
+* [ ] Address validation disabled by default in dev
+* [ ] Media uploads disabled by default in dev
+* [ ] Provider failures do not corrupt core data
+* [ ] Provider errors logged with tenantId + requestId
 
 ---
 
@@ -317,47 +421,25 @@ FSM remains the source of truth.
 ### Sprint 1 — Security Foundations
 
 **Tasks:** T-01
-**Exit:** Cross-tenant access impossible, tests pass
-
----
+**Exit:** Cross-tenant access impossible
 
 ### Sprint 2 — AI Reliability & Job Integrity
 
-**Tasks:** T-02, T-02.6, T-03
-**Exit:** AI safely creates jobs with voice-grade data integrity guarantees
-
----
+**Tasks:** T-02, T-02.5, T-02.6, T-03
+**Exit:** AI safely triages via text or voice with voice-grade data integrity guarantees
 
 ### Sprint 3 — Revenue Lock-In
 
-**Tasks:** T-04, T-05
-**Exit:** No unpaid job can exist; payment → job → SMS traceable
-
----
+**Tasks:** T-04, T-05, T-08
+**Exit:** No unpaid job can exist
 
 ### Sprint 4 — MVP Polish & Demo Readiness
 
-**Tasks:** T-06, T-07
-**Exit:** Full MVP DoD satisfied, demo-ready
-
----
-
-## Post-MVP (Award-Winning Track)
-
-* AI policy guard + deterministic orchestration
-* Structured AI observability (cost, latency, prompt versions)
-* PII redaction + retention policies
-* ServiceArea + coverage checks
-* Human override + AI feedback capture
-* Stripe Connect onboarding
-* Billing portal + invoices
-* Dunning & retry flows
-* Revenue analytics (ARR, churn)
-* In-app onboarding checklist
+**Tasks:** T-06, T-07, T-09
+**Exit:** Demo-ready MVP
 
 ---
 
 ## Global Principle
 
 > **If a task is not in the Canonical Task Board, it does not exist.**
-> Sprints only reference tasks — they never redefine them.

@@ -49,5 +49,6 @@ import { ConversationsService } from "../conversations/conversations.service";
     AiErrorHandler,
     AiService,
   ],
+  exports: [AiService],
 })
 export class AiModule {}

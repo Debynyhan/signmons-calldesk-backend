@@ -15,6 +15,7 @@ import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
 import { ConversationsService } from "../../conversations/conversations.service";
+import { runWithRequestContext } from "../../common/context/request-context";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -79,6 +80,7 @@ describe("AiService", () => {
     callLogService.getRecentMessages.mockResolvedValue([]);
     conversationsService = {
       ensureConversation: jest.fn(),
+      getConversationById: jest.fn(),
       linkJobToConversation: jest.fn(),
     } as unknown as jest.Mocked<ConversationsService>;
     conversationsService.ensureConversation.mockResolvedValue({
@@ -312,13 +314,24 @@ describe("AiService", () => {
       ],
     } as never);
 
-    await service.triage(tenantId, sessionId, "Disallowed request.");
+    await runWithRequestContext(
+      {
+        requestId: "req-voice-1",
+        tenantId,
+        callSid: "CA123",
+        conversationId: "conversation-1",
+        channel: "VOICE",
+      },
+      () => service.triage(tenantId, sessionId, "Disallowed request."),
+    );
 
     expect(loggingService.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "ai.refusal",
         tenantId,
         reason: "policy_violation",
+        callSid: "CA123",
+        conversationId: "conversation-1",
       }),
       AiService.name,
     );

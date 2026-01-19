@@ -41,4 +41,21 @@ export class SanitizationService {
 
     return value.replace(LOGGING_CONTROL_CHAR_REGEX, "");
   }
+
+  normalizePhoneE164(value: string): string {
+    if (typeof value !== "string") {
+      return "";
+    }
+    const digits = value.replace(/\D/g, "");
+    if (digits.length === 10) {
+      return `+1${digits}`;
+    }
+    if (digits.length === 11 && digits.startsWith("1")) {
+      return `+${digits}`;
+    }
+    if (digits.length >= 8 && digits.length <= 15) {
+      return `+${digits}`;
+    }
+    return "";
+  }
 }

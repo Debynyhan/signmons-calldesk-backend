@@ -50,4 +50,10 @@ export interface IJobRepository {
   ): Promise<JobRecord>;
 
   listJobs(tenantId: string): Promise<JobRecord[]>;
+
+  acceptJobAfterPayment(request: {
+    tenantId: string;
+    jobId: string;
+    paymentIntentId?: string;
+  }): Promise<JobRecord>;
 }

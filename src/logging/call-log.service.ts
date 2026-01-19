@@ -19,6 +19,7 @@ export interface CreateCallLogInput {
   aiResponse?: string;
   direction?: "INBOUND" | "OUTBOUND";
   metadata?: Record<string, unknown>;
+  channel?: CommunicationChannel;
 }
 
 @Injectable()
@@ -51,6 +52,7 @@ export class CallLogService {
       direction: input.direction ?? "INBOUND",
       message: sanitizedTranscript,
       payload: metadataPayload,
+      channel: input.channel,
     });
 
     if (sanitizedResponse) {
@@ -60,6 +62,7 @@ export class CallLogService {
         direction: "OUTBOUND",
         message: sanitizedResponse,
         payload: metadataPayload,
+        channel: input.channel,
       });
     }
   }
@@ -128,18 +131,94 @@ export class CallLogService {
     });
   }
 
+  async createVoiceTranscriptLog(input: {
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    transcript: string;
+    confidence?: number;
+    occurredAt?: Date;
+  }): Promise<void> {
+    const sanitizedTranscript = this.obfuscatePii(
+      this.sanitizationService.sanitizeText(input.transcript),
+    );
+    if (!sanitizedTranscript) {
+      return;
+    }
+
+    const metadataPayload: Prisma.InputJsonValue = {
+      type: "voice_transcript",
+      callSid: input.callSid,
+      transcript: sanitizedTranscript,
+      confidence:
+        typeof input.confidence === "number" ? input.confidence : null,
+    };
+
+    await this.createCommunicationEvent({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      direction: "INBOUND",
+      message: sanitizedTranscript,
+      payload: metadataPayload,
+      channel: CommunicationChannel.VOICE,
+      provider: CommunicationProvider.TWILIO,
+      externalId: input.callSid,
+      occurredAt: input.occurredAt,
+    });
+  }
+
+  async getVoiceTranscripts(params: {
+    tenantId: string;
+    conversationId: string;
+  }): Promise<
+    Array<{
+      transcript: string;
+      confidence?: number;
+      createdAt: Date;
+    }>
+  > {
+    return this.mapVoiceTranscripts(
+      await this.prisma.communicationContent.findMany({
+        where: {
+          tenantId: params.tenantId,
+          communicationEvent: {
+            conversationId: params.conversationId,
+            channel: CommunicationChannel.VOICE,
+          },
+          payload: {
+            path: ["type"],
+            equals: "voice_transcript",
+          },
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          payload: true,
+          createdAt: true,
+        },
+      }),
+    );
+  }
+
   private async createCommunicationEvent({
     tenantId,
     conversationId,
     direction,
     message,
     payload,
+    channel = CommunicationChannel.WEBCHAT,
+    provider = CommunicationProvider.OTHER,
+    externalId,
+    occurredAt,
   }: {
     tenantId: string;
     conversationId?: string;
     direction: "INBOUND" | "OUTBOUND";
     message: string;
     payload: Prisma.InputJsonValue;
+    channel?: CommunicationChannel;
+    provider?: CommunicationProvider;
+    externalId?: string;
+    occurredAt?: Date;
   }) {
     const eventId = randomUUID();
     const contentId = randomUUID();
@@ -161,9 +240,11 @@ export class CallLogService {
         tenantId,
         conversationId: conversationId ?? undefined,
         conversationTenantId: conversationId ? tenantId : undefined,
-        channel: CommunicationChannel.WEBCHAT,
+        channel,
         direction: direction as CommunicationDirection,
-        provider: CommunicationProvider.OTHER,
+        provider,
+        externalId: externalId ?? undefined,
+        occurredAt: occurredAt ?? new Date(),
         status:
           direction === "INBOUND"
             ? CommunicationStatus.RECEIVED
@@ -226,6 +307,37 @@ export class CallLogService {
     }
 
     return { role, content: message, createdAt };
+  }
+
+  private mapVoiceTranscript(
+    payload: Prisma.JsonValue,
+    createdAt: Date,
+  ): { transcript: string; confidence?: number; createdAt: Date } | null {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+    const data = payload as Record<string, unknown>;
+    if (data.type !== "voice_transcript") {
+      return null;
+    }
+    const transcript = data.transcript;
+    if (typeof transcript !== "string" || !transcript.trim()) {
+      return null;
+    }
+    const confidence =
+      typeof data.confidence === "number" ? data.confidence : undefined;
+    return { transcript, confidence, createdAt };
+  }
+
+  private mapVoiceTranscripts(
+    logs: Array<{ payload: Prisma.JsonValue; createdAt: Date }>,
+  ): Array<{ transcript: string; confidence?: number; createdAt: Date }> {
+    return logs
+      .map((log) => this.mapVoiceTranscript(log.payload, log.createdAt))
+      .filter(
+        (entry): entry is { transcript: string; confidence?: number; createdAt: Date } =>
+          Boolean(entry),
+      );
   }
 
   private obfuscatePii(value: string): string {
