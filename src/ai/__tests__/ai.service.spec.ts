@@ -102,6 +102,7 @@ describe("AiService", () => {
       devAuthSecret: "dev-auth-secret",
       identityIssuer: "http://localhost",
       identityAudience: "signmons",
+      voiceAddressMinConfidence: 0.7,
       corsOrigins: ["http://localhost:3000"],
     };
 
@@ -343,6 +344,76 @@ describe("AiService", () => {
       }),
     );
   });
+
+  it("extracts address candidates from AI responses", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content:
+              '{"address":" 123  Main St. ","confidence":0.82}',
+          },
+        },
+      ],
+    } as never);
+
+    const result = await service.extractAddressCandidate(
+      tenantId,
+      "My address is 123 Main St.",
+    );
+
+    expect(result).toEqual({ address: "123 Main St.", confidence: 0.82 });
+  });
+
+  it("normalizes confidence for address candidates", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content:
+              '{"address":"456 Elm St","confidence":82}',
+          },
+        },
+      ],
+    } as never);
+
+    const result = await service.extractAddressCandidate(
+      tenantId,
+      "Address is 456 Elm St.",
+    );
+
+    expect(result).toEqual({ address: "456 Elm St", confidence: 0.82 });
+  });
+
+  it("returns null when address extraction JSON is invalid", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: "not-json",
+          },
+        },
+      ],
+    } as never);
+
+    const result = await service.extractAddressCandidate(
+      tenantId,
+      "Address is 789 Oak St.",
+    );
+
+    expect(result).toBeNull();
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai.address_extraction_failed",
+        tenantId,
+        reason: "invalid_json",
+      }),
+      AiService.name,
+    );
+  });
 });
 
 describe("AiProviderService", () => {
@@ -362,6 +433,7 @@ describe("AiProviderService", () => {
     devAuthSecret: "dev-auth-secret",
     identityIssuer: "http://localhost",
     identityAudience: "signmons",
+    voiceAddressMinConfidence: 0.7,
     corsOrigins: ["http://localhost:3000"],
   };
 

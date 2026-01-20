@@ -54,6 +54,10 @@ describe("ConversationsService", () => {
           collectedData: expect.objectContaining({
             requestId: "req-1",
             callerPhone: "+12167448929",
+            address: expect.objectContaining({
+              status: "MISSING",
+              locked: false,
+            }),
             voiceConsent: expect.objectContaining({
               granted: true,
               method: "implied",
@@ -157,6 +161,119 @@ describe("ConversationsService", () => {
         data: expect.objectContaining({
           collectedData: expect.objectContaining({
             lastTranscript: "no heat",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("appends an address confirmation entry", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+
+    await service.updateVoiceAddressState({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      addressState: {
+        candidate: { value: null, sourceEventId: null, createdAt: null },
+        confirmed: {
+          value: "123 Main St",
+          sourceEventId: "evt-1",
+          confirmedAt: "2026-01-01T00:00:00.000Z",
+        },
+        status: "CONFIRMED",
+        locked: true,
+        attemptCount: 1,
+      },
+      confirmation: {
+        field: "address",
+        value: "123 Main St",
+        confirmedAt: "2026-01-01T00:00:00.000Z",
+        sourceEventId: "evt-1",
+        channel: "VOICE",
+      },
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            address: expect.objectContaining({
+              status: "CONFIRMED",
+            }),
+            fieldConfirmations: expect.arrayContaining([
+              expect.objectContaining({
+                field: "address",
+                value: "123 Main St",
+                sourceEventId: "evt-1",
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("does not overwrite a locked confirmed address", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {
+        address: {
+          candidate: { value: null, sourceEventId: null, createdAt: null },
+          confirmed: {
+            value: "123 Main St",
+            sourceEventId: "evt-1",
+            confirmedAt: "2026-01-01T00:00:00.000Z",
+          },
+          status: "CONFIRMED",
+          locked: true,
+          attemptCount: 1,
+        },
+      },
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+
+    await service.updateVoiceAddressState({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      addressState: {
+        candidate: {
+          value: "456 Elm St",
+          sourceEventId: "evt-2",
+          createdAt: "2026-01-02T00:00:00.000Z",
+        },
+        confirmed: {
+          value: "456 Elm St",
+          sourceEventId: "evt-2",
+          confirmedAt: "2026-01-02T00:00:00.000Z",
+        },
+        status: "CONFIRMED",
+        locked: true,
+        attemptCount: 2,
+      },
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            address: expect.objectContaining({
+              confirmed: expect.objectContaining({
+                value: "123 Main St",
+                sourceEventId: "evt-1",
+              }),
+              status: "CONFIRMED",
+              locked: true,
+            }),
           }),
         }),
       }),

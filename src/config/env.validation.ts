@@ -42,6 +42,7 @@ export const envValidationSchema = Joi.object({
   TWILIO_WEBHOOK_BASE_URL: Joi.string().allow("").default(""),
   VOICE_MAX_TURNS: Joi.number().min(1).max(50).default(6),
   VOICE_MAX_DURATION_SEC: Joi.number().min(30).max(3600).default(180),
+  VOICE_ADDRESS_MIN_CONFIDENCE: Joi.number().min(0).max(1).default(0.7),
   PORT: Joi.number().min(0).max(65535).default(3000),
 }).custom((values, helpers) => {
   if (

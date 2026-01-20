@@ -28,8 +28,26 @@ type VoiceNameState = {
   locked: boolean;
   attemptCount: number;
 };
+type VoiceAddressStatus = "MISSING" | "CANDIDATE" | "CONFIRMED";
+type VoiceAddressCandidate = {
+  value: string | null;
+  sourceEventId: string | null;
+  createdAt: string | null;
+};
+type VoiceAddressConfirmed = {
+  value: string | null;
+  sourceEventId: string | null;
+  confirmedAt: string | null;
+};
+type VoiceAddressState = {
+  candidate: VoiceAddressCandidate;
+  confirmed: VoiceAddressConfirmed;
+  status: VoiceAddressStatus;
+  locked: boolean;
+  attemptCount: number;
+};
 type VoiceFieldConfirmation = {
-  field: "name";
+  field: "name" | "address";
   value: string;
   confirmedAt: string;
   sourceEventId: string;
@@ -89,6 +107,7 @@ export class ConversationsService {
         collectedData: {
           sessionId,
           source: "WEBCHAT",
+          address: this.getDefaultAddressState(),
         } as Prisma.InputJsonValue,
       },
     });
@@ -113,6 +132,7 @@ export class ConversationsService {
         requestId?: string;
         callerPhone?: string;
         name?: VoiceNameState;
+        address?: VoiceAddressState;
       };
       const needsConsent = !current.voiceConsent?.granted;
       const needsRequestId = !current.requestId && params.requestId;
@@ -127,6 +147,7 @@ export class ConversationsService {
           ...(needsRequestId ? { requestId: params.requestId } : {}),
           ...(needsCallerPhone ? { callerPhone: normalizedCallerPhone } : {}),
           ...(current.name ? {} : { name: this.getDefaultNameState() }),
+          ...(current.address ? {} : { address: this.getDefaultAddressState() }),
           ...(needsConsent
             ? {
                 voiceConsent: {
@@ -169,6 +190,7 @@ export class ConversationsService {
           requestId: params.requestId,
           callerPhone: normalizedCallerPhone,
           name: this.getDefaultNameState(),
+          address: this.getDefaultAddressState(),
           voiceConsent: {
             granted: true,
             method: "implied",
@@ -301,6 +323,16 @@ export class ConversationsService {
     return this.parseNameState(data.name);
   }
 
+  getVoiceAddressState(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceAddressState {
+    if (!collectedData || typeof collectedData !== "object") {
+      return this.getDefaultAddressState();
+    }
+    const data = collectedData as Record<string, unknown>;
+    return this.parseAddressState(data.address);
+  }
+
   async updateVoiceNameState(params: {
     tenantId: string;
     conversationId: string;
@@ -347,6 +379,65 @@ export class ConversationsService {
     const merged: Prisma.InputJsonValue = {
       ...current,
       name: nextName,
+      ...(confirmations.length ? { fieldConfirmations: confirmations } : {}),
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceAddressState(params: {
+    tenantId: string;
+    conversationId: string;
+    addressState: VoiceAddressState;
+    confirmation?: VoiceFieldConfirmation;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const currentAddress = this.parseAddressState(current.address);
+    const nextAddress = this.mergeAddressState(
+      currentAddress,
+      params.addressState,
+    );
+    const confirmations = Array.isArray(current.fieldConfirmations)
+      ? [...current.fieldConfirmations]
+      : [];
+    const confirmation = params.confirmation;
+    if (confirmation) {
+      const exists = confirmations.some(
+        (entry) =>
+          entry &&
+          typeof entry === "object" &&
+          (entry as { field?: string; sourceEventId?: string }).field ===
+            confirmation.field &&
+          (entry as { sourceEventId?: string }).sourceEventId ===
+            confirmation.sourceEventId,
+      );
+      if (!exists) {
+        confirmations.push(confirmation as Prisma.InputJsonValue);
+      }
+    }
+
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      address: nextAddress,
       ...(confirmations.length ? { fieldConfirmations: confirmations } : {}),
     };
 
@@ -427,6 +518,16 @@ export class ConversationsService {
     };
   }
 
+  private getDefaultAddressState(): VoiceAddressState {
+    return {
+      candidate: { value: null, sourceEventId: null, createdAt: null },
+      confirmed: { value: null, sourceEventId: null, confirmedAt: null },
+      status: "MISSING",
+      locked: false,
+      attemptCount: 0,
+    };
+  }
+
   private parseNameState(value: unknown): VoiceNameState {
     const defaults = this.getDefaultNameState();
     if (!value || typeof value !== "object") {
@@ -469,10 +570,64 @@ export class ConversationsService {
     };
   }
 
+  private parseAddressState(value: unknown): VoiceAddressState {
+    const defaults = this.getDefaultAddressState();
+    if (!value || typeof value !== "object") {
+      return defaults;
+    }
+    const data = value as Partial<VoiceAddressState>;
+    const candidate = data.candidate ?? defaults.candidate;
+    const confirmed = data.confirmed ?? defaults.confirmed;
+    const status =
+      data.status === "CANDIDATE" || data.status === "CONFIRMED"
+        ? data.status
+        : "MISSING";
+    return {
+      candidate: {
+        value: typeof candidate.value === "string" ? candidate.value : null,
+        sourceEventId:
+          typeof candidate.sourceEventId === "string"
+            ? candidate.sourceEventId
+            : null,
+        createdAt:
+          typeof candidate.createdAt === "string" ? candidate.createdAt : null,
+      },
+      confirmed: {
+        value: typeof confirmed.value === "string" ? confirmed.value : null,
+        sourceEventId:
+          typeof confirmed.sourceEventId === "string"
+            ? confirmed.sourceEventId
+            : null,
+        confirmedAt:
+          typeof confirmed.confirmedAt === "string" ? confirmed.confirmedAt : null,
+      },
+      status,
+      locked: Boolean(data.locked),
+      attemptCount:
+        typeof data.attemptCount === "number" && data.attemptCount >= 0
+          ? data.attemptCount
+          : 0,
+    };
+  }
+
   private mergeNameState(
     current: VoiceNameState,
     next: VoiceNameState,
   ): VoiceNameState {
+    if (current.locked && current.confirmed.value) {
+      return {
+        ...current,
+        status: "CONFIRMED",
+        locked: true,
+      };
+    }
+    return next;
+  }
+
+  private mergeAddressState(
+    current: VoiceAddressState,
+    next: VoiceAddressState,
+  ): VoiceAddressState {
     if (current.locked && current.confirmed.value) {
       return {
         ...current,

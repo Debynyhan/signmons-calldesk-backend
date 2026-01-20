@@ -323,6 +323,180 @@ export class VoiceController {
       );
     }
 
+    const addressState = this.conversationsService.getVoiceAddressState(
+      updatedConversation?.collectedData ?? conversation.collectedData,
+    );
+    if (addressState.status !== "CONFIRMED") {
+      const duplicateMissing =
+        !addressState.candidate.value &&
+        addressState.candidate.sourceEventId === currentEventId;
+      if (duplicateMissing) {
+        return this.replyWithTwiml(res, this.buildAskAddressTwiml());
+      }
+
+      const candidateForEvent =
+        Boolean(addressState.candidate.value) &&
+        addressState.candidate.sourceEventId === currentEventId;
+      if (candidateForEvent && addressState.candidate.value) {
+        return this.replyWithTwiml(
+          res,
+          this.buildAddressConfirmationTwiml(addressState.candidate.value),
+        );
+      }
+
+      if (addressState.candidate.value) {
+        const confirmation = this.parseConfirmation(normalizedSpeech);
+        if (confirmation === "confirm") {
+          if (!addressState.locked) {
+            const confirmedAt = new Date().toISOString();
+            const nextAddressState: typeof addressState = {
+              ...addressState,
+              confirmed: {
+                value: addressState.candidate.value,
+                sourceEventId: currentEventId,
+                confirmedAt,
+              },
+              status: "CONFIRMED",
+              locked: true,
+            };
+            await this.conversationsService.updateVoiceAddressState({
+              tenantId: tenant.id,
+              conversationId,
+              addressState: nextAddressState,
+              confirmation: {
+                field: "address",
+                value: addressState.candidate.value,
+                confirmedAt,
+                sourceEventId: currentEventId ?? "",
+                channel: "VOICE",
+              },
+            });
+            this.loggingService.log(
+              {
+                event: "voice.field_confirmed",
+                field: "address",
+                tenantId: tenant.id,
+                conversationId,
+                callSid,
+                sourceEventId: currentEventId,
+              },
+              VoiceController.name,
+            );
+          }
+          return this.replyWithTwiml(
+            res,
+            this.buildSayGatherTwiml(
+              "Thanks. Please describe the issue you're having.",
+            ),
+          );
+        }
+        if (confirmation === "reject") {
+          const nextAttempt = addressState.attemptCount + 1;
+          const shouldFailClosed = nextAttempt >= 2;
+          const nextAddressState: typeof addressState = {
+            ...addressState,
+            candidate: {
+              value: null,
+              sourceEventId: currentEventId,
+              createdAt: null,
+            },
+            status: "MISSING",
+            attemptCount: nextAttempt,
+          };
+          await this.conversationsService.updateVoiceAddressState({
+            tenantId: tenant.id,
+            conversationId,
+            addressState: nextAddressState,
+          });
+          if (shouldFailClosed) {
+            return this.replyWithTwiml(
+              res,
+              this.buildTwiml(
+                "Thanks. We'll follow up by text to confirm your address.",
+              ),
+            );
+          }
+          return this.replyWithTwiml(res, this.buildAskAddressTwiml());
+        }
+        return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
+      }
+
+      const extracted = await this.aiService.extractAddressCandidate(
+        tenant.id,
+        normalizedSpeech,
+      );
+      const candidateAddress = this.normalizeAddressCandidate(
+        extracted?.address ?? "",
+      );
+      const minConfidence = this.config.voiceAddressMinConfidence ?? 0.7;
+      const confidence =
+        typeof extracted?.confidence === "number"
+          ? extracted.confidence
+          : undefined;
+      const meetsConfidence =
+        typeof confidence === "number" && confidence >= minConfidence;
+      if (!candidateAddress || !meetsConfidence) {
+        const nextAttempt = addressState.attemptCount + 1;
+        const shouldFailClosed = nextAttempt >= 2;
+        const nextAddressState: typeof addressState = {
+          ...addressState,
+          candidate: {
+            value: null,
+            sourceEventId: currentEventId,
+            createdAt: null,
+          },
+          status: "MISSING",
+          attemptCount: nextAttempt,
+        };
+        await this.conversationsService.updateVoiceAddressState({
+          tenantId: tenant.id,
+          conversationId,
+          addressState: nextAddressState,
+        });
+        if (shouldFailClosed) {
+          return this.replyWithTwiml(
+            res,
+            this.buildTwiml(
+              "Thanks. We'll follow up by text to confirm your address.",
+            ),
+          );
+        }
+        return this.replyWithTwiml(res, this.buildAskAddressTwiml());
+      }
+
+      const nextAddressState: typeof addressState = {
+        ...addressState,
+        candidate: {
+          value: candidateAddress,
+          sourceEventId: currentEventId,
+          createdAt: new Date().toISOString(),
+        },
+        status: "CANDIDATE",
+      };
+      await this.conversationsService.updateVoiceAddressState({
+        tenantId: tenant.id,
+        conversationId,
+        addressState: nextAddressState,
+      });
+      return this.replyWithTwiml(
+        res,
+        this.buildAddressConfirmationTwiml(candidateAddress),
+      );
+    }
+
+    if (
+      addressState.locked &&
+      addressState.confirmed.sourceEventId &&
+      addressState.confirmed.sourceEventId === currentEventId
+    ) {
+      return this.replyWithTwiml(
+        res,
+        this.buildSayGatherTwiml(
+          "Thanks. Please describe the issue you're having.",
+        ),
+      );
+    }
+
     try {
       const aiResult = await this.aiService.triage(
         tenant.id,
@@ -478,6 +652,17 @@ export class VoiceController {
     return this.buildSayGatherTwiml("Sorry about that. Please say your full name.");
   }
 
+  private buildAddressConfirmationTwiml(candidate: string): string {
+    const message = `I heard ${candidate}. Is that correct? Please say 'yes' or 'no'.`;
+    return this.buildSayGatherTwiml(message);
+  }
+
+  private buildAskAddressTwiml(): string {
+    return this.buildSayGatherTwiml(
+      "Sorry about that. Please say your full service address.",
+    );
+  }
+
   private buildYesNoRepromptTwiml(): string {
     return this.buildSayGatherTwiml("Please say 'yes' or 'no'.");
   }
@@ -551,6 +736,11 @@ export class VoiceController {
       return "";
     }
     return this.toTitleCase(normalized);
+  }
+
+  private normalizeAddressCandidate(value: string): string {
+    const cleaned = this.sanitizationService.sanitizeText(value);
+    return this.sanitizationService.normalizeWhitespace(cleaned);
   }
 
   private stripNameFillers(value: string): string {

@@ -148,31 +148,31 @@ Ensure service address accuracy under noisy, partial, or ambiguous voice input.
 
 **Requirements**
 
-- [ ] Address capture is multi-phase:
-  - [ ] Raw speech capture
-  - [ ] AI extraction
-  - [ ] Normalization / parsing
-  - [ ] Read-back confirmation
+- [x] Address capture is multi-phase:
+  - [x] Raw speech capture
+  - [x] AI extraction
+  - [x] Normalization / parsing
+  - [x] Read-back confirmation
 - [ ] Never guess or autocomplete street names
-- [ ] Detect low-confidence or partial addresses
+- [x] Detect low-confidence or partial addresses
 - [ ] Structured confirmation prompt:
   - [ ] “I have 20991 Reach Your A… That seems incomplete. Can you repeat the full street name?”
-- [ ] Block job creation until address is confirmed
+- [x] Block job creation until address is confirmed
 
 **Rules**
 
-- [ ] `VOICE_ADDRESS_MIN_CONFIDENCE` required (env-configurable, fail closed below threshold)
-- [ ] If confidence < `VOICE_ADDRESS_MIN_CONFIDENCE` → clarification loop
-- [ ] If repeated ambiguity (>= 2 attempts) → safe escalation (human or SMS follow-up)
-- [ ] Address persistence only after explicit confirmation
+- [x] `VOICE_ADDRESS_MIN_CONFIDENCE` required (env-configurable, fail closed below threshold)
+- [x] If confidence < `VOICE_ADDRESS_MIN_CONFIDENCE` → clarification loop
+- [x] If repeated ambiguity (>= 2 attempts) → safe escalation (human or SMS follow-up)
+- [x] Address persistence only after explicit confirmation
 - [ ] Google Places may validate/normalize only after explicit confirmation (no guessing)
 
 **Acceptance Criteria**
 
-- [ ] `confirmedAddress` is written only after explicit confirmation
-- [ ] `fieldConfirmations` entry exists for `address` with `confirmedAt` + `sourceEventId`
+- [x] `confirmedAddress` is written only after explicit confirmation
+- [x] `fieldConfirmations` entry exists for `address` with `confirmedAt` + `sourceEventId`
 - [ ] Places validation runs only after confirmation
-- [ ] FSM blocks downstream actions without confirmed address
+- [x] FSM blocks downstream actions without confirmed address
 
 #### T-V03 — Interruption-Safe Voice Turn Handling (P0)
 

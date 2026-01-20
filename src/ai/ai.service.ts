@@ -243,6 +243,64 @@ export class AiService {
     }
   }
 
+  async extractAddressCandidate(
+    tenantId: string,
+    transcript: string,
+  ): Promise<{ address: string | null; confidence?: number } | null> {
+    const safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
+    const safeTranscript = this.sanitizationService.sanitizeText(transcript);
+    if (!safeTenantId || !safeTranscript) {
+      return null;
+    }
+
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content:
+          "Extract the service address from the transcript. Return JSON only: {\"address\": string|null, \"confidence\": number|null}. Confidence must be 0-1. If no address is present, return {\"address\": null, \"confidence\": null}.",
+      },
+      { role: "user", content: safeTranscript },
+    ];
+
+    try {
+      const response = await this.aiProviderService.createCompletion({
+        messages,
+        toolChoice: "none",
+        maxTokens: Math.min(this.config.aiMaxTokens ?? 800, 80),
+      });
+      const content = response.choices[0]?.message?.content ?? "";
+      const parsed = this.parseAddressJson(content);
+      if (!parsed) {
+        this.loggingService.warn(
+          {
+            event: "ai.address_extraction_failed",
+            tenantId: safeTenantId,
+            reason: "invalid_json",
+          },
+          AiService.name,
+        );
+        return null;
+      }
+      const address = parsed.address
+        ? this.sanitizationService.sanitizeText(parsed.address)
+        : null;
+      const confidence = this.normalizeConfidence(parsed.confidence);
+      return {
+        address: address || null,
+        ...(typeof confidence === "number" ? { confidence } : {}),
+      };
+    } catch (error) {
+      this.loggingService.warn(
+        {
+          event: "ai.address_extraction_failed",
+          tenantId: safeTenantId,
+        },
+        AiService.name,
+      );
+      return null;
+    }
+  }
+
   private isFunctionToolCall(
     toolCall: OpenAI.ChatCompletionMessageToolCall,
   ): toolCall is OpenAI.ChatCompletionMessageToolCall & {
@@ -267,6 +325,52 @@ export class AiService {
     } catch {
       return null;
     }
+  }
+
+  private parseAddressJson(value: string): {
+    address: string | null;
+    confidence?: number | null;
+  } | null {
+    if (!value) {
+      return null;
+    }
+    const start = value.indexOf("{");
+    const end = value.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) {
+      return null;
+    }
+    const slice = value.slice(start, end + 1);
+    try {
+      const parsed = JSON.parse(slice) as {
+        address?: unknown;
+        confidence?: unknown;
+      };
+      const address =
+        typeof parsed.address === "string" ? parsed.address : null;
+      const confidence =
+        typeof parsed.confidence === "number" ||
+        typeof parsed.confidence === "string"
+          ? Number(parsed.confidence)
+          : null;
+      return { address, confidence };
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeConfidence(
+    value: number | null | undefined,
+  ): number | undefined {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return undefined;
+    }
+    if (value >= 0 && value <= 1) {
+      return value;
+    }
+    if (value > 1 && value <= 100) {
+      return value / 100;
+    }
+    return undefined;
   }
 
   private async handleToolCall(

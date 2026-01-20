@@ -27,6 +27,7 @@ export interface AppConfig {
   twilioWebhookBaseUrl: string;
   voiceMaxTurns: number;
   voiceMaxDurationSec: number;
+  voiceAddressMinConfidence: number;
   corsOrigins: string[];
 }
 
@@ -82,6 +83,9 @@ export default registerAs("app", (): AppConfig => {
     twilioWebhookBaseUrl: process.env.TWILIO_WEBHOOK_BASE_URL ?? "",
     voiceMaxTurns: Number(process.env.VOICE_MAX_TURNS ?? 6),
     voiceMaxDurationSec: Number(process.env.VOICE_MAX_DURATION_SEC ?? 180),
+    voiceAddressMinConfidence: Number(
+      process.env.VOICE_ADDRESS_MIN_CONFIDENCE ?? 0.7,
+    ),
     corsOrigins,
   };
 });
