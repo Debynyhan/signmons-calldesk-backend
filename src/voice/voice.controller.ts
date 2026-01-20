@@ -327,37 +327,47 @@ export class VoiceController {
       updatedConversation?.collectedData ?? conversation.collectedData,
     );
     if (addressState.status !== "CONFIRMED") {
+      if (addressState.status === "FAILED") {
+        return this.replyWithTwiml(
+          res,
+          this.buildTwiml(
+            "Thanks. We'll follow up by text to confirm your address.",
+          ),
+        );
+      }
       const duplicateMissing =
-        !addressState.candidate.value &&
-        addressState.candidate.sourceEventId === currentEventId;
+        !addressState.candidate && addressState.sourceEventId === currentEventId;
       if (duplicateMissing) {
         return this.replyWithTwiml(res, this.buildAskAddressTwiml());
       }
 
       const candidateForEvent =
-        Boolean(addressState.candidate.value) &&
-        addressState.candidate.sourceEventId === currentEventId;
-      if (candidateForEvent && addressState.candidate.value) {
+        Boolean(addressState.candidate) &&
+        addressState.sourceEventId === currentEventId;
+      if (candidateForEvent && addressState.candidate) {
+        if (this.isIncompleteAddress(addressState.candidate)) {
+          return this.replyWithTwiml(
+            res,
+            this.buildIncompleteAddressTwiml(addressState.candidate),
+          );
+        }
         return this.replyWithTwiml(
           res,
-          this.buildAddressConfirmationTwiml(addressState.candidate.value),
+          this.buildAddressConfirmationTwiml(addressState.candidate),
         );
       }
 
-      if (addressState.candidate.value) {
+      if (addressState.candidate) {
         const confirmation = this.parseConfirmation(normalizedSpeech);
         if (confirmation === "confirm") {
           if (!addressState.locked) {
             const confirmedAt = new Date().toISOString();
             const nextAddressState: typeof addressState = {
               ...addressState,
-              confirmed: {
-                value: addressState.candidate.value,
-                sourceEventId: currentEventId,
-                confirmedAt,
-              },
+              confirmed: addressState.candidate,
               status: "CONFIRMED",
               locked: true,
+              sourceEventId: currentEventId,
             };
             await this.conversationsService.updateVoiceAddressState({
               tenantId: tenant.id,
@@ -365,7 +375,7 @@ export class VoiceController {
               addressState: nextAddressState,
               confirmation: {
                 field: "address",
-                value: addressState.candidate.value,
+                value: addressState.candidate,
                 confirmedAt,
                 sourceEventId: currentEventId ?? "",
                 channel: "VOICE",
@@ -395,13 +405,10 @@ export class VoiceController {
           const shouldFailClosed = nextAttempt >= 2;
           const nextAddressState: typeof addressState = {
             ...addressState,
-            candidate: {
-              value: null,
-              sourceEventId: currentEventId,
-              createdAt: null,
-            },
-            status: "MISSING",
+            candidate: null,
+            status: shouldFailClosed ? "FAILED" : "MISSING",
             attemptCount: nextAttempt,
+            sourceEventId: currentEventId,
           };
           await this.conversationsService.updateVoiceAddressState({
             tenantId: tenant.id,
@@ -409,6 +416,18 @@ export class VoiceController {
             addressState: nextAddressState,
           });
           if (shouldFailClosed) {
+            this.loggingService.log(
+              {
+                event: "voice.address_capture_failed",
+                tenantId: tenant.id,
+                conversationId,
+                callSid,
+                attemptCount: nextAttempt,
+                candidate: addressState.candidate,
+                confidence: addressState.confidence,
+              },
+              VoiceController.name,
+            );
             return this.replyWithTwiml(
               res,
               this.buildTwiml(
@@ -435,18 +454,18 @@ export class VoiceController {
           : undefined;
       const meetsConfidence =
         typeof confidence === "number" && confidence >= minConfidence;
-      if (!candidateAddress || !meetsConfidence) {
+      const isIncomplete =
+        !candidateAddress || this.isIncompleteAddress(candidateAddress);
+      if (isIncomplete || !meetsConfidence) {
         const nextAttempt = addressState.attemptCount + 1;
         const shouldFailClosed = nextAttempt >= 2;
         const nextAddressState: typeof addressState = {
           ...addressState,
-          candidate: {
-            value: null,
-            sourceEventId: currentEventId,
-            createdAt: null,
-          },
-          status: "MISSING",
+          candidate: candidateAddress || null,
+          status: shouldFailClosed ? "FAILED" : "CANDIDATE",
           attemptCount: nextAttempt,
+          confidence,
+          sourceEventId: currentEventId,
         };
         await this.conversationsService.updateVoiceAddressState({
           tenantId: tenant.id,
@@ -454,6 +473,18 @@ export class VoiceController {
           addressState: nextAddressState,
         });
         if (shouldFailClosed) {
+          this.loggingService.log(
+            {
+              event: "voice.address_capture_failed",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              attemptCount: nextAttempt,
+              candidate: candidateAddress,
+              confidence,
+            },
+            VoiceController.name,
+          );
           return this.replyWithTwiml(
             res,
             this.buildTwiml(
@@ -461,17 +492,18 @@ export class VoiceController {
             ),
           );
         }
-        return this.replyWithTwiml(res, this.buildAskAddressTwiml());
+        return this.replyWithTwiml(
+          res,
+          this.buildIncompleteAddressTwiml(candidateAddress),
+        );
       }
 
       const nextAddressState: typeof addressState = {
         ...addressState,
-        candidate: {
-          value: candidateAddress,
-          sourceEventId: currentEventId,
-          createdAt: new Date().toISOString(),
-        },
+        candidate: candidateAddress,
         status: "CANDIDATE",
+        confidence,
+        sourceEventId: currentEventId,
       };
       await this.conversationsService.updateVoiceAddressState({
         tenantId: tenant.id,
@@ -486,8 +518,8 @@ export class VoiceController {
 
     if (
       addressState.locked &&
-      addressState.confirmed.sourceEventId &&
-      addressState.confirmed.sourceEventId === currentEventId
+      addressState.sourceEventId &&
+      addressState.sourceEventId === currentEventId
     ) {
       return this.replyWithTwiml(
         res,
@@ -663,6 +695,22 @@ export class VoiceController {
     );
   }
 
+  private buildIncompleteAddressTwiml(candidate: string): string {
+    const normalized = candidate.replace(/\s+/g, " ").trim();
+    const tokens = normalized ? normalized.split(" ") : [];
+    const numberIndex = tokens.findIndex((token) => /\d/.test(token));
+    if (numberIndex === -1) {
+      return this.buildSayGatherTwiml(
+        "I didn't catch the house number. Please repeat the full street name and city.",
+      );
+    }
+    const numberToken = tokens[numberIndex];
+    const prefixTokens = tokens.slice(numberIndex + 1, numberIndex + 4);
+    const prefix = prefixTokens.length ? ` ${prefixTokens.join(" ")}` : "";
+    const message = `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`;
+    return this.buildSayGatherTwiml(message);
+  }
+
   private buildYesNoRepromptTwiml(): string {
     return this.buildSayGatherTwiml("Please say 'yes' or 'no'.");
   }
@@ -741,6 +789,40 @@ export class VoiceController {
   private normalizeAddressCandidate(value: string): string {
     const cleaned = this.sanitizationService.sanitizeText(value);
     return this.sanitizationService.normalizeWhitespace(cleaned);
+  }
+
+  private isIncompleteAddress(candidate: string): boolean {
+    const normalized = candidate.replace(/\s+/g, " ").trim();
+    if (normalized.length < 6) {
+      return true;
+    }
+    const hasDigit = /\d/.test(normalized);
+    const hasAlpha = /[A-Za-z]/.test(normalized);
+    if (!hasDigit) {
+      return true;
+    }
+    if (!hasAlpha) {
+      return true;
+    }
+    if (/^\d+$/.test(normalized) || /^[A-Za-z\s]+$/.test(normalized)) {
+      return true;
+    }
+    if (!/^\d+\s+\S+/.test(normalized)) {
+      return true;
+    }
+    if (/\s[A-Za-z]\s*$/.test(normalized)) {
+      return true;
+    }
+    if (/\.\.\.|\u2026/.test(normalized)) {
+      return true;
+    }
+    const abbrevMatch = normalized.match(
+      /\s([A-Za-z]{1,2})\s+(st|rd|dr|ave|blvd|ln|ct)\s*$/i,
+    );
+    if (abbrevMatch && abbrevMatch[1].length <= 2) {
+      return true;
+    }
+    return false;
   }
 
   private stripNameFillers(value: string): string {

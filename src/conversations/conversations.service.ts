@@ -28,23 +28,15 @@ type VoiceNameState = {
   locked: boolean;
   attemptCount: number;
 };
-type VoiceAddressStatus = "MISSING" | "CANDIDATE" | "CONFIRMED";
-type VoiceAddressCandidate = {
-  value: string | null;
-  sourceEventId: string | null;
-  createdAt: string | null;
-};
-type VoiceAddressConfirmed = {
-  value: string | null;
-  sourceEventId: string | null;
-  confirmedAt: string | null;
-};
+type VoiceAddressStatus = "MISSING" | "CANDIDATE" | "CONFIRMED" | "FAILED";
 type VoiceAddressState = {
-  candidate: VoiceAddressCandidate;
-  confirmed: VoiceAddressConfirmed;
+  candidate: string | null;
+  confirmed: string | null;
   status: VoiceAddressStatus;
   locked: boolean;
   attemptCount: number;
+  confidence?: number;
+  sourceEventId?: string | null;
 };
 type VoiceFieldConfirmation = {
   field: "name" | "address";
@@ -520,11 +512,13 @@ export class ConversationsService {
 
   private getDefaultAddressState(): VoiceAddressState {
     return {
-      candidate: { value: null, sourceEventId: null, createdAt: null },
-      confirmed: { value: null, sourceEventId: null, confirmedAt: null },
+      candidate: null,
+      confirmed: null,
       status: "MISSING",
       locked: false,
       attemptCount: 0,
+      confidence: undefined,
+      sourceEventId: null,
     };
   }
 
@@ -575,38 +569,64 @@ export class ConversationsService {
     if (!value || typeof value !== "object") {
       return defaults;
     }
-    const data = value as Partial<VoiceAddressState>;
-    const candidate = data.candidate ?? defaults.candidate;
-    const confirmed = data.confirmed ?? defaults.confirmed;
+    const data = value as Record<string, unknown>;
+    const candidateRaw = data.candidate;
+    const confirmedRaw = data.confirmed;
+    let candidate =
+      typeof candidateRaw === "string" ? candidateRaw : defaults.candidate;
+    let confirmed =
+      typeof confirmedRaw === "string" ? confirmedRaw : defaults.confirmed;
+    let sourceEventId =
+      typeof data.sourceEventId === "string" ? data.sourceEventId : null;
+    const confidence =
+      typeof data.confidence === "number" ? data.confidence : undefined;
+    if (candidateRaw && typeof candidateRaw === "object") {
+      const legacyCandidate = candidateRaw as {
+        value?: unknown;
+        sourceEventId?: unknown;
+      };
+      if (typeof legacyCandidate.value === "string") {
+        candidate = legacyCandidate.value;
+      }
+      if (
+        typeof legacyCandidate.sourceEventId === "string" &&
+        !sourceEventId
+      ) {
+        sourceEventId = legacyCandidate.sourceEventId;
+      }
+    }
+    if (confirmedRaw && typeof confirmedRaw === "object") {
+      const legacyConfirmed = confirmedRaw as {
+        value?: unknown;
+        sourceEventId?: unknown;
+      };
+      if (typeof legacyConfirmed.value === "string") {
+        confirmed = legacyConfirmed.value;
+      }
+      if (
+        typeof legacyConfirmed.sourceEventId === "string" &&
+        !sourceEventId
+      ) {
+        sourceEventId = legacyConfirmed.sourceEventId;
+      }
+    }
     const status =
-      data.status === "CANDIDATE" || data.status === "CONFIRMED"
+      data.status === "CANDIDATE" ||
+      data.status === "CONFIRMED" ||
+      data.status === "FAILED"
         ? data.status
         : "MISSING";
     return {
-      candidate: {
-        value: typeof candidate.value === "string" ? candidate.value : null,
-        sourceEventId:
-          typeof candidate.sourceEventId === "string"
-            ? candidate.sourceEventId
-            : null,
-        createdAt:
-          typeof candidate.createdAt === "string" ? candidate.createdAt : null,
-      },
-      confirmed: {
-        value: typeof confirmed.value === "string" ? confirmed.value : null,
-        sourceEventId:
-          typeof confirmed.sourceEventId === "string"
-            ? confirmed.sourceEventId
-            : null,
-        confirmedAt:
-          typeof confirmed.confirmedAt === "string" ? confirmed.confirmedAt : null,
-      },
+      candidate: candidate ?? null,
+      confirmed: confirmed ?? null,
       status,
       locked: Boolean(data.locked),
       attemptCount:
         typeof data.attemptCount === "number" && data.attemptCount >= 0
           ? data.attemptCount
           : 0,
+      confidence,
+      sourceEventId,
     };
   }
 
@@ -628,7 +648,7 @@ export class ConversationsService {
     current: VoiceAddressState,
     next: VoiceAddressState,
   ): VoiceAddressState {
-    if (current.locked && current.confirmed.value) {
+    if (current.locked && current.confirmed) {
       return {
         ...current,
         status: "CONFIRMED",

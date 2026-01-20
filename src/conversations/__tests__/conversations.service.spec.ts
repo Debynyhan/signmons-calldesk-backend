@@ -181,15 +181,12 @@ describe("ConversationsService", () => {
       tenantId: "tenant-1",
       conversationId: "conv-1",
       addressState: {
-        candidate: { value: null, sourceEventId: null, createdAt: null },
-        confirmed: {
-          value: "123 Main St",
-          sourceEventId: "evt-1",
-          confirmedAt: "2026-01-01T00:00:00.000Z",
-        },
+        candidate: null,
+        confirmed: "123 Main St",
         status: "CONFIRMED",
         locked: true,
         attemptCount: 1,
+        sourceEventId: "evt-1",
       },
       confirmation: {
         field: "address",
@@ -225,15 +222,12 @@ describe("ConversationsService", () => {
       id: "conv-1",
       collectedData: {
         address: {
-          candidate: { value: null, sourceEventId: null, createdAt: null },
-          confirmed: {
-            value: "123 Main St",
-            sourceEventId: "evt-1",
-            confirmedAt: "2026-01-01T00:00:00.000Z",
-          },
+          candidate: null,
+          confirmed: "123 Main St",
           status: "CONFIRMED",
           locked: true,
           attemptCount: 1,
+          sourceEventId: "evt-1",
         },
       },
     } as never);
@@ -246,19 +240,12 @@ describe("ConversationsService", () => {
       tenantId: "tenant-1",
       conversationId: "conv-1",
       addressState: {
-        candidate: {
-          value: "456 Elm St",
-          sourceEventId: "evt-2",
-          createdAt: "2026-01-02T00:00:00.000Z",
-        },
-        confirmed: {
-          value: "456 Elm St",
-          sourceEventId: "evt-2",
-          confirmedAt: "2026-01-02T00:00:00.000Z",
-        },
+        candidate: "456 Elm St",
+        confirmed: "456 Elm St",
         status: "CONFIRMED",
         locked: true,
         attemptCount: 2,
+        sourceEventId: "evt-2",
       },
     });
 
@@ -267,10 +254,7 @@ describe("ConversationsService", () => {
         data: expect.objectContaining({
           collectedData: expect.objectContaining({
             address: expect.objectContaining({
-              confirmed: expect.objectContaining({
-                value: "123 Main St",
-                sourceEventId: "evt-1",
-              }),
+              confirmed: "123 Main St",
               status: "CONFIRMED",
               locked: true,
             }),
