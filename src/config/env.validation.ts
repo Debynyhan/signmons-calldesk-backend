@@ -43,6 +43,10 @@ export const envValidationSchema = Joi.object({
   VOICE_MAX_TURNS: Joi.number().min(1).max(50).default(6),
   VOICE_MAX_DURATION_SEC: Joi.number().min(30).max(3600).default(180),
   VOICE_ADDRESS_MIN_CONFIDENCE: Joi.number().min(0).max(1).default(0.7),
+  ADDRESS_VALIDATION_PROVIDER: Joi.string()
+    .valid("none", "google")
+    .default("none"),
+  GOOGLE_PLACES_API_KEY: Joi.string().allow("").default(""),
   PORT: Joi.number().min(0).max(65535).default(3000),
 }).custom((values, helpers) => {
   if (
@@ -63,6 +67,14 @@ export const envValidationSchema = Joi.object({
     if (missing.length) {
       return helpers.error("any.invalid", {
         message: `VOICE_ENABLED=true requires: ${missing.join(", ")}`,
+      });
+    }
+  }
+  if (values.ADDRESS_VALIDATION_PROVIDER === "google") {
+    if (!values.GOOGLE_PLACES_API_KEY) {
+      return helpers.error("any.invalid", {
+        message:
+          "ADDRESS_VALIDATION_PROVIDER=google requires GOOGLE_PLACES_API_KEY.",
       });
     }
   }

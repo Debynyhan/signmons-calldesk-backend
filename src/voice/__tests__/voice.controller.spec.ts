@@ -17,6 +17,7 @@ import { AiErrorHandler } from "../../ai/ai-error.handler";
 import { LoggingService } from "../../logging/logging.service";
 import { AlertingService } from "../../logging/alerting.service";
 import { ToolSelectorService } from "../../ai/tools/tool-selector.service";
+import { AddressValidationService } from "../../address/address-validation.service";
 
 const validateRequestMock = jest.fn();
 
@@ -1089,6 +1090,11 @@ describe("VoiceController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
+    const addressValidationService = app.get(AddressValidationService);
+    const validateSpy = jest.spyOn(
+      addressValidationService,
+      "validateConfirmedAddress",
+    );
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1110,6 +1116,7 @@ describe("VoiceController", () => {
       }),
     );
     expect(aiService.triage).not.toHaveBeenCalled();
+    expect(validateSpy).not.toHaveBeenCalled();
     expect(response.text).toContain("That seems incomplete");
     expect(response.text).toContain("repeat the full street name and city");
 
@@ -1195,6 +1202,11 @@ describe("VoiceController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
+    const addressValidationService = app.get(AddressValidationService);
+    const validateSpy = jest.spyOn(
+      addressValidationService,
+      "validateConfirmedAddress",
+    );
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1215,6 +1227,15 @@ describe("VoiceController", () => {
           sourceEventId: "evt-addr-2",
           channel: "VOICE",
         }),
+      }),
+    );
+    expect(validateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        conversationId: "conversation-1",
+        address: "123 Main St",
+        callSid: "CA123",
+        sourceEventId: "evt-addr-2",
       }),
     );
     expect(loggingService.log).toHaveBeenCalledWith(

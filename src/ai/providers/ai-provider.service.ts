@@ -129,9 +129,9 @@ export class AiProviderService implements IAiProvider {
       max_tokens: options.maxTokens,
     });
 
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => {
-        clearTimeout(timer);
+      timer = setTimeout(() => {
         this.loggingService.warn(
           {
             event: "ai_budget_triggered",
@@ -144,7 +144,13 @@ export class AiProviderService implements IAiProvider {
       }, timeoutMs);
     });
 
-    return Promise.race([request, timeout]);
+    try {
+      return await Promise.race([request, timeout]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   private logAiEvent(

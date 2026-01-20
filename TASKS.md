@@ -153,10 +153,10 @@ Ensure service address accuracy under noisy, partial, or ambiguous voice input.
   - [x] AI extraction
   - [x] Normalization / parsing
   - [x] Read-back confirmation
-- [ ] Never guess or autocomplete street names
+- [x] Never guess or autocomplete street names
 - [x] Detect low-confidence or partial addresses
-- [ ] Structured confirmation prompt:
-  - [ ] “I have 20991 Reach Your A… That seems incomplete. Can you repeat the full street name?”
+- [x] Structured confirmation prompt:
+  - [x] “I have 20991 Reach Your A… That seems incomplete. Can you repeat the full street name?”
 - [x] Block job creation until address is confirmed
 
 **Rules**
@@ -165,13 +165,13 @@ Ensure service address accuracy under noisy, partial, or ambiguous voice input.
 - [x] If confidence < `VOICE_ADDRESS_MIN_CONFIDENCE` → clarification loop
 - [x] If repeated ambiguity (>= 2 attempts) → safe escalation (human or SMS follow-up)
 - [x] Address persistence only after explicit confirmation
-- [ ] Google Places may validate/normalize only after explicit confirmation (no guessing)
+- [x] Google Places may validate/normalize only after explicit confirmation (no guessing)
 
 **Acceptance Criteria**
 
 - [x] `confirmedAddress` is written only after explicit confirmation
 - [x] `fieldConfirmations` entry exists for `address` with `confirmedAt` + `sourceEventId`
-- [ ] Places validation runs only after confirmation
+- [x] Places validation runs only after confirmation
 - [x] FSM blocks downstream actions without confirmed address
 
 #### T-V03 — Interruption-Safe Voice Turn Handling (P0)

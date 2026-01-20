@@ -6,6 +6,7 @@ import { SanitizationModule } from "../sanitization/sanitization.module";
 import { ConversationsService } from "../conversations/conversations.service";
 import { AiModule } from "../ai/ai.module";
 import { LoggingModule } from "../logging/logging.module";
+import { AddressValidationService } from "../address/address-validation.service";
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { LoggingModule } from "../logging/logging.module";
     AiModule,
     LoggingModule,
   ],
-  providers: [ConversationsService],
+  providers: [ConversationsService, AddressValidationService],
   controllers: [VoiceController],
 })
 export class VoiceModule {}
