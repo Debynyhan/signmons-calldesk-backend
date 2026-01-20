@@ -260,10 +260,14 @@ export class VoiceController {
         return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
       }
 
-      const extracted = await this.aiService.extractNameCandidate(
-        tenant.id,
-        normalizedSpeech,
-      );
+      const deterministicCandidate =
+        this.extractNameCandidateDeterministic(normalizedSpeech);
+      const extracted =
+        deterministicCandidate ??
+        (await this.aiService.extractNameCandidate(
+          tenant.id,
+          normalizedSpeech,
+        ));
       const candidateName = this.normalizeNameCandidate(extracted ?? "");
       if (!candidateName) {
         const nextAttempt = nameState.attemptCount + 1;
@@ -675,8 +679,11 @@ export class VoiceController {
     const actionUrl = this.buildWebhookUrl("/api/voice/turn");
     const consent =
       "This call may be transcribed and handled by automated systems for service and quality purposes. By continuing, you consent to this process.";
+    const greeting = "Thanks for calling. Please say your full name.";
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
       consent,
+    )}</Say><Say>${this.escapeXml(
+      greeting,
     )}</Say><Gather input="speech" action="${this.escapeXml(
       actionUrl,
     )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
@@ -810,6 +817,41 @@ export class VoiceController {
       return "";
     }
     return this.toTitleCase(normalized);
+  }
+
+  private extractNameCandidateDeterministic(transcript: string): string | null {
+    const cleaned = this.sanitizationService.sanitizeText(transcript);
+    if (!cleaned) {
+      return null;
+    }
+    const tokenPattern = "([A-Za-z][A-Za-z'\\-]*(?:\\s+[A-Za-z][A-Za-z'\\-]*){0,2})";
+    const patterns = [
+      new RegExp(`\\bmy name is\\s+${tokenPattern}`, "i"),
+      new RegExp(`\\bthis is\\s+${tokenPattern}`, "i"),
+      new RegExp(`\\bi am\\s+${tokenPattern}`, "i"),
+      new RegExp(`\\bi'?m\\s+${tokenPattern}`, "i"),
+      new RegExp(`\\bname is\\s+${tokenPattern}`, "i"),
+      new RegExp(`\\bit'?s\\s+${tokenPattern}`, "i"),
+    ];
+    for (const pattern of patterns) {
+      const match = cleaned.match(pattern);
+      if (!match || !match[1]) {
+        continue;
+      }
+      const normalized = this.normalizeNameCandidate(match[1]);
+      if (this.isValidNameCandidate(normalized)) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  private isValidNameCandidate(candidate: string): boolean {
+    const tokens = candidate.split(" ").filter(Boolean);
+    if (tokens.length < 2 || tokens.length > 3) {
+      return false;
+    }
+    return tokens.every((token) => /^[A-Za-z][A-Za-z'-]*$/.test(token));
   }
 
   private normalizeAddressCandidate(value: string): string {

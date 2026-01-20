@@ -3,7 +3,7 @@ import type { ConfigType } from "@nestjs/config";
 import type OpenAI from "openai";
 import appConfig from "../../config/app.config";
 import { AI_COMPLETION_PROVIDER } from "../ai.constants";
-import type { IAiProviderClient } from "./ai-provider.interface";
+import type { CompletionRequest, IAiProviderClient } from "./ai-provider.interface";
 import type {
   CompletionRequestOptions,
   IAiProvider,
@@ -121,13 +121,16 @@ export class AiProviderService implements IAiProvider {
     options: CompletionRequestOptions,
   ): Promise<OpenAI.ChatCompletion> {
     const timeoutMs = Math.max(1000, this.config.aiTimeoutMs ?? 15000);
-    const request = this.client.createCompletion({
+    const requestPayload: CompletionRequest = {
       model,
       messages: options.messages,
-      tools: options.tools,
-      tool_choice: options.toolChoice ?? "auto",
       max_tokens: options.maxTokens,
-    });
+    };
+    if (options.tools && options.tools.length > 0) {
+      requestPayload.tools = options.tools;
+      requestPayload.tool_choice = options.toolChoice ?? "auto";
+    }
+    const request = this.client.createCompletion(requestPayload);
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {

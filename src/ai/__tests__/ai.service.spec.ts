@@ -537,4 +537,17 @@ describe("AiProviderService", () => {
       AiProviderService.name,
     );
   });
+
+  it("omits tool_choice when no tools are provided", async () => {
+    const response = { id: "resp", choices: [] } as never;
+    client.createCompletion.mockResolvedValueOnce(response);
+
+    await provider.createCompletion({
+      messages: [],
+      toolChoice: "none",
+    });
+
+    const payload = client.createCompletion.mock.calls[0]?.[0];
+    expect(payload?.tool_choice).toBeUndefined();
+  });
 });
