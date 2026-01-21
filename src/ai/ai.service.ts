@@ -132,6 +132,10 @@ export class AiService {
         messages,
         tools: tools.length ? tools : undefined,
         maxTokens: this.config.aiMaxTokens,
+        temperature:
+          options?.channel === CommunicationChannel.VOICE
+            ? this.config.aiVoiceReplyTemperature
+            : undefined,
       });
       openAIResponseId = response.id;
       const choice = response.choices[0];
@@ -223,6 +227,7 @@ export class AiService {
         messages,
         toolChoice: "none",
         maxTokens: Math.min(this.config.aiMaxTokens ?? 800, 60),
+        temperature: this.config.aiExtractionTemperature,
       });
       const content = response.choices[0]?.message?.content ?? "";
       const parsed = this.parseNameJson(content);
@@ -267,6 +272,7 @@ export class AiService {
         messages,
         toolChoice: "none",
         maxTokens: Math.min(this.config.aiMaxTokens ?? 800, 80),
+        temperature: this.config.aiExtractionTemperature,
       });
       const content = response.choices[0]?.message?.content ?? "";
       const parsed = this.parseAddressJson(content);

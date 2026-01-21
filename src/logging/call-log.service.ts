@@ -167,6 +167,61 @@ export class CallLogService {
     });
   }
 
+  async createVoiceAssistantLog(input: {
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    message: string;
+    occurredAt?: Date;
+    sourceEventId?: string;
+  }): Promise<string | null> {
+    const sanitizedMessage = this.obfuscatePii(
+      this.sanitizationService.sanitizeText(input.message),
+    );
+    if (!sanitizedMessage) {
+      return null;
+    }
+
+    if (input.sourceEventId) {
+      const existing = await this.prisma.communicationContent.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          communicationEvent: {
+            conversationId: input.conversationId,
+            channel: CommunicationChannel.VOICE,
+          },
+          payload: {
+            path: ["sourceEventId"],
+            equals: input.sourceEventId,
+          },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        return null;
+      }
+    }
+
+    const payload: Prisma.InputJsonValue = {
+      type: "message",
+      callSid: input.callSid,
+      message: sanitizedMessage,
+      sourceEventId: input.sourceEventId ?? null,
+    };
+
+    return this.createCommunicationEvent({
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      direction: "OUTBOUND",
+      message: sanitizedMessage,
+      payload,
+      channel: CommunicationChannel.VOICE,
+      provider: CommunicationProvider.TWILIO,
+      externalId: input.callSid,
+      occurredAt: input.occurredAt,
+    });
+  }
+
   async getVoiceTranscripts(params: {
     tenantId: string;
     conversationId: string;

@@ -126,6 +126,9 @@ export class AiProviderService implements IAiProvider {
       messages: options.messages,
       max_tokens: options.maxTokens,
     };
+    if (typeof options.temperature === "number") {
+      requestPayload.temperature = options.temperature;
+    }
     if (options.tools && options.tools.length > 0) {
       requestPayload.tools = options.tools;
       requestPayload.tool_choice = options.toolChoice ?? "auto";

@@ -11,6 +11,8 @@ export interface AppConfig {
   aiMaxToolCalls: number;
   aiTimeoutMs: number;
   aiMaxRetries: number;
+  aiVoiceReplyTemperature: number;
+  aiExtractionTemperature: number;
   port: number;
   databaseUrl: string;
   adminApiToken: string;
@@ -57,6 +59,12 @@ export default registerAs("app", (): AppConfig => {
     aiMaxToolCalls: Number(process.env.AI_MAX_TOOL_CALLS ?? 1),
     aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 15000),
     aiMaxRetries: Number(process.env.AI_MAX_RETRIES ?? 1),
+    aiVoiceReplyTemperature: Number(
+      process.env.AI_VOICE_REPLY_TEMPERATURE ?? 0.6,
+    ),
+    aiExtractionTemperature: Number(
+      process.env.AI_EXTRACTION_TEMPERATURE ?? 0.1,
+    ),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     adminApiToken: process.env.ADMIN_API_TOKEN ?? "changeme-admin-token",

@@ -244,6 +244,7 @@ export class ConversationsService {
     const merged = {
       ...current,
       lastTranscript: normalized,
+      lastTranscriptAt: new Date().toISOString(),
       ...(typeof params.confidence === "number"
         ? { lastTranscriptConfidence: params.confidence }
         : {}),

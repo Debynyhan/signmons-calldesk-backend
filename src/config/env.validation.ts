@@ -30,6 +30,8 @@ export const envValidationSchema = Joi.object({
   AI_MAX_TOOL_CALLS: Joi.number().min(0).max(5).default(1),
   AI_TIMEOUT_MS: Joi.number().min(1000).max(60000).default(15000),
   AI_MAX_RETRIES: Joi.number().min(0).max(5).default(1),
+  AI_VOICE_REPLY_TEMPERATURE: Joi.number().min(0).max(1).default(0.6),
+  AI_EXTRACTION_TEMPERATURE: Joi.number().min(0).max(1).default(0.1),
   VOICE_ENABLED: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),

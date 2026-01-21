@@ -9,6 +9,7 @@ export interface CompletionRequestOptions {
   tools?: ChatCompletionTool[];
   toolChoice?: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
   maxTokens?: number;
+  temperature?: number;
 }
 
 export interface IAiProvider {
