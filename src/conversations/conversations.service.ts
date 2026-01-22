@@ -43,7 +43,7 @@ type VoiceFieldConfirmation = {
   value: string;
   confirmedAt: string;
   sourceEventId: string;
-  channel: "VOICE";
+  channel: "VOICE" | "SMS";
 };
 
 @Injectable()
@@ -438,6 +438,103 @@ export class ConversationsService {
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
+    });
+  }
+
+  async promoteNameFromSms(params: {
+    tenantId: string;
+    conversationId: string;
+    value: string;
+    sourceEventId: string;
+    confirmedAt?: string;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const currentName = this.parseNameState(current.name);
+    const confirmedAt = params.confirmedAt ?? new Date().toISOString();
+    const nextNameState: VoiceNameState = {
+      ...currentName,
+      confirmed: {
+        value: params.value,
+        sourceEventId: params.sourceEventId,
+        confirmedAt,
+      },
+      status: "CONFIRMED",
+      locked: true,
+    };
+
+    return this.updateVoiceNameState({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      nameState: nextNameState,
+      confirmation: {
+        field: "name",
+        value: params.value,
+        confirmedAt,
+        sourceEventId: params.sourceEventId,
+        channel: "SMS",
+      },
+    });
+  }
+
+  async promoteAddressFromSms(params: {
+    tenantId: string;
+    conversationId: string;
+    value: string;
+    sourceEventId: string;
+    confirmedAt?: string;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const currentAddress = this.parseAddressState(current.address);
+    const confirmedAt = params.confirmedAt ?? new Date().toISOString();
+    const nextAddressState: VoiceAddressState = {
+      ...currentAddress,
+      confirmed: params.value,
+      status: "CONFIRMED",
+      locked: true,
+      sourceEventId: params.sourceEventId,
+    };
+
+    return this.updateVoiceAddressState({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      addressState: nextAddressState,
+      confirmation: {
+        field: "address",
+        value: params.value,
+        confirmedAt,
+        sourceEventId: params.sourceEventId,
+        channel: "SMS",
+      },
     });
   }
 

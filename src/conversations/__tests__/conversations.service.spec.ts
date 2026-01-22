@@ -263,4 +263,106 @@ describe("ConversationsService", () => {
       }),
     );
   });
+
+  it("promotes a name from SMS confirmation", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {
+        name: {
+          candidate: { value: "Dean Banks", sourceEventId: "evt-1", createdAt: "2026-01-01T00:00:00.000Z" },
+          confirmed: { value: null, sourceEventId: null, confirmedAt: null },
+          status: "CANDIDATE",
+          locked: true,
+          attemptCount: 1,
+        },
+      },
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+
+    await service.promoteNameFromSms({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      value: "Dean Banks",
+      sourceEventId: "sms-1",
+      confirmedAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            name: expect.objectContaining({
+              confirmed: expect.objectContaining({
+                value: "Dean Banks",
+                sourceEventId: "sms-1",
+              }),
+              status: "CONFIRMED",
+              locked: true,
+            }),
+            fieldConfirmations: expect.arrayContaining([
+              expect.objectContaining({
+                field: "name",
+                value: "Dean Banks",
+                sourceEventId: "sms-1",
+                channel: "SMS",
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("promotes an address from SMS confirmation", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {
+        address: {
+          candidate: "123 Main St",
+          confirmed: null,
+          status: "CANDIDATE",
+          locked: true,
+          attemptCount: 1,
+          sourceEventId: "evt-addr-1",
+        },
+      },
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+
+    await service.promoteAddressFromSms({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      value: "123 Main St",
+      sourceEventId: "sms-addr-1",
+      confirmedAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            address: expect.objectContaining({
+              confirmed: "123 Main St",
+              status: "CONFIRMED",
+              locked: true,
+            }),
+            fieldConfirmations: expect.arrayContaining([
+              expect.objectContaining({
+                field: "address",
+                value: "123 Main St",
+                sourceEventId: "sms-addr-1",
+                channel: "SMS",
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
+  });
 });

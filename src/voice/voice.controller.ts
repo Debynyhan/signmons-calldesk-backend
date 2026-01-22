@@ -18,7 +18,6 @@ import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
 import { setRequestContextData } from "../common/context/request-context";
 import { SanitizationService } from "../sanitization/sanitization.service";
-import { AddressValidationService } from "../address/address-validation.service";
 
 @Controller("api/voice")
 export class VoiceController {
@@ -30,7 +29,6 @@ export class VoiceController {
     private readonly conversationsService: ConversationsService,
     private readonly callLogService: CallLogService,
     private readonly aiService: AiService,
-    private readonly addressValidationService: AddressValidationService,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
   ) {}
@@ -177,7 +175,10 @@ export class VoiceController {
       updatedConversation?.collectedData ?? conversation.collectedData,
     );
     const currentEventId = transcriptEventId;
-    if (nameState.status !== "CONFIRMED") {
+    const nameReady =
+      Boolean(nameState.confirmed.value) ||
+      this.isVoiceFieldReady(nameState.locked, nameState.confirmed.value);
+    if (!nameReady) {
       const duplicateMissing =
         !nameState.candidate.value &&
         nameState.candidate.sourceEventId === currentEventId;
@@ -200,12 +201,7 @@ export class VoiceController {
             const confirmedAt = new Date().toISOString();
             const nextNameState: typeof nameState = {
               ...nameState,
-              confirmed: {
-                value: nameState.candidate.value,
-                sourceEventId: currentEventId,
-                confirmedAt,
-              },
-              status: "CONFIRMED",
+              status: "CANDIDATE",
               locked: true,
             };
             await this.conversationsService.updateVoiceNameState({
@@ -386,23 +382,13 @@ export class VoiceController {
       );
     }
 
-    if (
-      nameState.locked &&
-      nameState.confirmed.sourceEventId &&
-      nameState.confirmed.sourceEventId === currentEventId
-    ) {
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml("Thanks. Please say your full address.", {
-          timeout: 8,
-        }),
-      );
-    }
-
     const addressState = this.conversationsService.getVoiceAddressState(
       updatedConversation?.collectedData ?? conversation.collectedData,
     );
-    if (addressState.status !== "CONFIRMED") {
+    const addressReady =
+      Boolean(addressState.confirmed) ||
+      this.isVoiceFieldReady(addressState.locked, addressState.confirmed);
+    if (!addressReady) {
       if (addressState.status === "FAILED") {
         return this.replyWithTwiml(
           res,
@@ -438,34 +424,9 @@ export class VoiceController {
         if (confirmation === "confirm") {
           if (!addressState.locked) {
             const confirmedAt = new Date().toISOString();
-            let confirmedAddress = addressState.candidate;
-            try {
-              confirmedAddress =
-                await this.addressValidationService.validateConfirmedAddress({
-                  tenantId: tenant.id,
-                  conversationId,
-                  address: addressState.candidate,
-                  callSid,
-                  sourceEventId: currentEventId,
-                });
-            } catch (error) {
-              this.loggingService.warn(
-                {
-                  event: "address.validation_failed",
-                  tenantId: tenant.id,
-                  conversationId,
-                  callSid,
-                  sourceEventId: currentEventId,
-                  error:
-                    error instanceof Error ? error.message : "unknown_error",
-                },
-                VoiceController.name,
-              );
-            }
             const nextAddressState: typeof addressState = {
               ...addressState,
-              confirmed: confirmedAddress,
-              status: "CONFIRMED",
+              status: "CANDIDATE",
               locked: true,
               sourceEventId: currentEventId,
             };
@@ -475,7 +436,7 @@ export class VoiceController {
               addressState: nextAddressState,
               confirmation: {
                 field: "address",
-                value: confirmedAddress,
+                value: addressState.candidate,
                 confirmedAt,
                 sourceEventId: currentEventId ?? "",
                 channel: "VOICE",
@@ -949,6 +910,10 @@ export class VoiceController {
 
   private shouldGatherMore(reply: string): boolean {
     return reply.trim().endsWith("?");
+  }
+
+  private isVoiceFieldReady(locked: boolean, confirmed: string | null): boolean {
+    return locked && confirmed === null;
   }
 
   private parseConfirmation(

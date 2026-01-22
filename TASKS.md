@@ -190,7 +190,7 @@ If any one of those is false, the system must fail closed.
 - [x] Voice disabled guard (`VOICE_ENABLED=false` returns safe TwiML)
 - [x] Consent message played before any intake
 - [x] Conversation created on first call event (`channel=VOICE`)
-- [x] `requestId` generated and attached to conversation
+- [ ] `requestId` generated and attached to conversation
 - [x] Twilio Call SID captured and persisted
 
 #### Caller Identity
@@ -267,7 +267,7 @@ If any one of those is false, the system must fail closed.
 #### Data Contract
 
 - [x] `Conversation.collectedData.name` is structured (candidate/confirmed/status/locked/attemptCount)
-- [x] `Conversation.collectedData.address` mirrors `name` with the same structure
+- [ ] `Conversation.collectedData.address` mirrors `name` with the same structure
 - [ ] `confirmed` values are SMS-only; voice writes candidates and provisional status only
 - [x] `Conversation.collectedData.fieldConfirmations` is append-only and includes:
   - [x] `field` (`name` | `address`)
@@ -294,10 +294,10 @@ If any one of those is false, the system must fail closed.
 - [ ] SMS confirmation required before canonical name is written
 
 
-- [x] Voice rejection → re-ask → success path is covered
+- [ ] Voice rejection → re-ask → success path is covered
 - [ ] Voice confirmation updates candidate only (no canonical write)
 - [ ] `confirmedName` is set only after SMS confirmation (channel=SMS)
-- [ ] `confirmedName` is immutable once set
+- [x] `confirmedName` is immutable once set
 - [ ] `fieldConfirmations` includes SMS entry for `name` with `confirmedAt` + `sourceEventId`
 - [ ] Job/payment gates read only SMS-confirmed name
 
@@ -357,7 +357,7 @@ If any one of those is false, the system must fail closed.
 
 
 - [x] Confirmed fields are immutable
-- [x] `attemptCount` increments on REJECT or REPLACE_CANDIDATE
+- [ ] `attemptCount` increments on REJECT or REPLACE_CANDIDATE
 - [x] Max attempts trigger existing SMS/human fallback
 
 ##### T-V14 — Confirmation Resolver Tests

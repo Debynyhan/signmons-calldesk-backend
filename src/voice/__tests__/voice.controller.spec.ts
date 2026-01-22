@@ -978,6 +978,13 @@ describe("VoiceController", () => {
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
+        nameState: expect.objectContaining({
+          status: "CANDIDATE",
+          locked: true,
+          confirmed: expect.objectContaining({
+            value: null,
+          }),
+        }),
         confirmation: expect.objectContaining({
           field: "name",
           value: "Dean Banks",
@@ -1410,12 +1417,6 @@ describe("VoiceController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
-    const addressValidationService = app.get(AddressValidationService);
-    const validateSpy = jest.spyOn(
-      addressValidationService,
-      "validateConfirmedAddress",
-    );
-
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
       .send({
@@ -1429,21 +1430,17 @@ describe("VoiceController", () => {
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
+        addressState: expect.objectContaining({
+          status: "CANDIDATE",
+          locked: true,
+          confirmed: null,
+        }),
         confirmation: expect.objectContaining({
           field: "address",
           value: "123 Main St",
           sourceEventId: "evt-addr-2",
           channel: "VOICE",
         }),
-      }),
-    );
-    expect(validateSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: "tenant-1",
-        conversationId: "conversation-1",
-        address: "123 Main St",
-        callSid: "CA123",
-        sourceEventId: "evt-addr-2",
       }),
     );
     expect(loggingService.log).toHaveBeenCalledWith(
