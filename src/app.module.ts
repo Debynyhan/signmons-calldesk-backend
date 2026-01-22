@@ -14,6 +14,7 @@ import { ToolRegistryModule } from "./ai/tools/tool-registry.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health/health.controller";
 import { VoiceModule } from "./voice/voice.module";
+import { SmsModule } from "./sms/sms.module";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { VoiceModule } from "./voice/voice.module";
     ]),
     AiModule,
     VoiceModule,
+    SmsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

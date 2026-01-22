@@ -16,6 +16,7 @@ import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
 import { ConversationsService } from "../../conversations/conversations.service";
 import { runWithRequestContext } from "../../common/context/request-context";
+import { CommunicationChannel } from "@prisma/client";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(() => "System prompt"),
@@ -222,6 +223,76 @@ describe("AiService", () => {
       tenantId,
       sessionId,
       "conversation-1",
+    );
+  });
+
+  it("blocks create_job tool calls on voice and returns SMS handoff", async () => {
+    aiProvider.createCompletion.mockResolvedValue({
+      id: "resp-voice-1",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call-voice-1",
+                type: "function",
+                function: {
+                  name: "create_job",
+                  arguments: JSON.stringify({
+                    customerName: "Alice",
+                    phone: "123",
+                    issueCategory: "HEATING",
+                    urgency: "EMERGENCY",
+                  }),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    } as never);
+
+    const replyText =
+      "Thanks — I’ll text you to confirm details and secure the appointment.";
+
+    const response = await runWithRequestContext(
+      {
+        tenantId,
+        requestId: "req-voice-1",
+        callSid: "CA123",
+        conversationId: "conversation-1",
+        channel: "VOICE",
+      },
+      () =>
+        service.triage(tenantId, sessionId, "Create job.", {
+          channel: CommunicationChannel.VOICE,
+        }),
+    );
+
+    expect(response).toEqual({ status: "reply", reply: replyText });
+    expect(jobsRepository.createJobFromToolCall).not.toHaveBeenCalled();
+    expect(conversationsService.linkJobToConversation).not.toHaveBeenCalled();
+    expect(callLogService.clearSession).not.toHaveBeenCalled();
+    expect(callLogService.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId,
+        sessionId,
+        conversationId: "conversation-1",
+        aiResponse: replyText,
+        metadata: expect.objectContaining({ toolName: "create_job" }),
+      }),
+    );
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.tool_blocked",
+        tenantId,
+        callSid: "CA123",
+        conversationId: "conversation-1",
+        toolName: "create_job",
+      }),
+      AiService.name,
     );
   });
 

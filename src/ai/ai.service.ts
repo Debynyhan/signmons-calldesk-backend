@@ -396,6 +396,32 @@ export class AiService {
       };
     }
 
+    if (channel === CommunicationChannel.VOICE) {
+      const reply =
+        "Thanks — I’ll text you to confirm details and secure the appointment.";
+      const context = getRequestContext();
+      this.loggingService.warn(
+        {
+          event: "voice.tool_blocked",
+          tenantId,
+          callSid: context?.callSid,
+          conversationId,
+          toolName: name,
+        },
+        AiService.name,
+      );
+      await this.callLogService.createLog({
+        tenantId,
+        sessionId,
+        conversationId,
+        transcript: rawArgs ?? "",
+        aiResponse: reply,
+        metadata: { toolName: name, blocked: "voice_sms_canonical" },
+        channel,
+      });
+      return { status: "reply", reply };
+    }
+
     try {
       const job = await this.jobsRepository.createJobFromToolCall({
         tenantId,

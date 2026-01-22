@@ -217,7 +217,7 @@ If any one of those is false, the system must fail closed.
 
 - [x] Voice transcripts routed through existing AI pipeline
 - [x] Same schema validation, budgets, retries enforced
-- [ ] Voice AI tool calls are classification-only (no job creation in voice)
+- [x] Voice AI tool calls are classification-only (no job creation in voice)
 - [x] AI responses persisted as `CommunicationContent` (ASSISTANT)
 
 #### Voice Output
@@ -248,7 +248,7 @@ If any one of those is false, the system must fail closed.
 #### Authority & Outcomes (P0)
 
 - [ ] SMS confirmation is canonical for name/address/payment
-- [ ] Voice confirmation is provisional only (candidate lock, no canonical write)
+- [x] Voice confirmation is provisional only (candidate lock, no canonical write)
 - [ ] Voice is for momentum and intent capture; SMS is for accuracy and commitment
 - [ ] FSM enforces: no job creation until SMS-confirmed name + address and Stripe payment
 - [ ] Voice outcomes are explicit and logged: SMS handoff (success), human fallback (controlled failure), call ends without handoff (true failure)
@@ -267,8 +267,8 @@ If any one of those is false, the system must fail closed.
 #### Data Contract
 
 - [x] `Conversation.collectedData.name` is structured (candidate/confirmed/status/locked/attemptCount)
-- [ ] `Conversation.collectedData.address` mirrors `name` with the same structure
-- [ ] `confirmed` values are SMS-only; voice writes candidates and provisional status only
+- [x] `Conversation.collectedData.address` mirrors `name` with the same structure
+- [x] `confirmed` values are SMS-only; voice writes candidates and provisional status only
 - [x] `Conversation.collectedData.fieldConfirmations` is append-only and includes:
   - [x] `field` (`name` | `address`)
   - [x] `value`
@@ -290,15 +290,15 @@ If any one of those is false, the system must fail closed.
 - [x] Read back explicitly for confirmation
 - [x] Accept only explicit confirmation (yes / correct)
 - [x] On rejection: clear candidate + re-ask
-- [ ] Lock candidate after voice confirmation (provisional only)
-- [ ] SMS confirmation required before canonical name is written
+- [x] Lock candidate after voice confirmation (provisional only)
+- [x] SMS confirmation required before canonical name is written
 
 
-- [ ] Voice rejection → re-ask → success path is covered
-- [ ] Voice confirmation updates candidate only (no canonical write)
-- [ ] `confirmedName` is set only after SMS confirmation (channel=SMS)
+- [x] Voice rejection → re-ask → success path is covered
+- [x] Voice confirmation updates candidate only (no canonical write)
+- [x] `confirmedName` is set only after SMS confirmation (channel=SMS)
 - [x] `confirmedName` is immutable once set
-- [ ] `fieldConfirmations` includes SMS entry for `name` with `confirmedAt` + `sourceEventId`
+- [x] `fieldConfirmations` includes SMS entry for `name` with `confirmedAt` + `sourceEventId`
 - [ ] Job/payment gates read only SMS-confirmed name
 
 ##### T-V02 — Address Capture with Verification Loop
@@ -315,14 +315,14 @@ If any one of those is false, the system must fail closed.
 - [x] `VOICE_ADDRESS_MIN_CONFIDENCE` required (env-configurable, fail closed below threshold)
 - [x] If confidence < threshold → clarification loop
 - [x] If repeated ambiguity (>= 2 attempts) → safe escalation (human or SMS follow-up)
-- [ ] Address persistence only after SMS confirmation
+- [x] Address persistence only after SMS confirmation
 - [ ] Google Places may validate/normalize only after SMS confirmation (no guessing)
 
 
 - [x] Incomplete/low-confidence addresses do not become canonical
-- [ ] Voice confirmation updates candidate only (no canonical write)
-- [ ] `confirmedAddress` is set only after SMS confirmation (channel=SMS)
-- [ ] `fieldConfirmations` includes SMS entry for `address` with `confirmedAt` + `sourceEventId`
+- [x] Voice confirmation updates candidate only (no canonical write)
+- [x] `confirmedAddress` is set only after SMS confirmation (channel=SMS)
+- [x] `fieldConfirmations` includes SMS entry for `address` with `confirmedAt` + `sourceEventId`
 - [ ] Places validation runs only after SMS confirmation
 - [ ] FSM blocks downstream actions without SMS-confirmed address
 
@@ -539,7 +539,7 @@ If any one of those is false, the system must fail closed.
 
 - [ ] No SMS-confirmed name → no job creation
 - [ ] No SMS-confirmed address → no job creation
-- [ ] Voice never creates jobs (voice only hands off to SMS)
+- [x] Voice never creates jobs (voice only hands off to SMS)
 - [ ] Conflicting data → clarification loop
 - [ ] AI uncertainty → ask again, never assume
 
