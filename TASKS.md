@@ -374,15 +374,15 @@ If any one of those is false, the system must fail closed.
 
 
 
-- [ ] Each prompt defines an explicit `listening_window`
-- [ ] On user barge-in: stop playback + route speech only to expected field
-- [ ] Ignore irrelevant speech during confirmation prompts
-- [ ] Enforce idempotency per voice turn
+- [x] Each prompt defines an explicit `listening_window`
+- [x] On user barge-in: stop playback + route speech only to expected field
+- [x] Ignore irrelevant speech during confirmation prompts
+- [x] Enforce idempotency per voice turn
 
 
-- [ ] Same utterance never processed twice
-- [ ] Interruptions do not bypass confirmation steps
-- [ ] FSM state remains deterministic across interruptions
+- [x] Same utterance never processed twice
+- [x] Interruptions do not bypass confirmation steps
+- [x] FSM state remains deterministic across interruptions
 
 ##### T-V17 — Conversational Momentum & Fatigue Guard
 
@@ -414,14 +414,14 @@ If any one of those is false, the system must fail closed.
 
 
 
-- [ ] If STT confidence >= threshold and heuristics pass and user repeats value
-- [ ] Use soft confirmation phrasing (“Great, I’ve got {value}. ”)
-- [ ] Lock field only after confirmation resolver passes
+- [x] If STT confidence >= threshold and heuristics pass and user repeats value
+- [x] Use soft confirmation phrasing (“Great, I’ve got {value}. ”)
+- [x] Lock field only after confirmation resolver passes
 
 
-- [ ] Fewer explicit “yes/no” prompts
-- [ ] No unconfirmed data persisted
-- [ ] Improved human-like pacing
+- [x] Fewer explicit “yes/no” prompts
+- [x] No unconfirmed data persisted
+- [x] Improved human-like pacing
 
 #### CSR Strategy & Script Layer (P0)
 

@@ -45,6 +45,13 @@ type VoiceFieldConfirmation = {
   sourceEventId: string;
   channel: "VOICE" | "SMS";
 };
+type VoiceListeningField = "name" | "address" | "confirmation";
+type VoiceListeningWindow = {
+  field: VoiceListeningField;
+  sourceEventId: string | null;
+  expiresAt: string;
+  targetField?: "name" | "address";
+};
 
 @Injectable()
 export class ConversationsService {
@@ -432,6 +439,93 @@ export class ConversationsService {
       ...current,
       address: nextAddress,
       ...(confirmations.length ? { fieldConfirmations: confirmations } : {}),
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceListeningWindow(params: {
+    tenantId: string;
+    conversationId: string;
+    window: VoiceListeningWindow;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceListeningWindow: params.window,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async clearVoiceListeningWindow(params: {
+    tenantId: string;
+    conversationId: string;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const { voiceListeningWindow: _ignored, ...rest } = current;
+    const merged: Prisma.InputJsonValue = { ...rest };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceLastEventId(params: {
+    tenantId: string;
+    conversationId: string;
+    eventId: string;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceLastEventId: params.eventId,
     };
 
     return this.prisma.conversation.update({

@@ -29,6 +29,13 @@ type ConfirmationResolution = {
   outcome: ConfirmationOutcome;
   candidate: string | null;
 };
+type VoiceListeningField = "name" | "address" | "confirmation";
+type VoiceListeningWindow = {
+  field: VoiceListeningField;
+  sourceEventId: string | null;
+  expiresAt: string;
+  targetField?: "name" | "address";
+};
 
 @Controller("api/voice")
 export class VoiceController {
@@ -182,28 +189,84 @@ export class VoiceController {
       channel: "VOICE",
     });
 
-    const nameState = this.conversationsService.getVoiceNameState(
-      updatedConversation?.collectedData ?? conversation.collectedData,
-    );
+    const collectedData =
+      updatedConversation?.collectedData ?? conversation.collectedData;
+    const nameState = this.conversationsService.getVoiceNameState(collectedData);
+    const addressState =
+      this.conversationsService.getVoiceAddressState(collectedData);
     const currentEventId = transcriptEventId;
+    let listeningWindow = this.getVoiceListeningWindow(collectedData);
+    if (
+      listeningWindow &&
+      this.shouldClearListeningWindow(listeningWindow, now, nameState, addressState)
+    ) {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      listeningWindow = null;
+    }
+    const lastEventId = this.getVoiceLastEventId(collectedData);
+    if (lastEventId && lastEventId === currentEventId) {
+      return this.replyWithTwiml(
+        res,
+        this.buildListeningWindowReprompt({
+          window: listeningWindow,
+          nameState,
+          addressState,
+        }),
+      );
+    }
+    await this.markVoiceEventProcessed({
+      tenantId: tenant.id,
+      conversationId,
+      eventId: currentEventId,
+    });
+    let expectedField = this.getExpectedListeningField(listeningWindow);
     const nameReady =
       Boolean(nameState.confirmed.value) ||
       this.isVoiceFieldReady(nameState.locked, nameState.confirmed.value);
-    if (!nameReady) {
+    if (expectedField === "name" && nameReady) {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      expectedField = null;
+    }
+    if (expectedField === "address" && !nameReady) {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      expectedField = null;
+    }
+    if (!nameReady && (!expectedField || expectedField === "name")) {
       const duplicateMissing =
         !nameState.candidate.value &&
         nameState.candidate.sourceEventId === currentEventId;
       if (duplicateMissing) {
-        return this.replyWithTwiml(res, this.buildAskNameTwiml());
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "name",
+          sourceEventId: currentEventId,
+          twiml: this.buildAskNameTwiml(),
+        });
       }
       const candidateForEvent =
         Boolean(nameState.candidate.value) &&
         nameState.candidate.sourceEventId === currentEventId;
       if (candidateForEvent && nameState.candidate.value) {
-        return this.replyWithTwiml(
+        return this.replyWithListeningWindow({
           res,
-          this.buildNameConfirmationTwiml(nameState.candidate.value),
-        );
+          tenantId: tenant.id,
+          conversationId,
+          field: "confirmation",
+          targetField: "name",
+          sourceEventId: currentEventId,
+          twiml: this.buildNameConfirmationTwiml(nameState.candidate.value),
+        });
       }
       if (nameState.candidate.value) {
         if (
@@ -214,10 +277,17 @@ export class VoiceController {
             confidence,
           )
         ) {
-          return this.replyWithTwiml(
+          return this.replyWithListeningWindow({
             res,
-            this.buildNameSoftConfirmationTwiml(nameState.candidate.value),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildNameSoftConfirmationTwiml(
+              nameState.candidate.value,
+            ),
+          });
         }
         const resolution = this.resolveConfirmation(
           normalizedSpeech,
@@ -256,16 +326,22 @@ export class VoiceController {
               VoiceController.name,
             );
           }
-          return this.replyWithTwiml(
-            res,
-            this.buildSayGatherTwiml("Thanks. Please say your full address.", {
-              timeout: 8,
-            }),
-          );
-        }
-        if (resolution.outcome === "REJECT") {
-          const nextAttempt = nameState.attemptCount + 1;
-          const shouldFailClosed = nextAttempt >= 3;
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "address",
+          sourceEventId: currentEventId,
+          timeoutSec: 8,
+          twiml: this.buildSayGatherTwiml(
+            "Thanks. Please say your full address.",
+            { timeout: 8 },
+          ),
+        });
+      }
+      if (resolution.outcome === "REJECT") {
+        const nextAttempt = nameState.attemptCount + 1;
+        const shouldFailClosed = nextAttempt >= 3;
           const nextNameState: typeof nameState = {
             ...nameState,
             candidate: {
@@ -282,6 +358,10 @@ export class VoiceController {
             nameState: nextNameState,
           });
           if (shouldFailClosed) {
+            await this.clearVoiceListeningWindow({
+              tenantId: tenant.id,
+              conversationId,
+            });
             return this.replyWithTwiml(
               res,
               this.buildTwiml(
@@ -290,9 +370,23 @@ export class VoiceController {
             );
           }
           if (nextAttempt >= 2) {
-            return this.replyWithTwiml(res, this.buildSpellNameTwiml());
+            return this.replyWithListeningWindow({
+              res,
+              tenantId: tenant.id,
+              conversationId,
+              field: "name",
+              sourceEventId: currentEventId,
+              twiml: this.buildSpellNameTwiml(),
+            });
           }
-          return this.replyWithTwiml(res, this.buildAskNameTwiml());
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildAskNameTwiml(),
+          });
         }
         if (resolution.outcome === "REPLACE_CANDIDATE" && resolution.candidate) {
           const nextAttempt = nameState.attemptCount + 1;
@@ -313,6 +407,10 @@ export class VoiceController {
             nameState: nextNameState,
           });
           if (shouldFailClosed) {
+            await this.clearVoiceListeningWindow({
+              tenantId: tenant.id,
+              conversationId,
+            });
             return this.replyWithTwiml(
               res,
               this.buildTwiml(
@@ -320,33 +418,52 @@ export class VoiceController {
               ),
             );
           }
-          return this.replyWithTwiml(
+          return this.replyWithListeningWindow({
             res,
-            this.buildNameConfirmationTwiml(resolution.candidate),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildNameConfirmationTwiml(resolution.candidate),
+          });
         }
-        return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
-      }
-
-      const sideQuestionReply = await this.buildSideQuestionReply(
-        tenant.id,
-        normalizedSpeech,
-      );
-      if (sideQuestionReply) {
-        await this.callLogService.createVoiceAssistantLog({
+        return this.replyWithListeningWindow({
+          res,
           tenantId: tenant.id,
           conversationId,
-          callSid,
-          message: sideQuestionReply,
-          occurredAt: new Date(),
+          field: "confirmation",
+          targetField: "name",
           sourceEventId: currentEventId,
+          twiml: this.buildYesNoRepromptTwiml(),
         });
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml(
-            `${sideQuestionReply} Now, please say your full name.`,
-          ),
+      }
+
+      if (!expectedField) {
+        const sideQuestionReply = await this.buildSideQuestionReply(
+          tenant.id,
+          normalizedSpeech,
         );
+        if (sideQuestionReply) {
+          await this.callLogService.createVoiceAssistantLog({
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            message: sideQuestionReply,
+            occurredAt: new Date(),
+            sourceEventId: currentEventId,
+          });
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildSayGatherTwiml(
+              `${sideQuestionReply} Now, please say your full name.`,
+            ),
+          });
+        }
       }
 
       const deterministicCandidate =
@@ -382,6 +499,10 @@ export class VoiceController {
           nameState: nextNameState,
         });
         if (shouldFailClosed) {
+          await this.clearVoiceListeningWindow({
+            tenantId: tenant.id,
+            conversationId,
+          });
           return this.replyWithTwiml(
             res,
             this.buildTwiml(
@@ -390,9 +511,23 @@ export class VoiceController {
           );
         }
         if (nextAttempt >= 2) {
-          return this.replyWithTwiml(res, this.buildSpellNameTwiml());
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildSpellNameTwiml(),
+          });
         }
-        return this.replyWithTwiml(res, this.buildAskNameTwiml());
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "name",
+          sourceEventId: currentEventId,
+          twiml: this.buildAskNameTwiml(),
+        });
       }
 
       const nextNameState: typeof nameState = {
@@ -409,20 +544,33 @@ export class VoiceController {
         conversationId,
         nameState: nextNameState,
       });
-      return this.replyWithTwiml(
+      return this.replyWithListeningWindow({
         res,
-        this.buildNameConfirmationTwiml(validatedCandidate),
-      );
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "name",
+        sourceEventId: currentEventId,
+        twiml: this.buildNameConfirmationTwiml(validatedCandidate),
+      });
     }
 
-    const addressState = this.conversationsService.getVoiceAddressState(
-      updatedConversation?.collectedData ?? conversation.collectedData,
-    );
     const addressReady =
       Boolean(addressState.confirmed) ||
       this.isVoiceFieldReady(addressState.locked, addressState.confirmed);
-    if (!addressReady) {
+    if (expectedField === "address" && addressReady) {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      expectedField = null;
+    }
+    if (!addressReady && (!expectedField || expectedField === "address")) {
       if (addressState.status === "FAILED") {
+        await this.clearVoiceListeningWindow({
+          tenantId: tenant.id,
+          conversationId,
+        });
         return this.replyWithTwiml(
           res,
           this.buildTwiml(
@@ -433,7 +581,14 @@ export class VoiceController {
       const duplicateMissing =
         !addressState.candidate && addressState.sourceEventId === currentEventId;
       if (duplicateMissing) {
-        return this.replyWithTwiml(res, this.buildAskAddressTwiml());
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "address",
+          sourceEventId: currentEventId,
+          twiml: this.buildAskAddressTwiml(),
+        });
       }
 
       const candidateForEvent =
@@ -441,15 +596,24 @@ export class VoiceController {
         addressState.sourceEventId === currentEventId;
       if (candidateForEvent && addressState.candidate) {
         if (this.isIncompleteAddress(addressState.candidate)) {
-          return this.replyWithTwiml(
+          return this.replyWithListeningWindow({
             res,
-            this.buildIncompleteAddressTwiml(addressState.candidate),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            field: "address",
+            sourceEventId: currentEventId,
+            twiml: this.buildIncompleteAddressTwiml(addressState.candidate),
+          });
         }
-        return this.replyWithTwiml(
+        return this.replyWithListeningWindow({
           res,
-          this.buildAddressConfirmationTwiml(addressState.candidate),
-        );
+          tenantId: tenant.id,
+          conversationId,
+          field: "confirmation",
+          targetField: "address",
+          sourceEventId: currentEventId,
+          twiml: this.buildAddressConfirmationTwiml(addressState.candidate),
+        });
       }
 
       if (addressState.candidate) {
@@ -461,10 +625,17 @@ export class VoiceController {
             confidence,
           )
         ) {
-          return this.replyWithTwiml(
+          return this.replyWithListeningWindow({
             res,
-            this.buildAddressSoftConfirmationTwiml(addressState.candidate),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "address",
+            sourceEventId: currentEventId,
+            twiml: this.buildAddressSoftConfirmationTwiml(
+              addressState.candidate,
+            ),
+          });
         }
         const resolution = this.resolveConfirmation(
           normalizedSpeech,
@@ -473,10 +644,14 @@ export class VoiceController {
         );
         if (resolution.outcome === "CONFIRM") {
           if (this.isIncompleteAddress(addressState.candidate)) {
-            return this.replyWithTwiml(
+            return this.replyWithListeningWindow({
               res,
-              this.buildIncompleteAddressTwiml(addressState.candidate),
-            );
+              tenantId: tenant.id,
+              conversationId,
+              field: "address",
+              sourceEventId: currentEventId,
+              twiml: this.buildIncompleteAddressTwiml(addressState.candidate),
+            });
           }
           if (!addressState.locked) {
             const confirmedAt = new Date().toISOString();
@@ -510,6 +685,10 @@ export class VoiceController {
               VoiceController.name,
             );
           }
+          await this.clearVoiceListeningWindow({
+            tenantId: tenant.id,
+            conversationId,
+          });
           return this.replyWithTwiml(
             res,
             this.buildSayGatherTwiml(
@@ -545,6 +724,10 @@ export class VoiceController {
               },
               VoiceController.name,
             );
+            await this.clearVoiceListeningWindow({
+              tenantId: tenant.id,
+              conversationId,
+            });
             return this.replyWithTwiml(
               res,
               this.buildTwiml(
@@ -552,7 +735,14 @@ export class VoiceController {
               ),
             );
           }
-          return this.replyWithTwiml(res, this.buildAskAddressTwiml());
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "address",
+            sourceEventId: currentEventId,
+            twiml: this.buildAskAddressTwiml(),
+          });
         }
         if (
           resolution.outcome === "REPLACE_CANDIDATE" &&
@@ -574,6 +764,10 @@ export class VoiceController {
             addressState: nextAddressState,
           });
           if (shouldFailClosed) {
+            await this.clearVoiceListeningWindow({
+              tenantId: tenant.id,
+              conversationId,
+            });
             return this.replyWithTwiml(
               res,
               this.buildTwiml(
@@ -581,34 +775,54 @@ export class VoiceController {
               ),
             );
           }
-          return this.replyWithTwiml(
+          return this.replyWithListeningWindow({
             res,
-            this.buildAddressConfirmationTwiml(resolution.candidate),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "address",
+            sourceEventId: currentEventId,
+            twiml: this.buildAddressConfirmationTwiml(resolution.candidate),
+          });
         }
-        return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
-      }
-
-      const addressQuestionReply = await this.buildSideQuestionReply(
-        tenant.id,
-        normalizedSpeech,
-      );
-      if (addressQuestionReply) {
-        await this.callLogService.createVoiceAssistantLog({
+        return this.replyWithListeningWindow({
+          res,
           tenantId: tenant.id,
           conversationId,
-          callSid,
-          message: addressQuestionReply,
-          occurredAt: new Date(),
+          field: "confirmation",
+          targetField: "address",
           sourceEventId: currentEventId,
+          twiml: this.buildYesNoRepromptTwiml(),
         });
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml(
-            `${addressQuestionReply} Now, please say your full service address.`,
-            { timeout: 8 },
-          ),
+      }
+
+      if (!expectedField) {
+        const addressQuestionReply = await this.buildSideQuestionReply(
+          tenant.id,
+          normalizedSpeech,
         );
+        if (addressQuestionReply) {
+          await this.callLogService.createVoiceAssistantLog({
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            message: addressQuestionReply,
+            occurredAt: new Date(),
+            sourceEventId: currentEventId,
+          });
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "address",
+            sourceEventId: currentEventId,
+            timeoutSec: 8,
+            twiml: this.buildSayGatherTwiml(
+              `${addressQuestionReply} Now, please say your full service address.`,
+              { timeout: 8 },
+            ),
+          });
+        }
       }
 
       const extracted = await this.aiService.extractAddressCandidate(
@@ -657,6 +871,10 @@ export class VoiceController {
             },
             VoiceController.name,
           );
+          await this.clearVoiceListeningWindow({
+            tenantId: tenant.id,
+            conversationId,
+          });
           return this.replyWithTwiml(
             res,
             this.buildTwiml(
@@ -664,10 +882,14 @@ export class VoiceController {
             ),
           );
         }
-        return this.replyWithTwiml(
+        return this.replyWithListeningWindow({
           res,
-          this.buildIncompleteAddressTwiml(candidateAddress),
-        );
+          tenantId: tenant.id,
+          conversationId,
+          field: "address",
+          sourceEventId: currentEventId,
+          twiml: this.buildIncompleteAddressTwiml(candidateAddress),
+        });
       }
 
       const nextAddressState: typeof addressState = {
@@ -682,10 +904,15 @@ export class VoiceController {
         conversationId,
         addressState: nextAddressState,
       });
-      return this.replyWithTwiml(
+      return this.replyWithListeningWindow({
         res,
-        this.buildAddressConfirmationTwiml(candidateAddress),
-      );
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "address",
+        sourceEventId: currentEventId,
+        twiml: this.buildAddressConfirmationTwiml(candidateAddress),
+      });
     }
 
     if (
@@ -693,6 +920,10 @@ export class VoiceController {
       addressState.sourceEventId &&
       addressState.sourceEventId === currentEventId
     ) {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
       return this.replyWithTwiml(
         res,
         this.buildSayGatherTwiml(
@@ -849,15 +1080,16 @@ export class VoiceController {
 
   private buildSayGatherTwiml(
     message: string,
-    options?: { timeout?: number },
+    options?: { timeout?: number; bargeIn?: boolean },
   ): string {
     const actionUrl = this.buildWebhookUrl("/api/voice/turn");
     const timeout = options?.timeout ?? 5;
+    const bargeIn = options?.bargeIn ? ' bargeIn="true"' : "";
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
       message,
     )}</Say><Gather input="speech" action="${this.escapeXml(
       actionUrl,
-    )}" method="POST" timeout="${timeout}" speechTimeout="auto"/></Response>`;
+    )}" method="POST" timeout="${timeout}" speechTimeout="auto"${bargeIn}/></Response>`;
   }
 
   private buildRepromptTwiml(): string {
@@ -872,12 +1104,12 @@ export class VoiceController {
 
   private buildNameConfirmationTwiml(candidate: string): string {
     const message = `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
-    return this.buildSayGatherTwiml(message);
+    return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
   private buildNameSoftConfirmationTwiml(candidate: string): string {
     const message = `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
-    return this.buildSayGatherTwiml(message);
+    return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
   private buildAskNameTwiml(): string {
@@ -892,12 +1124,12 @@ export class VoiceController {
 
   private buildAddressConfirmationTwiml(candidate: string): string {
     const message = `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`;
-    return this.buildSayGatherTwiml(message, { timeout: 8 });
+    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
   }
 
   private buildAddressSoftConfirmationTwiml(candidate: string): string {
     const message = `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`;
-    return this.buildSayGatherTwiml(message, { timeout: 8 });
+    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
   }
 
   private buildAskAddressTwiml(): string {
@@ -926,6 +1158,7 @@ export class VoiceController {
   private buildYesNoRepromptTwiml(): string {
     return this.buildSayGatherTwiml(
       "Please say 'yes' or say the correct details.",
+      { bargeIn: true },
     );
   }
 
@@ -957,6 +1190,158 @@ export class VoiceController {
 
   private isVoiceFieldReady(locked: boolean, confirmed: string | null): boolean {
     return locked && confirmed === null;
+  }
+
+  private getVoiceListeningWindow(
+    collectedData: unknown,
+  ): VoiceListeningWindow | null {
+    if (!collectedData || typeof collectedData !== "object") {
+      return null;
+    }
+    const data = collectedData as Record<string, unknown>;
+    const raw = data.voiceListeningWindow;
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const window = raw as Record<string, unknown>;
+    const field = window.field;
+    if (field !== "name" && field !== "address" && field !== "confirmation") {
+      return null;
+    }
+    const expiresAt =
+      typeof window.expiresAt === "string" ? window.expiresAt : null;
+    if (!expiresAt) {
+      return null;
+    }
+    const targetField =
+      window.targetField === "name" || window.targetField === "address"
+        ? window.targetField
+        : undefined;
+    return {
+      field,
+      sourceEventId:
+        typeof window.sourceEventId === "string" ? window.sourceEventId : null,
+      expiresAt,
+      ...(targetField ? { targetField } : {}),
+    };
+  }
+
+  private getVoiceLastEventId(collectedData: unknown): string | null {
+    if (!collectedData || typeof collectedData !== "object") {
+      return null;
+    }
+    const data = collectedData as Record<string, unknown>;
+    return typeof data.voiceLastEventId === "string" ? data.voiceLastEventId : null;
+  }
+
+  private isListeningWindowExpired(
+    window: VoiceListeningWindow,
+    now: Date,
+  ): boolean {
+    const expiresAt = Date.parse(window.expiresAt);
+    return Number.isNaN(expiresAt) || expiresAt <= now.getTime();
+  }
+
+  private getExpectedListeningField(
+    window: VoiceListeningWindow | null,
+  ): "name" | "address" | null {
+    if (!window) {
+      return null;
+    }
+    if (window.field === "confirmation") {
+      return window.targetField ?? null;
+    }
+    return window.field;
+  }
+
+  private shouldClearListeningWindow(
+    window: VoiceListeningWindow,
+    now: Date,
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>,
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>,
+  ): boolean {
+    if (this.isListeningWindowExpired(window, now)) {
+      return true;
+    }
+    const expectedField = this.getExpectedListeningField(window);
+    if (expectedField === "name") {
+      return nameState.locked || nameState.attemptCount >= 3;
+    }
+    if (expectedField === "address") {
+      return (
+        addressState.locked ||
+        addressState.status === "FAILED" ||
+        addressState.attemptCount >= 2
+      );
+    }
+    return false;
+  }
+
+  private buildListeningWindowReprompt(params: {
+    window: VoiceListeningWindow | null;
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+  }): string {
+    const expectedField = this.getExpectedListeningField(params.window);
+    if (expectedField === "name") {
+      if (params.nameState.candidate.value) {
+        return this.buildNameConfirmationTwiml(params.nameState.candidate.value);
+      }
+      if (params.nameState.attemptCount >= 2) {
+        return this.buildSpellNameTwiml();
+      }
+      return this.buildAskNameTwiml();
+    }
+    if (expectedField === "address") {
+      if (params.addressState.candidate) {
+        if (this.isIncompleteAddress(params.addressState.candidate)) {
+          return this.buildIncompleteAddressTwiml(params.addressState.candidate);
+        }
+        return this.buildAddressConfirmationTwiml(params.addressState.candidate);
+      }
+      return this.buildAskAddressTwiml();
+    }
+    return this.buildRepromptTwiml();
+  }
+
+  private async replyWithListeningWindow(params: {
+    res: Response;
+    tenantId: string;
+    conversationId: string;
+    field: VoiceListeningField;
+    sourceEventId: string | null;
+    twiml: string;
+    timeoutSec?: number;
+    targetField?: "name" | "address";
+  }) {
+    const timeoutSec = params.timeoutSec ?? 8;
+    const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
+    await this.conversationsService.updateVoiceListeningWindow?.({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      window: {
+        field: params.field,
+        sourceEventId: params.sourceEventId,
+        expiresAt,
+        ...(params.targetField ? { targetField: params.targetField } : {}),
+      },
+    });
+    return this.replyWithTwiml(params.res, params.twiml);
+  }
+
+  private async clearVoiceListeningWindow(params: {
+    tenantId: string;
+    conversationId: string;
+  }) {
+    await this.conversationsService.clearVoiceListeningWindow?.(params);
+  }
+
+  private async markVoiceEventProcessed(params: {
+    tenantId: string;
+    conversationId: string;
+    eventId: string;
+  }) {
+    await this.conversationsService.updateVoiceLastEventId?.(params);
   }
 
   private resolveConfirmation(

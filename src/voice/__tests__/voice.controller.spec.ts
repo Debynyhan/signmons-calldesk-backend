@@ -92,6 +92,25 @@ const buildCandidateAddressState = (value: string, sourceEventId: string) => ({
   sourceEventId,
 });
 
+const buildConversationsService = (overrides: Record<string, unknown> = {}) => ({
+  ensureVoiceConsentConversation: jest.fn(),
+  getVoiceConversationByCallSid: jest.fn(),
+  updateVoiceTranscript: jest.fn(),
+  getVoiceNameState: jest.fn().mockReturnValue(buildMissingNameState()),
+  updateVoiceNameState: jest.fn(),
+  getVoiceAddressState: jest.fn().mockReturnValue(buildMissingAddressState()),
+  updateVoiceAddressState: jest.fn(),
+  incrementVoiceTurn: jest.fn().mockResolvedValue({
+    conversation: { id: "conversation-1", collectedData: {} },
+    voiceTurnCount: 1,
+    voiceStartedAt: new Date().toISOString(),
+  }),
+  updateVoiceListeningWindow: jest.fn(),
+  clearVoiceListeningWindow: jest.fn(),
+  updateVoiceLastEventId: jest.fn(),
+  ...overrides,
+});
+
 describe("VoiceController", () => {
   beforeEach(() => {
     validateRequestMock.mockReset();
@@ -133,7 +152,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
@@ -141,7 +160,7 @@ describe("VoiceController", () => {
         updateVoiceNameState: jest.fn(),
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -197,7 +216,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
@@ -205,7 +224,7 @@ describe("VoiceController", () => {
         updateVoiceNameState: jest.fn(),
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -272,7 +291,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation,
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
@@ -280,7 +299,7 @@ describe("VoiceController", () => {
         updateVoiceNameState: jest.fn(),
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -353,7 +372,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid: jest.fn(),
         updateVoiceTranscript: jest.fn(),
@@ -361,7 +380,7 @@ describe("VoiceController", () => {
         updateVoiceNameState: jest.fn(),
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -433,7 +452,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript: jest.fn(),
@@ -442,7 +461,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -533,7 +552,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -542,7 +561,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -621,14 +640,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -726,14 +745,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -835,14 +854,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -936,14 +955,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1057,14 +1076,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1150,14 +1169,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1242,14 +1261,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1342,14 +1361,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1446,14 +1465,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1541,7 +1560,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -1552,7 +1571,7 @@ describe("VoiceController", () => {
           .mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({
         createVoiceTranscriptLog,
@@ -1645,7 +1664,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -1654,7 +1673,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1758,7 +1777,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -1767,7 +1786,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1870,7 +1889,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -1879,7 +1898,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1993,7 +2012,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2002,7 +2021,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2088,7 +2107,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2097,7 +2116,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2192,7 +2211,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2201,7 +2220,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2300,7 +2319,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2309,7 +2328,7 @@ describe("VoiceController", () => {
         getVoiceAddressState,
         updateVoiceAddressState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2404,14 +2423,14 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
         getVoiceNameState,
         updateVoiceNameState,
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2444,6 +2463,308 @@ describe("VoiceController", () => {
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(aiService.extractNameCandidate).not.toHaveBeenCalled();
+    expect(response.text).toContain("I heard Dean Banks");
+
+    await app.close();
+  });
+
+  it("reprompts for name when listening window expects name", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const activeWindow = {
+      field: "name",
+      sourceEventId: "evt-prev",
+      expiresAt: new Date(Date.now() + 8000).toISOString(),
+    };
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true }, voiceListeningWindow: activeWindow },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true }, voiceListeningWindow: activeWindow },
+    });
+    const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
+    const getVoiceNameState = jest.fn().mockReturnValue({
+      candidate: { value: null, sourceEventId: null, createdAt: null },
+      confirmed: { value: null, sourceEventId: null, confirmedAt: null },
+      status: "MISSING",
+      locked: false,
+      attemptCount: 0,
+    });
+    const updateVoiceNameState = jest.fn();
+    const getVoiceAddressState = jest.fn().mockReturnValue(buildConfirmedAddressState());
+    const updateVoiceAddressState = jest.fn();
+    const incrementVoiceTurn = jest.fn().mockResolvedValue({
+      conversation: { id: "conversation-1", collectedData: {} },
+      voiceTurnCount: 1,
+      voiceStartedAt: new Date().toISOString(),
+    });
+    const aiService = buildAiService();
+    aiService.extractNameCandidate.mockResolvedValue(null);
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "123 Main St",
+      })
+      .expect(200);
+
+    expect(updateVoiceAddressState).not.toHaveBeenCalled();
+    expect(response.text).toContain("full name");
+
+    await app.close();
+  });
+
+  it("includes barge-in on confirmation prompts", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: { voiceConsent: { granted: true } },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
+    const getVoiceNameState = jest
+      .fn()
+      .mockReturnValue(buildCandidateNameState("Dean Banks", "evt-1"));
+    const incrementVoiceTurn = jest.fn().mockResolvedValue({
+      conversation: { id: "conversation-1", collectedData: {} },
+      voiceTurnCount: 1,
+      voiceStartedAt: new Date().toISOString(),
+    });
+    const aiService = buildAiService();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        incrementVoiceTurn,
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "Dean Banks",
+      })
+      .expect(200);
+
+    expect(response.text).toContain('bargeIn="true"');
+    expect(response.text).toContain("I heard Dean Banks");
+
+    await app.close();
+  });
+
+  it("short-circuits duplicate voice event ids", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const activeWindow = {
+      field: "confirmation",
+      targetField: "name",
+      sourceEventId: "evt-1",
+      expiresAt: new Date(Date.now() + 8000).toISOString(),
+    };
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: {
+        voiceConsent: { granted: true },
+        voiceLastEventId: "evt-1",
+        voiceListeningWindow: activeWindow,
+      },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: {
+        voiceConsent: { granted: true },
+        voiceLastEventId: "evt-1",
+        voiceListeningWindow: activeWindow,
+      },
+    });
+    const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
+    const getVoiceNameState = jest
+      .fn()
+      .mockReturnValue(buildCandidateNameState("Dean Banks", "evt-1"));
+    const updateVoiceNameState = jest.fn();
+    const incrementVoiceTurn = jest.fn().mockResolvedValue({
+      conversation: { id: "conversation-1", collectedData: {} },
+      voiceTurnCount: 1,
+      voiceStartedAt: new Date().toISOString(),
+    });
+    const aiService = buildAiService();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "Dean Banks",
+      })
+      .expect(200);
+
+    expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(response.text).toContain("I heard Dean Banks");
 
     await app.close();
@@ -2499,7 +2820,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2508,7 +2829,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2617,7 +2938,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2626,7 +2947,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2715,7 +3036,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2724,7 +3045,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2812,7 +3133,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2821,7 +3142,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2903,7 +3224,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -2912,7 +3233,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2996,7 +3317,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -3005,7 +3326,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3097,7 +3418,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -3106,7 +3427,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3201,7 +3522,7 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue({
+      .useValue(buildConversationsService({
         ensureVoiceConsentConversation: jest.fn(),
         getVoiceConversationByCallSid,
         updateVoiceTranscript,
@@ -3210,7 +3531,7 @@ describe("VoiceController", () => {
         getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
         updateVoiceAddressState: jest.fn(),
         incrementVoiceTurn,
-      })
+      }))
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
