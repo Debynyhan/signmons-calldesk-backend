@@ -496,7 +496,7 @@ export class ConversationsService {
 
     const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
     const { voiceListeningWindow: _ignored, ...rest } = current;
-    const merged: Prisma.InputJsonValue = { ...rest };
+    const merged = rest as Prisma.InputJsonValue;
 
     return this.prisma.conversation.update({
       where: { id: conversation.id },

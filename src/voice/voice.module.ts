@@ -7,6 +7,7 @@ import { ConversationsService } from "../conversations/conversations.service";
 import { AiModule } from "../ai/ai.module";
 import { LoggingModule } from "../logging/logging.module";
 import { AddressValidationService } from "../address/address-validation.service";
+import { CsrStrategySelector } from "./csr-strategy.selector";
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { AddressValidationService } from "../address/address-validation.service"
     AiModule,
     LoggingModule,
   ],
-  providers: [ConversationsService, AddressValidationService],
+  providers: [ConversationsService, AddressValidationService, CsrStrategySelector],
   controllers: [VoiceController],
 })
 export class VoiceModule {}

@@ -18,6 +18,7 @@ import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
 import { setRequestContextData } from "../common/context/request-context";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
 
 type ConfirmationOutcome =
   | "CONFIRM"
@@ -49,6 +50,7 @@ export class VoiceController {
     private readonly aiService: AiService,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
+    private readonly csrStrategySelector: CsrStrategySelector,
   ) {}
 
   @Post("inbound")
@@ -194,6 +196,25 @@ export class VoiceController {
     const nameState = this.conversationsService.getVoiceNameState(collectedData);
     const addressState =
       this.conversationsService.getVoiceAddressState(collectedData);
+    const csrStrategy = this.selectCsrStrategy({
+      conversation: updatedConversation ?? conversation,
+      collectedData,
+      nameState,
+      addressState,
+    });
+    this.loggingService.log(
+      {
+        event: "voice.strategy_selected",
+        tenantId: tenant.id,
+        conversationId,
+        strategy: csrStrategy,
+        fsmState:
+          updatedConversation?.currentFSMState ??
+          conversation.currentFSMState ??
+          null,
+      },
+      VoiceController.name,
+    );
     const currentEventId = transcriptEventId;
     let listeningWindow = this.getVoiceListeningWindow(collectedData);
     if (
@@ -214,6 +235,7 @@ export class VoiceController {
           window: listeningWindow,
           nameState,
           addressState,
+          strategy: csrStrategy,
         }),
       );
     }
@@ -251,7 +273,7 @@ export class VoiceController {
           conversationId,
           field: "name",
           sourceEventId: currentEventId,
-          twiml: this.buildAskNameTwiml(),
+          twiml: this.buildAskNameTwiml(csrStrategy),
         });
       }
       const candidateForEvent =
@@ -265,7 +287,10 @@ export class VoiceController {
           field: "confirmation",
           targetField: "name",
           sourceEventId: currentEventId,
-          twiml: this.buildNameConfirmationTwiml(nameState.candidate.value),
+          twiml: this.buildNameConfirmationTwiml(
+            nameState.candidate.value,
+            csrStrategy,
+          ),
         });
       }
       if (nameState.candidate.value) {
@@ -286,6 +311,7 @@ export class VoiceController {
             sourceEventId: currentEventId,
             twiml: this.buildNameSoftConfirmationTwiml(
               nameState.candidate.value,
+              csrStrategy,
             ),
           });
         }
@@ -376,7 +402,7 @@ export class VoiceController {
               conversationId,
               field: "name",
               sourceEventId: currentEventId,
-              twiml: this.buildSpellNameTwiml(),
+              twiml: this.buildSpellNameTwiml(csrStrategy),
             });
           }
           return this.replyWithListeningWindow({
@@ -385,7 +411,7 @@ export class VoiceController {
             conversationId,
             field: "name",
             sourceEventId: currentEventId,
-            twiml: this.buildAskNameTwiml(),
+            twiml: this.buildAskNameTwiml(csrStrategy),
           });
         }
         if (resolution.outcome === "REPLACE_CANDIDATE" && resolution.candidate) {
@@ -425,7 +451,10 @@ export class VoiceController {
             field: "confirmation",
             targetField: "name",
             sourceEventId: currentEventId,
-            twiml: this.buildNameConfirmationTwiml(resolution.candidate),
+            twiml: this.buildNameConfirmationTwiml(
+              resolution.candidate,
+              csrStrategy,
+            ),
           });
         }
         return this.replyWithListeningWindow({
@@ -435,7 +464,7 @@ export class VoiceController {
           field: "confirmation",
           targetField: "name",
           sourceEventId: currentEventId,
-          twiml: this.buildYesNoRepromptTwiml(),
+          twiml: this.buildYesNoRepromptTwiml(csrStrategy),
         });
       }
 
@@ -517,7 +546,7 @@ export class VoiceController {
             conversationId,
             field: "name",
             sourceEventId: currentEventId,
-            twiml: this.buildSpellNameTwiml(),
+            twiml: this.buildSpellNameTwiml(csrStrategy),
           });
         }
         return this.replyWithListeningWindow({
@@ -526,7 +555,7 @@ export class VoiceController {
           conversationId,
           field: "name",
           sourceEventId: currentEventId,
-          twiml: this.buildAskNameTwiml(),
+          twiml: this.buildAskNameTwiml(csrStrategy),
         });
       }
 
@@ -551,7 +580,10 @@ export class VoiceController {
         field: "confirmation",
         targetField: "name",
         sourceEventId: currentEventId,
-        twiml: this.buildNameConfirmationTwiml(validatedCandidate),
+        twiml: this.buildNameConfirmationTwiml(
+          validatedCandidate,
+          csrStrategy,
+        ),
       });
     }
 
@@ -587,7 +619,7 @@ export class VoiceController {
           conversationId,
           field: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildAskAddressTwiml(),
+          twiml: this.buildAskAddressTwiml(csrStrategy),
         });
       }
 
@@ -602,7 +634,10 @@ export class VoiceController {
             conversationId,
             field: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildIncompleteAddressTwiml(addressState.candidate),
+            twiml: this.buildIncompleteAddressTwiml(
+              addressState.candidate,
+              csrStrategy,
+            ),
           });
         }
         return this.replyWithListeningWindow({
@@ -612,7 +647,10 @@ export class VoiceController {
           field: "confirmation",
           targetField: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildAddressConfirmationTwiml(addressState.candidate),
+          twiml: this.buildAddressConfirmationTwiml(
+            addressState.candidate,
+            csrStrategy,
+          ),
         });
       }
 
@@ -634,6 +672,7 @@ export class VoiceController {
             sourceEventId: currentEventId,
             twiml: this.buildAddressSoftConfirmationTwiml(
               addressState.candidate,
+              csrStrategy,
             ),
           });
         }
@@ -650,7 +689,10 @@ export class VoiceController {
               conversationId,
               field: "address",
               sourceEventId: currentEventId,
-              twiml: this.buildIncompleteAddressTwiml(addressState.candidate),
+              twiml: this.buildIncompleteAddressTwiml(
+                addressState.candidate,
+                csrStrategy,
+              ),
             });
           }
           if (!addressState.locked) {
@@ -741,7 +783,7 @@ export class VoiceController {
             conversationId,
             field: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAskAddressTwiml(),
+            twiml: this.buildAskAddressTwiml(csrStrategy),
           });
         }
         if (
@@ -782,7 +824,10 @@ export class VoiceController {
             field: "confirmation",
             targetField: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAddressConfirmationTwiml(resolution.candidate),
+            twiml: this.buildAddressConfirmationTwiml(
+              resolution.candidate,
+              csrStrategy,
+            ),
           });
         }
         return this.replyWithListeningWindow({
@@ -792,7 +837,7 @@ export class VoiceController {
           field: "confirmation",
           targetField: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildYesNoRepromptTwiml(),
+          twiml: this.buildYesNoRepromptTwiml(csrStrategy),
         });
       }
 
@@ -888,7 +933,10 @@ export class VoiceController {
           conversationId,
           field: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildIncompleteAddressTwiml(candidateAddress),
+          twiml: this.buildIncompleteAddressTwiml(
+            candidateAddress,
+            csrStrategy,
+          ),
         });
       }
 
@@ -911,7 +959,10 @@ export class VoiceController {
         field: "confirmation",
         targetField: "address",
         sourceEventId: currentEventId,
-        twiml: this.buildAddressConfirmationTwiml(candidateAddress),
+        twiml: this.buildAddressConfirmationTwiml(
+          candidateAddress,
+          csrStrategy,
+        ),
       });
     }
 
@@ -1092,9 +1143,12 @@ export class VoiceController {
     )}" method="POST" timeout="${timeout}" speechTimeout="auto"${bargeIn}/></Response>`;
   }
 
-  private buildRepromptTwiml(): string {
+  private buildRepromptTwiml(strategy?: CsrStrategy): string {
     const actionUrl = this.buildWebhookUrl("/api/voice/turn");
-    const message = "Sorry, I didn't catch that. Please say that again.";
+    const message = this.applyCsrStrategy(
+      strategy,
+      "Sorry, I didn't catch that. Please say that again.",
+    );
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
       message,
     )}</Say><Gather input="speech" action="${this.escapeXml(
@@ -1102,62 +1156,109 @@ export class VoiceController {
     )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
   }
 
-  private buildNameConfirmationTwiml(candidate: string): string {
-    const message = `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
+  private buildNameConfirmationTwiml(
+    candidate: string,
+    strategy?: CsrStrategy,
+  ): string {
+    const message = this.applyCsrStrategy(
+      strategy,
+      `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`,
+    );
     return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
-  private buildNameSoftConfirmationTwiml(candidate: string): string {
-    const message = `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
+  private buildNameSoftConfirmationTwiml(
+    candidate: string,
+    strategy?: CsrStrategy,
+  ): string {
+    const message = this.applyCsrStrategy(
+      strategy,
+      `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`,
+    );
     return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
-  private buildAskNameTwiml(): string {
-    return this.buildSayGatherTwiml("Sorry about that. Please say your full name.");
-  }
-
-  private buildSpellNameTwiml(): string {
+  private buildAskNameTwiml(strategy?: CsrStrategy): string {
     return this.buildSayGatherTwiml(
-      "I'm having trouble with the name. Please spell your first name, then say your last name.",
+      this.applyCsrStrategy(
+        strategy,
+        "Sorry about that. Please say your full name.",
+      ),
     );
   }
 
-  private buildAddressConfirmationTwiml(candidate: string): string {
-    const message = `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`;
-    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
-  }
-
-  private buildAddressSoftConfirmationTwiml(candidate: string): string {
-    const message = `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`;
-    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
-  }
-
-  private buildAskAddressTwiml(): string {
+  private buildSpellNameTwiml(strategy?: CsrStrategy): string {
     return this.buildSayGatherTwiml(
-      "Sorry about that. Please say your full service address.",
+      this.applyCsrStrategy(
+        strategy,
+        "I'm having trouble with the name. Please spell your first name, then say your last name.",
+      ),
+    );
+  }
+
+  private buildAddressConfirmationTwiml(
+    candidate: string,
+    strategy?: CsrStrategy,
+  ): string {
+    const message = this.applyCsrStrategy(
+      strategy,
+      `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`,
+    );
+    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
+  }
+
+  private buildAddressSoftConfirmationTwiml(
+    candidate: string,
+    strategy?: CsrStrategy,
+  ): string {
+    const message = this.applyCsrStrategy(
+      strategy,
+      `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`,
+    );
+    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
+  }
+
+  private buildAskAddressTwiml(strategy?: CsrStrategy): string {
+    return this.buildSayGatherTwiml(
+      this.applyCsrStrategy(
+        strategy,
+        "Sorry about that. Please say your full service address.",
+      ),
       { timeout: 8 },
     );
   }
 
-  private buildIncompleteAddressTwiml(candidate: string): string {
+  private buildIncompleteAddressTwiml(
+    candidate: string,
+    strategy?: CsrStrategy,
+  ): string {
     const normalized = candidate.replace(/\s+/g, " ").trim();
     const tokens = normalized ? normalized.split(" ") : [];
     const numberIndex = tokens.findIndex((token) => /\d/.test(token));
     if (numberIndex === -1) {
       return this.buildSayGatherTwiml(
-        "I didn't catch the house number. Please repeat the full street name and city.",
+        this.applyCsrStrategy(
+          strategy,
+          "I didn't catch the house number. Please repeat the full street name and city.",
+        ),
       );
     }
     const numberToken = tokens[numberIndex];
     const prefixTokens = tokens.slice(numberIndex + 1, numberIndex + 4);
     const prefix = prefixTokens.length ? ` ${prefixTokens.join(" ")}` : "";
-    const message = `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`;
+    const message = this.applyCsrStrategy(
+      strategy,
+      `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`,
+    );
     return this.buildSayGatherTwiml(message, { timeout: 8 });
   }
 
-  private buildYesNoRepromptTwiml(): string {
+  private buildYesNoRepromptTwiml(strategy?: CsrStrategy): string {
     return this.buildSayGatherTwiml(
-      "Please say 'yes' or say the correct details.",
+      this.applyCsrStrategy(
+        strategy,
+        "Please say 'yes' or say the correct details.",
+      ),
       { bargeIn: true },
     );
   }
@@ -1186,6 +1287,89 @@ export class VoiceController {
 
   private shouldGatherMore(reply: string): boolean {
     return reply.trim().endsWith("?");
+  }
+
+  private selectCsrStrategy(params: {
+    conversation: { currentFSMState?: string | null };
+    collectedData: unknown;
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+  }): CsrStrategy {
+    const hasConfirmedName =
+      Boolean(params.nameState.confirmed.value) ||
+      this.isVoiceFieldReady(
+        params.nameState.locked,
+        params.nameState.confirmed.value,
+      );
+    const hasConfirmedAddress =
+      Boolean(params.addressState.confirmed) ||
+      this.isVoiceFieldReady(
+        params.addressState.locked,
+        params.addressState.confirmed,
+      );
+    return this.csrStrategySelector.selectStrategy({
+      channel: CommunicationChannel.VOICE,
+      fsmState: params.conversation.currentFSMState ?? null,
+      hasConfirmedName,
+      hasConfirmedAddress,
+      urgency: this.isUrgencyEmergency(params.collectedData),
+      isPaymentRequiredNext: this.isPaymentRequiredNext(params.collectedData),
+    });
+  }
+
+  private isUrgencyEmergency(collectedData: unknown): boolean {
+    if (!collectedData || typeof collectedData !== "object") {
+      return false;
+    }
+    const data = collectedData as Record<string, unknown>;
+    const urgency = data.urgency;
+    if (typeof urgency === "string") {
+      const normalized = urgency.trim().toUpperCase();
+      return normalized === "EMERGENCY" || normalized === "URGENT";
+    }
+    return typeof urgency === "boolean" ? urgency : false;
+  }
+
+  private isPaymentRequiredNext(collectedData: unknown): boolean {
+    if (!collectedData || typeof collectedData !== "object") {
+      return false;
+    }
+    const data = collectedData as Record<string, unknown>;
+    return Boolean(data.paymentRequired);
+  }
+
+  private applyCsrStrategy(
+    strategy: CsrStrategy | undefined,
+    message: string,
+  ): string {
+    const prefix = this.getCsrPrefix(strategy);
+    if (!prefix) {
+      return message;
+    }
+    const normalizedMessage = message.trim().toLowerCase();
+    const normalizedPrefix = prefix.toLowerCase();
+    if (
+      normalizedMessage.includes(normalizedPrefix) ||
+      normalizedMessage.startsWith("thanks")
+    ) {
+      return message;
+    }
+    return `${prefix} ${message}`.trim();
+  }
+
+  private getCsrPrefix(strategy: CsrStrategy | undefined): string {
+    switch (strategy) {
+      case CsrStrategy.OPENING:
+        return "Thanks for calling.";
+      case CsrStrategy.EMPATHY:
+        return "I'm here to help.";
+      case CsrStrategy.URGENCY_FRAMING:
+        return "We'll treat this as urgent so we can help quickly.";
+      case CsrStrategy.NEXT_STEP_POSITIONING:
+        return "Here's what we'll do next.";
+      default:
+        return "";
+    }
   }
 
   private isVoiceFieldReady(locked: boolean, confirmed: string | null): boolean {
@@ -1281,27 +1465,37 @@ export class VoiceController {
     window: VoiceListeningWindow | null;
     nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
     addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    strategy?: CsrStrategy;
   }): string {
     const expectedField = this.getExpectedListeningField(params.window);
     if (expectedField === "name") {
       if (params.nameState.candidate.value) {
-        return this.buildNameConfirmationTwiml(params.nameState.candidate.value);
+        return this.buildNameConfirmationTwiml(
+          params.nameState.candidate.value,
+          params.strategy,
+        );
       }
       if (params.nameState.attemptCount >= 2) {
-        return this.buildSpellNameTwiml();
+        return this.buildSpellNameTwiml(params.strategy);
       }
-      return this.buildAskNameTwiml();
+      return this.buildAskNameTwiml(params.strategy);
     }
     if (expectedField === "address") {
       if (params.addressState.candidate) {
         if (this.isIncompleteAddress(params.addressState.candidate)) {
-          return this.buildIncompleteAddressTwiml(params.addressState.candidate);
+          return this.buildIncompleteAddressTwiml(
+            params.addressState.candidate,
+            params.strategy,
+          );
         }
-        return this.buildAddressConfirmationTwiml(params.addressState.candidate);
+        return this.buildAddressConfirmationTwiml(
+          params.addressState.candidate,
+          params.strategy,
+        );
       }
-      return this.buildAskAddressTwiml();
+      return this.buildAskAddressTwiml(params.strategy);
     }
-    return this.buildRepromptTwiml();
+    return this.buildRepromptTwiml(params.strategy);
   }
 
   private async replyWithListeningWindow(params: {
