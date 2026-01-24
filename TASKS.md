@@ -331,10 +331,9 @@ If any one of those is false, the system must fail closed.
 ##### T-V10 — Content-First Confirmation Resolver
 
 
-
-- [ ] Create `resolveConfirmation(utterance, currentCandidate, fieldType)`
-- [ ] Return one of: `CONFIRM | REPLACE_CANDIDATE | REJECT | UNKNOWN`
-- [ ] Apply deterministic rules in order (confirm → reject → replace → unknown)
+ - [x] Create `resolveConfirmation(utterance, currentCandidate, fieldType)`
+ - [x] Return one of: `CONFIRM | REPLACE_CANDIDATE | REJECT | UNKNOWN`
+ - [x] Apply deterministic rules in order (confirm → reject → replace → unknown)
 
 ##### T-V11 — Field Validation Heuristics
 
@@ -357,17 +356,17 @@ If any one of those is false, the system must fail closed.
 
 
 - [x] Confirmed fields are immutable
-- [ ] `attemptCount` increments on REJECT or REPLACE_CANDIDATE
+ - [x] `attemptCount` increments on REJECT or REPLACE_CANDIDATE
 - [x] Max attempts trigger existing SMS/human fallback
 
 ##### T-V14 — Confirmation Resolver Tests
 
 
 
-- [ ] “No, it’s Ben Banks” → REPLACE_CANDIDATE → confirm flow
-- [ ] “Correct” confirms
-- [ ] Confirmed fields cannot be overwritten
-- [ ] Incomplete address still fails closed
+- [x] “No, it’s Ben Banks” → REPLACE_CANDIDATE → confirm flow
+- [x] “Correct” confirms
+- [x] Confirmed fields cannot be overwritten
+- [x] Incomplete address still fails closed
 
 #### Turn Handling & Momentum (P0)
 

@@ -19,6 +19,17 @@ import { AiService } from "../ai/ai.service";
 import { setRequestContextData } from "../common/context/request-context";
 import { SanitizationService } from "../sanitization/sanitization.service";
 
+type ConfirmationOutcome =
+  | "CONFIRM"
+  | "REJECT"
+  | "REPLACE_CANDIDATE"
+  | "UNKNOWN";
+
+type ConfirmationResolution = {
+  outcome: ConfirmationOutcome;
+  candidate: string | null;
+};
+
 @Controller("api/voice")
 export class VoiceController {
   constructor(
@@ -195,8 +206,12 @@ export class VoiceController {
         );
       }
       if (nameState.candidate.value) {
-        const confirmation = this.parseConfirmation(normalizedSpeech);
-        if (confirmation === "confirm") {
+        const resolution = this.resolveConfirmation(
+          normalizedSpeech,
+          nameState.candidate.value,
+          "name",
+        );
+        if (resolution.outcome === "CONFIRM") {
           if (!nameState.locked) {
             const confirmedAt = new Date().toISOString();
             const nextNameState: typeof nameState = {
@@ -235,7 +250,7 @@ export class VoiceController {
             }),
           );
         }
-        if (confirmation === "reject") {
+        if (resolution.outcome === "REJECT") {
           const nextAttempt = nameState.attemptCount + 1;
           const shouldFailClosed = nextAttempt >= 3;
           const nextNameState: typeof nameState = {
@@ -266,30 +281,35 @@ export class VoiceController {
           }
           return this.replyWithTwiml(res, this.buildAskNameTwiml());
         }
-        const correctionCandidate = this.normalizeNameCandidate(normalizedSpeech);
-        if (
-          correctionCandidate &&
-          this.isValidNameCandidate(correctionCandidate) &&
-          this.isLikelyNameCandidate(correctionCandidate) &&
-          correctionCandidate !== nameState.candidate.value
-        ) {
+        if (resolution.outcome === "REPLACE_CANDIDATE" && resolution.candidate) {
+          const nextAttempt = nameState.attemptCount + 1;
+          const shouldFailClosed = nextAttempt >= 3;
           const nextNameState: typeof nameState = {
             ...nameState,
             candidate: {
-              value: correctionCandidate,
+              value: resolution.candidate,
               sourceEventId: currentEventId,
               createdAt: new Date().toISOString(),
             },
             status: "CANDIDATE",
+            attemptCount: nextAttempt,
           };
           await this.conversationsService.updateVoiceNameState({
             tenantId: tenant.id,
             conversationId,
             nameState: nextNameState,
           });
+          if (shouldFailClosed) {
+            return this.replyWithTwiml(
+              res,
+              this.buildTwiml(
+                "Thanks. We'll follow up by text to confirm your details.",
+              ),
+            );
+          }
           return this.replyWithTwiml(
             res,
-            this.buildNameConfirmationTwiml(correctionCandidate),
+            this.buildNameConfirmationTwiml(resolution.candidate),
           );
         }
         return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
@@ -420,8 +440,18 @@ export class VoiceController {
       }
 
       if (addressState.candidate) {
-        const confirmation = this.parseConfirmation(normalizedSpeech);
-        if (confirmation === "confirm") {
+        const resolution = this.resolveConfirmation(
+          normalizedSpeech,
+          addressState.candidate,
+          "address",
+        );
+        if (resolution.outcome === "CONFIRM") {
+          if (this.isIncompleteAddress(addressState.candidate)) {
+            return this.replyWithTwiml(
+              res,
+              this.buildIncompleteAddressTwiml(addressState.candidate),
+            );
+          }
           if (!addressState.locked) {
             const confirmedAt = new Date().toISOString();
             const nextAddressState: typeof addressState = {
@@ -461,7 +491,7 @@ export class VoiceController {
             ),
           );
         }
-        if (confirmation === "reject") {
+        if (resolution.outcome === "REJECT") {
           const nextAttempt = addressState.attemptCount + 1;
           const shouldFailClosed = nextAttempt >= 2;
           const nextAddressState: typeof addressState = {
@@ -498,60 +528,36 @@ export class VoiceController {
           }
           return this.replyWithTwiml(res, this.buildAskAddressTwiml());
         }
-        const correctionCandidate =
-          this.sanitizationService.normalizeWhitespace(
-            this.normalizeAddressCandidate(normalizedSpeech),
-          );
         if (
-          correctionCandidate &&
-          correctionCandidate !== addressState.candidate
+          resolution.outcome === "REPLACE_CANDIDATE" &&
+          resolution.candidate
         ) {
-          const minConfidence = this.config.voiceAddressMinConfidence ?? 0.7;
-          const isIncomplete = this.isIncompleteAddress(correctionCandidate);
           const nextAttempt = addressState.attemptCount + 1;
-          if (isIncomplete) {
-            const shouldFailClosed = nextAttempt >= 2;
-            const nextAddressState: typeof addressState = {
-              ...addressState,
-              candidate: correctionCandidate,
-              status: shouldFailClosed ? "FAILED" : "CANDIDATE",
-              confidence: addressState.confidence,
-              sourceEventId: currentEventId,
-              attemptCount: nextAttempt,
-            };
-            await this.conversationsService.updateVoiceAddressState({
-              tenantId: tenant.id,
-              conversationId,
-              addressState: nextAddressState,
-            });
-            if (shouldFailClosed) {
-              return this.replyWithTwiml(
-                res,
-                this.buildTwiml(
-                  "Thanks. We'll follow up by text to confirm your address.",
-                ),
-              );
-            }
-            return this.replyWithTwiml(
-              res,
-              this.buildIncompleteAddressTwiml(correctionCandidate),
-            );
-          }
+          const shouldFailClosed = nextAttempt >= 2;
           const nextAddressState: typeof addressState = {
             ...addressState,
-            candidate: correctionCandidate,
-            status: "CANDIDATE",
-            confidence: Math.max(addressState.confidence ?? minConfidence, minConfidence),
+            candidate: resolution.candidate,
+            status: shouldFailClosed ? "FAILED" : "CANDIDATE",
+            confidence: addressState.confidence,
             sourceEventId: currentEventId,
+            attemptCount: nextAttempt,
           };
           await this.conversationsService.updateVoiceAddressState({
             tenantId: tenant.id,
             conversationId,
             addressState: nextAddressState,
           });
+          if (shouldFailClosed) {
+            return this.replyWithTwiml(
+              res,
+              this.buildTwiml(
+                "Thanks. We'll follow up by text to confirm your address.",
+              ),
+            );
+          }
           return this.replyWithTwiml(
             res,
-            this.buildAddressConfirmationTwiml(correctionCandidate),
+            this.buildAddressConfirmationTwiml(resolution.candidate),
           );
         }
         return this.replyWithTwiml(res, this.buildYesNoRepromptTwiml());
@@ -916,45 +922,127 @@ export class VoiceController {
     return locked && confirmed === null;
   }
 
-  private parseConfirmation(
-    transcript: string,
-  ): "confirm" | "reject" | "unknown" {
-    const normalized = this.sanitizationService
-      .normalizeWhitespace(transcript)
-      .toLowerCase()
-      .replace(/[^\w\s']/g, "");
-    const confirm = [
+  private resolveConfirmation(
+    utterance: string,
+    currentCandidate: string | null,
+    fieldType: "name" | "address",
+  ): ConfirmationResolution {
+    const normalized = this.normalizeConfirmationUtterance(utterance);
+    const confirmPhrases = [
       "yes",
       "yeah",
       "yep",
       "correct",
-      "absolutely",
-      "of course",
+      "that's right",
+      "that is right",
+      "right",
       "ok",
       "okay",
-      "sure",
-      "thats right",
-      "that's right",
-      "sounds right",
-      "right",
       "affirmative",
     ];
-    const reject = [
+    const rejectPhrases = [
       "no",
       "nope",
       "incorrect",
+      "that's wrong",
+      "that is wrong",
       "not right",
-      "not correct",
-      "nah",
       "negative",
     ];
-    if (reject.some((phrase) => normalized.includes(phrase))) {
-      return "reject";
+    if (confirmPhrases.some((phrase) => normalized === phrase)) {
+      return { outcome: "CONFIRM", candidate: null };
     }
-    if (confirm.some((phrase) => normalized.includes(phrase))) {
-      return "confirm";
+    if (rejectPhrases.some((phrase) => normalized === phrase)) {
+      return { outcome: "REJECT", candidate: null };
     }
-    return "unknown";
+    const candidate = this.extractReplacementCandidate(utterance, fieldType);
+    if (candidate) {
+      return { outcome: "REPLACE_CANDIDATE", candidate };
+    }
+    if (currentCandidate) {
+      return { outcome: "UNKNOWN", candidate: null };
+    }
+    return { outcome: "UNKNOWN", candidate: null };
+  }
+
+  private normalizeConfirmationUtterance(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9'\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private extractReplacementCandidate(
+    utterance: string,
+    fieldType: "name" | "address",
+  ): string | null {
+    const cleaned = this.sanitizationService.sanitizeText(utterance);
+    const stripped = this.stripConfirmationPrefix(cleaned);
+    if (!stripped) {
+      return null;
+    }
+    if (fieldType === "name") {
+      const candidate = this.normalizeNameCandidate(stripped);
+      if (
+        !candidate ||
+        !this.isValidNameCandidate(candidate) ||
+        !this.isLikelyNameCandidate(candidate)
+      ) {
+        return null;
+      }
+      return candidate;
+    }
+    const candidate = this.sanitizationService.normalizeWhitespace(
+      this.normalizeAddressCandidate(stripped),
+    );
+    if (!candidate || this.isIncompleteAddress(candidate)) {
+      return null;
+    }
+    return candidate;
+  }
+
+  private stripConfirmationPrefix(value: string): string {
+    const cleaned = this.sanitizationService.normalizeWhitespace(value);
+    const lowered = cleaned.toLowerCase();
+    const prefixes = [
+      "yes",
+      "yeah",
+      "yep",
+      "correct",
+      "that's right",
+      "that is right",
+      "right",
+      "ok",
+      "okay",
+      "affirmative",
+      "no",
+      "nope",
+      "incorrect",
+      "that's wrong",
+      "that is wrong",
+      "not right",
+      "negative",
+    ];
+    for (const prefix of prefixes) {
+      if (lowered === prefix) {
+        return "";
+      }
+      if (
+        lowered.startsWith(`${prefix} `) ||
+        lowered.startsWith(`${prefix},`) ||
+        lowered.startsWith(`${prefix}.`) ||
+        lowered.startsWith(`${prefix}!`) ||
+        lowered.startsWith(`${prefix}?`)
+      ) {
+        const remainder = cleaned.slice(prefix.length).replace(/^[\s,!.?]+/, "");
+        return remainder.replace(
+          /^(?:it's|it is|its|that is|that's)\s+/i,
+          "",
+        );
+      }
+    }
+    return cleaned;
   }
 
   private async buildSideQuestionReply(
