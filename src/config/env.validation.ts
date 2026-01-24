@@ -45,6 +45,7 @@ export const envValidationSchema = Joi.object({
   VOICE_MAX_TURNS: Joi.number().min(1).max(50).default(6),
   VOICE_MAX_DURATION_SEC: Joi.number().min(30).max(3600).default(180),
   VOICE_ADDRESS_MIN_CONFIDENCE: Joi.number().min(0).max(1).default(0.7),
+  VOICE_SOFT_CONFIRM_MIN_CONFIDENCE: Joi.number().min(0).max(1).default(0.85),
   ADDRESS_VALIDATION_PROVIDER: Joi.string()
     .valid("none", "google")
     .default("none"),

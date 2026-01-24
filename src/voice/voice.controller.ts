@@ -206,6 +206,19 @@ export class VoiceController {
         );
       }
       if (nameState.candidate.value) {
+        if (
+          this.isSoftConfirmationEligible(
+            "name",
+            nameState.candidate.value,
+            normalizedSpeech,
+            confidence,
+          )
+        ) {
+          return this.replyWithTwiml(
+            res,
+            this.buildNameSoftConfirmationTwiml(nameState.candidate.value),
+          );
+        }
         const resolution = this.resolveConfirmation(
           normalizedSpeech,
           nameState.candidate.value,
@@ -440,6 +453,19 @@ export class VoiceController {
       }
 
       if (addressState.candidate) {
+        if (
+          this.isSoftConfirmationEligible(
+            "address",
+            addressState.candidate,
+            normalizedSpeech,
+            confidence,
+          )
+        ) {
+          return this.replyWithTwiml(
+            res,
+            this.buildAddressSoftConfirmationTwiml(addressState.candidate),
+          );
+        }
         const resolution = this.resolveConfirmation(
           normalizedSpeech,
           addressState.candidate,
@@ -593,12 +619,13 @@ export class VoiceController {
         extracted?.address ?? "",
       );
       const minConfidence = this.config.voiceAddressMinConfidence ?? 0.7;
-      const confidence =
+      const extractedConfidence =
         typeof extracted?.confidence === "number"
           ? extracted.confidence
           : undefined;
       const meetsConfidence =
-        typeof confidence === "number" && confidence >= minConfidence;
+        typeof extractedConfidence === "number" &&
+        extractedConfidence >= minConfidence;
       const isIncomplete =
         !candidateAddress || this.isIncompleteAddress(candidateAddress);
       if (isIncomplete || !meetsConfidence) {
@@ -609,7 +636,7 @@ export class VoiceController {
           candidate: candidateAddress || null,
           status: shouldFailClosed ? "FAILED" : "CANDIDATE",
           attemptCount: nextAttempt,
-          confidence,
+          confidence: extractedConfidence,
           sourceEventId: currentEventId,
         };
         await this.conversationsService.updateVoiceAddressState({
@@ -626,7 +653,7 @@ export class VoiceController {
               callSid,
               attemptCount: nextAttempt,
               candidate: candidateAddress,
-              confidence,
+              confidence: extractedConfidence,
             },
             VoiceController.name,
           );
@@ -647,7 +674,7 @@ export class VoiceController {
         ...addressState,
         candidate: candidateAddress,
         status: "CANDIDATE",
-        confidence,
+        confidence: extractedConfidence,
         sourceEventId: currentEventId,
       };
       await this.conversationsService.updateVoiceAddressState({
@@ -685,7 +712,7 @@ export class VoiceController {
         },
       );
       if (aiResult.status === "reply" && "reply" in aiResult) {
-        const safeReply = this.capAiReply(aiResult.reply);
+        const safeReply = this.capAiReply(aiResult.reply ?? "");
         await this.callLogService.createVoiceAssistantLog({
           tenantId: tenant.id,
           conversationId,
@@ -848,6 +875,11 @@ export class VoiceController {
     return this.buildSayGatherTwiml(message);
   }
 
+  private buildNameSoftConfirmationTwiml(candidate: string): string {
+    const message = `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
+    return this.buildSayGatherTwiml(message);
+  }
+
   private buildAskNameTwiml(): string {
     return this.buildSayGatherTwiml("Sorry about that. Please say your full name.");
   }
@@ -860,6 +892,11 @@ export class VoiceController {
 
   private buildAddressConfirmationTwiml(candidate: string): string {
     const message = `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`;
+    return this.buildSayGatherTwiml(message, { timeout: 8 });
+  }
+
+  private buildAddressSoftConfirmationTwiml(candidate: string): string {
+    const message = `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`;
     return this.buildSayGatherTwiml(message, { timeout: 8 });
   }
 
@@ -963,6 +1000,44 @@ export class VoiceController {
       return { outcome: "UNKNOWN", candidate: null };
     }
     return { outcome: "UNKNOWN", candidate: null };
+  }
+
+  private isSoftConfirmationEligible(
+    fieldType: "name" | "address",
+    candidate: string,
+    utterance: string,
+    confidence?: number,
+  ): boolean {
+    if (typeof confidence !== "number") {
+      return false;
+    }
+    const minConfidence = this.config.voiceSoftConfirmMinConfidence ?? 0.85;
+    if (confidence < minConfidence) {
+      return false;
+    }
+    const normalizedCandidate =
+      fieldType === "name"
+        ? this.normalizeNameCandidate(utterance)
+        : this.sanitizationService.normalizeWhitespace(
+            this.normalizeAddressCandidate(utterance),
+          );
+    if (!normalizedCandidate) {
+      return false;
+    }
+    if (fieldType === "name") {
+      if (
+        !this.isValidNameCandidate(normalizedCandidate) ||
+        !this.isLikelyNameCandidate(normalizedCandidate)
+      ) {
+        return false;
+      }
+    } else if (this.isIncompleteAddress(normalizedCandidate)) {
+      return false;
+    }
+    return (
+      normalizedCandidate.trim().toLowerCase() ===
+      candidate.trim().toLowerCase()
+    );
   }
 
   private normalizeConfirmationUtterance(value: string): string {
@@ -1109,7 +1184,7 @@ export class VoiceController {
     if (Number.isNaN(lastTime)) {
       return false;
     }
-    const withinWindow = now.getTime() - lastTime <= 3000;
+    const withinWindow = now.getTime() - lastTime <= 2000;
     if (!withinWindow) {
       return false;
     }

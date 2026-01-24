@@ -30,6 +30,7 @@ export interface AppConfig {
   voiceMaxTurns: number;
   voiceMaxDurationSec: number;
   voiceAddressMinConfidence: number;
+  voiceSoftConfirmMinConfidence: number;
   addressValidationProvider: "none" | "google";
   googlePlacesApiKey: string;
   corsOrigins: string[];
@@ -95,6 +96,9 @@ export default registerAs("app", (): AppConfig => {
     voiceMaxDurationSec: Number(process.env.VOICE_MAX_DURATION_SEC ?? 180),
     voiceAddressMinConfidence: Number(
       process.env.VOICE_ADDRESS_MIN_CONFIDENCE ?? 0.7,
+    ),
+    voiceSoftConfirmMinConfidence: Number(
+      process.env.VOICE_SOFT_CONFIRM_MIN_CONFIDENCE ?? 0.85,
     ),
     addressValidationProvider:
       (process.env.ADDRESS_VALIDATION_PROVIDER ?? "none").toLowerCase() ===

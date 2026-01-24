@@ -401,14 +401,14 @@ If any one of those is false, the system must fail closed.
 
 
 
-- [ ] Detect identical transcripts within <= 2s window
-- [ ] Ignore duplicate utterance safely
-- [ ] No state mutation on ignored turns
+- [x] Detect identical transcripts within <= 2s window
+- [x] Ignore duplicate utterance safely
+- [x] No state mutation on ignored turns
 
 
-- [ ] Duplicate speech never advances FSM
-- [ ] No double confirmations
-- [ ] Voice feels smoother and less “confused”
+- [x] Duplicate speech never advances FSM
+- [x] No double confirmations
+- [x] Voice feels smoother and less “confused”
 
 ##### T-V19 — Confidence-Based Soft Confirmation
 
