@@ -419,7 +419,12 @@ export class AiService {
         metadata: { toolName: name, blocked: "voice_sms_canonical" },
         channel,
       });
-      return { status: "reply", reply };
+      return {
+        status: "reply",
+        reply,
+        outcome: "sms_handoff",
+        reason: "voice_tool_blocked",
+      };
     }
 
     try {

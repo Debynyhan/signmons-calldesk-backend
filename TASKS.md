@@ -429,18 +429,18 @@ If any one of those is false, the system must fail closed.
 
 
 
-- [ ] Analyze FSM state + collectedData completeness
-- [ ] Select CSR mode: OPENING, EMPATHY, CONFIRMATION, URGENCY_FRAMING, NEXT_STEP_POSITIONING
+- [x] Analyze FSM state + collectedData completeness
+- [x] Select CSR mode: OPENING, EMPATHY, CONFIRMATION, URGENCY_FRAMING, NEXT_STEP_POSITIONING
 - [ ] Apply AIDA for flow and SERVQUAL for tone (internal only)
 - [ ] Use Challenger (light) for urgency framing without yes/no questions
 - [ ] Frameworks are encoded, never exposed to users
-- [ ] Never bypass FSM-required confirmations
-- [ ] Never persist data in this layer
+- [x] Never bypass FSM-required confirmations
+- [x] Never persist data in this layer
 
 
 - [ ] Same FSM path produces more natural phrasing
 - [ ] No regression in confirmation guarantees
-- [ ] CSR layer is testable in isolation
+- [x] CSR layer is testable in isolation
 
 ##### T-V16 — Sales Script Engine (Composable, Tenant-Safe)
 

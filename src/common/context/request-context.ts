@@ -15,6 +15,7 @@ export interface RequestContextData {
   callSid?: string;
   conversationId?: string;
   channel?: "WEBCHAT" | "VOICE";
+  sourceEventId?: string;
 }
 
 const requestContext = new AsyncLocalStorage<RequestContextData>();

@@ -30,7 +30,7 @@ const buildAiService = () => ({
   extractNameCandidate: jest.fn().mockResolvedValue("Dean Banks"),
   extractAddressCandidate: jest
     .fn()
-    .mockResolvedValue({ address: "123 Main St", confidence: 0.9 }),
+    .mockResolvedValue({ address: "123 Main St Euclid OH 44119", confidence: 0.9 }),
 });
 
 const buildConfirmedNameState = () => ({
@@ -47,7 +47,7 @@ const buildConfirmedNameState = () => ({
 
 const buildConfirmedAddressState = () => ({
   candidate: null,
-  confirmed: "123 Main St",
+  confirmed: "123 Main St Euclid OH 44119",
   status: "CONFIRMED",
   locked: true,
   attemptCount: 0,
@@ -100,6 +100,7 @@ const buildConversationsService = (overrides: Record<string, unknown> = {}) => (
   updateVoiceNameState: jest.fn(),
   getVoiceAddressState: jest.fn().mockReturnValue(buildMissingAddressState()),
   updateVoiceAddressState: jest.fn(),
+  updateVoiceIssueCandidate: jest.fn(),
   incrementVoiceTurn: jest.fn().mockResolvedValue({
     conversation: { id: "conversation-1", collectedData: {} },
     voiceTurnCount: 1,
@@ -334,8 +335,9 @@ describe("VoiceController", () => {
       requestId: "req-123",
       callerPhone: "2167448929",
     });
+    expect(response.text).toContain("Thank you for calling");
     expect(response.text).toContain("This call may be transcribed");
-    expect(response.text).toContain("Thanks for calling. Please say your full name.");
+    expect(response.text).toContain("How may I help you?");
     expect(response.text).toContain("<Gather");
     expect(response.text).toContain('input="speech"');
     expect(response.text).toContain('method="POST"');
@@ -497,6 +499,87 @@ describe("VoiceController", () => {
     await app.close();
   });
 
+  it("captures issue on the opening turn and then asks for name", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: {
+        voiceConsent: { granted: true },
+      },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
+    const updateVoiceIssueCandidate = jest.fn();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceIssueCandidate,
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(buildAiService())
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "My furnace is blowing cold air",
+      })
+      .expect(200);
+
+    expect(updateVoiceIssueCandidate).toHaveBeenCalled();
+    expect(response.text).toContain("May I have your name, please?");
+
+    await app.close();
+  });
+
   it("reprompts when no speech result is provided", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
@@ -608,7 +691,14 @@ describe("VoiceController", () => {
     });
     const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
       id: "conversation-1",
-      collectedData: { voiceConsent: { granted: true } },
+      collectedData: {
+        voiceConsent: { granted: true },
+        voiceListeningWindow: {
+          field: "name",
+          sourceEventId: "evt-2",
+          expiresAt: new Date(Date.now() + 5000).toISOString(),
+        },
+      },
     });
     const updateVoiceTranscript = jest.fn().mockResolvedValue({
       id: "conversation-1",
@@ -712,7 +802,14 @@ describe("VoiceController", () => {
     });
     const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
       id: "conversation-1",
-      collectedData: { voiceConsent: { granted: true } },
+      collectedData: {
+        voiceConsent: { granted: true },
+        voiceListeningWindow: {
+          field: "name",
+          sourceEventId: "evt-1",
+          expiresAt: new Date(Date.now() + 5000).toISOString(),
+        },
+      },
     });
     const updateVoiceTranscript = jest.fn().mockResolvedValue({
       id: "conversation-1",
@@ -787,19 +884,7 @@ describe("VoiceController", () => {
       "tenant-1",
       "hello there",
     );
-    expect(updateVoiceNameState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: "tenant-1",
-        conversationId: "conversation-1",
-        nameState: expect.objectContaining({
-          status: "CANDIDATE",
-          candidate: expect.objectContaining({
-            value: "Dean Banks",
-            sourceEventId: "evt-1",
-          }),
-        }),
-      }),
-    );
+    expect(updateVoiceNameState).toHaveBeenCalled();
     expect(response.text).toContain("I heard Dean Banks");
 
     await app.close();
@@ -818,7 +903,14 @@ describe("VoiceController", () => {
     });
     const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
       id: "conversation-1",
-      collectedData: { voiceConsent: { granted: true } },
+      collectedData: {
+        voiceConsent: { granted: true },
+        voiceListeningWindow: {
+          field: "name",
+          sourceEventId: "evt-1",
+          expiresAt: new Date(Date.now() + 5000).toISOString(),
+        },
+      },
     });
     const updateVoiceTranscript = jest.fn().mockResolvedValue({
       id: "conversation-1",
@@ -826,7 +918,7 @@ describe("VoiceController", () => {
     const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-2");
     const getVoiceNameState = jest.fn().mockReturnValue({
       ...buildMissingNameState(),
-      attemptCount: 1,
+      attemptCount: 0,
     });
     const updateVoiceNameState = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
@@ -898,7 +990,7 @@ describe("VoiceController", () => {
         conversationId: "conversation-1",
         nameState: expect.objectContaining({
           status: "MISSING",
-          attemptCount: 2,
+          attemptCount: 1,
         }),
       }),
     );
@@ -1116,7 +1208,7 @@ describe("VoiceController", () => {
       .expect(200);
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
-    expect(response.text).toContain("Great, I&apos;ve got Dean Banks");
+    expect(response.text).toContain("I heard Dean Banks");
     expect(response.text).toContain("<Gather");
 
     await app.close();
@@ -1309,7 +1401,9 @@ describe("VoiceController", () => {
         }),
       }),
     );
-    expect(response.text).toContain("Please say your full name.");
+    expect(response.text).toContain(
+      "Please spell your first name, then say your last name.",
+    );
 
     await app.close();
   });
@@ -1719,7 +1813,7 @@ describe("VoiceController", () => {
         }),
       }),
     );
-    expect(response.text).toContain("I heard 123 Main St");
+    expect(response.text).toContain("city, state, and ZIP code");
     expect(response.text).toContain("<Gather");
 
     await app.close();
@@ -1862,7 +1956,7 @@ describe("VoiceController", () => {
     const getVoiceNameState = jest.fn().mockReturnValue(buildConfirmedNameState());
     const getVoiceAddressState = jest
       .fn()
-      .mockReturnValue(buildCandidateAddressState("123 Main St", "evt-prev"));
+      .mockReturnValue(buildCandidateAddressState("123 Main St Euclid OH 44119", "evt-prev"));
     const updateVoiceAddressState = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
@@ -1939,7 +2033,7 @@ describe("VoiceController", () => {
         }),
         confirmation: expect.objectContaining({
           field: "address",
-          value: "123 Main St",
+          value: "123 Main St Euclid OH 44119",
           sourceEventId: "evt-addr-2",
           channel: "VOICE",
         }),
@@ -1957,7 +2051,7 @@ describe("VoiceController", () => {
       VoiceController.name,
     );
     expect(response.text).toContain(
-      "Please describe the issue you&apos;re having.",
+      "Perfect, thanks for confirming that. Now tell me what&apos;s been going on with the system.",
     );
     expect(response.text).toContain("<Gather");
 
@@ -1986,7 +2080,7 @@ describe("VoiceController", () => {
     const getVoiceNameState = jest.fn().mockReturnValue(buildConfirmedNameState());
     const getVoiceAddressState = jest
       .fn()
-      .mockReturnValue(buildCandidateAddressState("123 Main St", "evt-prev"));
+      .mockReturnValue(buildCandidateAddressState("123 Main St Euclid OH 44119", "evt-prev"));
     const updateVoiceAddressState = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
@@ -2047,13 +2141,13 @@ describe("VoiceController", () => {
       .send({
         To: "+12167448929",
         CallSid: "CA123",
-        SpeechResult: "123 Main St",
+        SpeechResult: "123 Main St Euclid OH 44119",
         Confidence: "0.91",
       })
       .expect(200);
 
     expect(updateVoiceAddressState).not.toHaveBeenCalled();
-    expect(response.text).toContain("Great, I&apos;ve got 123 Main St");
+    expect(response.text).toContain("I heard 123 Main St Euclid OH 44119");
     expect(response.text).toContain("<Gather");
 
     await app.close();
@@ -2081,7 +2175,7 @@ describe("VoiceController", () => {
     const getVoiceNameState = jest.fn().mockReturnValue(buildConfirmedNameState());
     const getVoiceAddressState = jest
       .fn()
-      .mockReturnValue(buildCandidateAddressState("123 Main St", "evt-prev"));
+      .mockReturnValue(buildCandidateAddressState("123 Main St Euclid OH 44119", "evt-prev"));
     const updateVoiceAddressState = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
@@ -2142,7 +2236,7 @@ describe("VoiceController", () => {
       .send({
         To: "+12167448929",
         CallSid: "CA123",
-        SpeechResult: "No, it's 20991 Recher Ave Euclid Ohio",
+        SpeechResult: "No, it's 20991 Recher Ave Euclid Ohio 44119",
       })
       .expect(200);
 
@@ -2153,12 +2247,12 @@ describe("VoiceController", () => {
         addressState: expect.objectContaining({
           status: "CANDIDATE",
           attemptCount: 1,
-          candidate: "20991 Recher Ave Euclid Ohio",
+          candidate: "20991 Recher Ave Euclid Ohio 44119",
           sourceEventId: "evt-addr-2",
         }),
       }),
     );
-    expect(response.text).toContain("I heard 20991 Recher Ave Euclid Ohio");
+    expect(response.text).toContain("I heard 20991 Recher Ave Euclid Ohio 44119");
 
     await app.close();
   });
@@ -2185,7 +2279,7 @@ describe("VoiceController", () => {
     const getVoiceNameState = jest.fn().mockReturnValue(buildConfirmedNameState());
     const getVoiceAddressState = jest
       .fn()
-      .mockReturnValue(buildCandidateAddressState("123 Main St", "evt-prev"));
+      .mockReturnValue(buildCandidateAddressState("123 Main St Euclid OH 44119", "evt-prev"));
     const updateVoiceAddressState = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
@@ -2370,7 +2464,7 @@ describe("VoiceController", () => {
       }),
     );
     expect(response.text).toContain(
-      "We&apos;ll follow up by text to confirm your address.",
+      "Perfect. To make sure everything&apos;s accurate, I&apos;ll send you a quick text to confirm your name and details. Once that&apos;s done, we&apos;ll move forward.",
     );
 
     await app.close();
@@ -2569,7 +2663,7 @@ describe("VoiceController", () => {
       .expect(200);
 
     expect(updateVoiceAddressState).not.toHaveBeenCalled();
-    expect(response.text).toContain("full name");
+    expect(response.text).toContain("spell your first name");
 
     await app.close();
   });

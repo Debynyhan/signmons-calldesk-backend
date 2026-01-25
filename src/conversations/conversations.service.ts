@@ -37,6 +37,7 @@ type VoiceAddressState = {
   attemptCount: number;
   confidence?: number;
   sourceEventId?: string | null;
+  needsLocality?: boolean;
 };
 type VoiceFieldConfirmation = {
   field: "name" | "address";
@@ -260,6 +261,43 @@ export class ConversationsService {
     return this.prisma.conversation.update({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
+    });
+  }
+
+  async updateVoiceIssueCandidate(params: {
+    tenantId: string;
+    conversationId: string;
+    issue: { value: string; sourceEventId: string; createdAt: string };
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const existing = current.issueCandidate as
+      | { value?: string | null }
+      | undefined;
+    if (existing?.value) {
+      return conversation;
+    }
+
+    const merged = {
+      ...current,
+      issueCandidate: params.issue,
+    } as Prisma.InputJsonValue;
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
     });
   }
 
@@ -711,6 +749,7 @@ export class ConversationsService {
       attemptCount: 0,
       confidence: undefined,
       sourceEventId: null,
+      needsLocality: false,
     };
   }
 
@@ -772,6 +811,8 @@ export class ConversationsService {
       typeof data.sourceEventId === "string" ? data.sourceEventId : null;
     const confidence =
       typeof data.confidence === "number" ? data.confidence : undefined;
+    const needsLocality =
+      typeof data.needsLocality === "boolean" ? data.needsLocality : false;
     if (candidateRaw && typeof candidateRaw === "object") {
       const legacyCandidate = candidateRaw as {
         value?: unknown;
@@ -819,6 +860,7 @@ export class ConversationsService {
           : 0,
       confidence,
       sourceEventId,
+      needsLocality,
     };
   }
 

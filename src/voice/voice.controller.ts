@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { validateRequest } from "twilio";
-import { CommunicationChannel } from "@prisma/client";
+import { CommunicationChannel, TenantOrganization } from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
@@ -16,7 +16,7 @@ import { ConversationsService } from "../conversations/conversations.service";
 import { CallLogService } from "../logging/call-log.service";
 import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
-import { setRequestContextData } from "../common/context/request-context";
+import { getRequestContext, setRequestContextData } from "../common/context/request-context";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
 
@@ -57,30 +57,49 @@ export class VoiceController {
   async handleInbound(@Req() req: Request, @Res() res: Response) {
     this.verifySignature(req);
     if (!this.config.voiceEnabled) {
-      return this.replyWithTwiml(res, this.disabledTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        reason: "voice_disabled",
+        twimlOverride: this.disabledTwiml(),
+      });
     }
     const toNumber = this.extractToNumber(req);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
     if (!tenant) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        reason: "tenant_not_found",
+      });
     }
+    const displayName = this.getTenantDisplayName(tenant);
     const callSid = this.extractCallSid(req);
     if (!callSid) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        reason: "missing_call_sid",
+      });
     }
     const requestId = this.getRequestId(req);
     const callerPhone = this.extractFromNumber(req) ?? undefined;
-    await this.conversationsService.ensureVoiceConsentConversation({
+    const conversation = await this.conversationsService.ensureVoiceConsentConversation({
       tenantId: tenant.id,
       callSid,
       requestId,
       callerPhone,
     });
+    setRequestContextData({
+      tenantId: tenant.id,
+      conversationId: conversation.id,
+      callSid,
+      channel: "VOICE",
+      sourceEventId: `${callSid}:inbound`,
+    });
     return this.replyWithTwiml(
       res,
-      this.buildConsentTwiml(),
+      this.buildConsentTwiml(displayName),
     );
   }
 
@@ -88,18 +107,29 @@ export class VoiceController {
   async handleTurn(@Req() req: Request, @Res() res: Response) {
     this.verifySignature(req);
     if (!this.config.voiceEnabled) {
-      return this.replyWithTwiml(res, this.disabledTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        reason: "voice_disabled",
+        twimlOverride: this.disabledTwiml(),
+      });
     }
     const toNumber = this.extractToNumber(req);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
     if (!tenant) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        reason: "tenant_not_found",
+      });
     }
     const callSid = this.extractCallSid(req);
     if (!callSid) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        reason: "missing_call_sid",
+      });
     }
     const conversation = await this.conversationsService.getVoiceConversationByCallSid(
       {
@@ -112,11 +142,21 @@ export class VoiceController {
         ?.voiceConsent?.granted,
     );
     if (!consentGranted) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "consent_missing",
+      });
     }
 
     if (!conversation) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "conversation_missing",
+      });
     }
 
     const now = new Date();
@@ -127,18 +167,32 @@ export class VoiceController {
     });
 
     if (!turnState) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        conversationId: conversation.id,
+        callSid,
+        reason: "turn_state_missing",
+      });
     }
 
     const maxTurns = Math.max(1, this.config.voiceMaxTurns ?? 6);
     const maxDurationSec = Math.max(30, this.config.voiceMaxDurationSec ?? 180);
     const startedAt = new Date(turnState.voiceStartedAt);
     const elapsedSec = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+    const displayName = this.getTenantDisplayName(tenant);
     if (turnState.voiceTurnCount > maxTurns || elapsedSec > maxDurationSec) {
-      return this.replyWithTwiml(
+      return this.replyWithHumanFallback({
         res,
-        this.buildTwiml("Thanks for calling. We'll follow up shortly."),
-      );
+        tenantId: tenant.id,
+        conversationId: conversation.id,
+        callSid,
+        displayName,
+        reason:
+          turnState.voiceTurnCount > maxTurns
+            ? "max_turns_exceeded"
+            : "max_duration_exceeded",
+      });
     }
     const speechResult = this.extractSpeechResult(req);
     const normalizedSpeech = speechResult
@@ -176,20 +230,22 @@ export class VoiceController {
     }
     const conversationId = updatedConversation?.id ?? conversation?.id;
     if (!conversationId) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "conversation_id_missing",
+      });
     }
     if (!transcriptEventId) {
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        reason: "transcript_event_missing",
+      });
     }
-
-    const requestId = this.getRequestId(req);
-    setRequestContextData({
-      tenantId: tenant.id,
-      requestId,
-      callSid,
-      conversationId,
-      channel: "VOICE",
-    });
 
     const collectedData =
       updatedConversation?.collectedData ?? conversation.collectedData;
@@ -216,6 +272,15 @@ export class VoiceController {
       VoiceController.name,
     );
     const currentEventId = transcriptEventId;
+    const requestId = this.getRequestId(req);
+    setRequestContextData({
+      tenantId: tenant.id,
+      requestId,
+      callSid,
+      conversationId,
+      channel: "VOICE",
+      sourceEventId: currentEventId ?? undefined,
+    });
     let listeningWindow = this.getVoiceListeningWindow(collectedData);
     if (
       listeningWindow &&
@@ -263,6 +328,89 @@ export class VoiceController {
       expectedField = null;
     }
     if (!nameReady && (!expectedField || expectedField === "name")) {
+      const isOpeningTurn =
+        !expectedField &&
+        nameState.status === "MISSING" &&
+        nameState.attemptCount === 0 &&
+        !nameState.candidate.value;
+      if (isOpeningTurn) {
+        const openingCandidate = this.extractNameCandidateDeterministic(
+          normalizedSpeech,
+        );
+        if (
+          openingCandidate &&
+          this.isValidNameCandidate(openingCandidate) &&
+          this.isLikelyNameCandidate(openingCandidate)
+        ) {
+          const nextNameState: typeof nameState = {
+            ...nameState,
+            candidate: {
+              value: openingCandidate,
+              sourceEventId: currentEventId,
+              createdAt: new Date().toISOString(),
+            },
+            status: "CANDIDATE",
+          };
+          await this.conversationsService.updateVoiceNameState({
+            tenantId: tenant.id,
+            conversationId,
+            nameState: nextNameState,
+          });
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildNameConfirmationTwiml(
+              openingCandidate,
+              csrStrategy,
+            ),
+          });
+        }
+        const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
+        if (this.isLikelyIssueCandidate(issueCandidate)) {
+          await this.conversationsService.updateVoiceIssueCandidate({
+            tenantId: tenant.id,
+            conversationId,
+            issue: {
+              value: issueCandidate,
+              sourceEventId: currentEventId ?? "",
+              createdAt: new Date().toISOString(),
+            },
+          });
+          const followUp =
+            "Got it—that's definitely something we want to address quickly. I'll take care of this for you. May I have your name, please?";
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "name",
+            sourceEventId: currentEventId,
+            twiml: this.buildSayGatherTwiml(
+              this.applyCsrStrategy(csrStrategy, followUp),
+            ),
+          });
+        }
+        const sideQuestionReply = await this.buildSideQuestionReply(
+          tenant.id,
+          normalizedSpeech,
+        );
+        const followUp = sideQuestionReply
+          ? `${sideQuestionReply} May I have your name, please?`
+          : "Thanks for that. To get this started, may I have your name, please?";
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "name",
+          sourceEventId: currentEventId,
+            twiml: this.buildSayGatherTwiml(
+              this.applyCsrStrategy(csrStrategy, followUp),
+            ),
+          });
+      }
       const duplicateMissing =
         !nameState.candidate.value &&
         nameState.candidate.sourceEventId === currentEventId;
@@ -388,14 +536,16 @@ export class VoiceController {
               tenantId: tenant.id,
               conversationId,
             });
-            return this.replyWithTwiml(
+            return this.replyWithSmsHandoff({
               res,
-              this.buildTwiml(
-                "Thanks. We'll follow up by text to confirm your details.",
-              ),
-            );
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              displayName,
+              reason: "name_attempts_exceeded",
+            });
           }
-          if (nextAttempt >= 2) {
+          if (nextAttempt >= 1) {
             return this.replyWithListeningWindow({
               res,
               tenantId: tenant.id,
@@ -437,12 +587,14 @@ export class VoiceController {
               tenantId: tenant.id,
               conversationId,
             });
-            return this.replyWithTwiml(
+            return this.replyWithSmsHandoff({
               res,
-              this.buildTwiml(
-                "Thanks. We'll follow up by text to confirm your details.",
-              ),
-            );
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              displayName,
+              reason: "name_attempts_exceeded",
+            });
           }
           return this.replyWithListeningWindow({
             res,
@@ -465,6 +617,48 @@ export class VoiceController {
           targetField: "name",
           sourceEventId: currentEventId,
           twiml: this.buildYesNoRepromptTwiml(csrStrategy),
+        });
+      }
+
+      if (this.isLikelyAddressInputForName(normalizedSpeech)) {
+        const nextAttempt = nameState.attemptCount + 1;
+        const shouldFailClosed = nextAttempt >= 3;
+        const nextNameState: typeof nameState = {
+          ...nameState,
+          candidate: {
+            value: null,
+            sourceEventId: currentEventId,
+            createdAt: null,
+          },
+          status: "MISSING",
+          attemptCount: nextAttempt,
+        };
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: nextNameState,
+        });
+        if (shouldFailClosed) {
+          await this.clearVoiceListeningWindow({
+            tenantId: tenant.id,
+            conversationId,
+          });
+          return this.replyWithSmsHandoff({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: "name_attempts_exceeded",
+          });
+        }
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "name",
+          sourceEventId: currentEventId,
+          twiml: this.buildSpellNameTwiml(csrStrategy),
         });
       }
 
@@ -532,14 +726,16 @@ export class VoiceController {
             tenantId: tenant.id,
             conversationId,
           });
-          return this.replyWithTwiml(
+          return this.replyWithSmsHandoff({
             res,
-            this.buildTwiml(
-              "Thanks. We'll follow up by text to confirm your details.",
-            ),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: "name_attempts_exceeded",
+          });
         }
-        if (nextAttempt >= 2) {
+        if (nextAttempt >= 1) {
           return this.replyWithListeningWindow({
             res,
             tenantId: tenant.id,
@@ -603,12 +799,14 @@ export class VoiceController {
           tenantId: tenant.id,
           conversationId,
         });
-        return this.replyWithTwiml(
+        return this.replyWithSmsHandoff({
           res,
-          this.buildTwiml(
-            "Thanks. We'll follow up by text to confirm your address.",
-          ),
-        );
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          displayName,
+          reason: "address_failed",
+        });
       }
       const duplicateMissing =
         !addressState.candidate && addressState.sourceEventId === currentEventId;
@@ -620,6 +818,66 @@ export class VoiceController {
           field: "address",
           sourceEventId: currentEventId,
           twiml: this.buildAskAddressTwiml(csrStrategy),
+        });
+      }
+
+      if (addressState.needsLocality && addressState.candidate) {
+        const normalizedLocality = this.normalizeAddressCandidate(normalizedSpeech);
+        const hasDigits = /\d/.test(normalizedLocality);
+        const mergedCandidate = hasDigits
+          ? normalizedLocality
+          : this.mergeAddressWithLocality(
+              addressState.candidate,
+              normalizedLocality,
+            );
+        const nextAddressState: typeof addressState = {
+          ...addressState,
+          candidate: mergedCandidate || addressState.candidate,
+          needsLocality: false,
+          sourceEventId: currentEventId,
+        };
+        await this.conversationsService.updateVoiceAddressState({
+          tenantId: tenant.id,
+          conversationId,
+          addressState: nextAddressState,
+        });
+        if (this.isIncompleteAddress(nextAddressState.candidate ?? "")) {
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "address",
+            sourceEventId: currentEventId,
+            twiml: this.buildIncompleteAddressTwiml(
+              nextAddressState.candidate ?? "",
+              csrStrategy,
+            ),
+          });
+        }
+        if (this.isMissingLocality(nextAddressState.candidate ?? "")) {
+          return this.handleMissingLocalityPrompt({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            candidate: nextAddressState.candidate ?? "",
+            addressState: nextAddressState,
+            currentEventId,
+            displayName,
+            strategy: csrStrategy,
+          });
+        }
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "confirmation",
+          targetField: "address",
+          sourceEventId: currentEventId,
+          twiml: this.buildAddressConfirmationTwiml(
+            nextAddressState.candidate ?? "",
+            csrStrategy,
+          ),
         });
       }
 
@@ -638,6 +896,19 @@ export class VoiceController {
               addressState.candidate,
               csrStrategy,
             ),
+          });
+        }
+        if (this.isMissingLocality(addressState.candidate)) {
+          return this.handleMissingLocalityPrompt({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            candidate: addressState.candidate,
+            addressState,
+            currentEventId,
+            displayName,
+            strategy: csrStrategy,
           });
         }
         return this.replyWithListeningWindow({
@@ -695,6 +966,19 @@ export class VoiceController {
               ),
             });
           }
+          if (this.isMissingLocality(addressState.candidate)) {
+            return this.handleMissingLocalityPrompt({
+              res,
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              candidate: addressState.candidate,
+              addressState,
+              currentEventId,
+              displayName,
+              strategy: csrStrategy,
+            });
+          }
           if (!addressState.locked) {
             const confirmedAt = new Date().toISOString();
             const nextAddressState: typeof addressState = {
@@ -731,10 +1015,22 @@ export class VoiceController {
             tenantId: tenant.id,
             conversationId,
           });
+          const issueCandidate = this.getVoiceIssueCandidate(collectedData);
+          if (issueCandidate?.value) {
+            return this.handleVoiceIssueCandidate({
+              res,
+              tenantId: tenant.id,
+              callSid,
+              conversationId,
+              issueCandidate: issueCandidate.value,
+              currentEventId,
+              displayName,
+            });
+          }
           return this.replyWithTwiml(
             res,
             this.buildSayGatherTwiml(
-              "Thanks. Please describe the issue you're having.",
+              "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
             ),
           );
         }
@@ -770,12 +1066,14 @@ export class VoiceController {
               tenantId: tenant.id,
               conversationId,
             });
-            return this.replyWithTwiml(
+            return this.replyWithSmsHandoff({
               res,
-              this.buildTwiml(
-                "Thanks. We'll follow up by text to confirm your address.",
-              ),
-            );
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              displayName,
+              reason: "address_attempts_exceeded",
+            });
           }
           return this.replyWithListeningWindow({
             res,
@@ -810,12 +1108,27 @@ export class VoiceController {
               tenantId: tenant.id,
               conversationId,
             });
-            return this.replyWithTwiml(
+            return this.replyWithSmsHandoff({
               res,
-              this.buildTwiml(
-                "Thanks. We'll follow up by text to confirm your address.",
-              ),
-            );
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              displayName,
+              reason: "address_attempts_exceeded",
+            });
+          }
+          if (this.isMissingLocality(resolution.candidate)) {
+            return this.handleMissingLocalityPrompt({
+              res,
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              candidate: resolution.candidate,
+              addressState: nextAddressState,
+              currentEventId,
+              displayName,
+              strategy: csrStrategy,
+            });
           }
           return this.replyWithListeningWindow({
             res,
@@ -920,12 +1233,14 @@ export class VoiceController {
             tenantId: tenant.id,
             conversationId,
           });
-          return this.replyWithTwiml(
+          return this.replyWithSmsHandoff({
             res,
-            this.buildTwiml(
-              "Thanks. We'll follow up by text to confirm your address.",
-            ),
-          );
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: "address_attempts_exceeded",
+          });
         }
         return this.replyWithListeningWindow({
           res,
@@ -952,6 +1267,19 @@ export class VoiceController {
         conversationId,
         addressState: nextAddressState,
       });
+      if (this.isMissingLocality(candidateAddress)) {
+        return this.handleMissingLocalityPrompt({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          candidate: candidateAddress,
+          addressState: nextAddressState,
+          currentEventId,
+          displayName,
+          strategy: csrStrategy,
+        });
+      }
       return this.replyWithListeningWindow({
         res,
         tenantId: tenant.id,
@@ -975,10 +1303,22 @@ export class VoiceController {
         tenantId: tenant.id,
         conversationId,
       });
+      const issueCandidate = this.getVoiceIssueCandidate(collectedData);
+      if (issueCandidate?.value) {
+        return this.handleVoiceIssueCandidate({
+          res,
+          tenantId: tenant.id,
+          callSid,
+          conversationId,
+          issueCandidate: issueCandidate.value,
+          currentEventId,
+          displayName,
+        });
+      }
       return this.replyWithTwiml(
         res,
         this.buildSayGatherTwiml(
-          "Thanks. Please describe the issue you're having.",
+          "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
         ),
       );
     }
@@ -1006,6 +1346,38 @@ export class VoiceController {
         if (this.shouldGatherMore(safeReply)) {
           return this.replyWithTwiml(res, this.buildSayGatherTwiml(safeReply));
         }
+        if (
+          (aiResult as { outcome?: string }).outcome === "sms_handoff" ||
+          safeReply === this.buildSmsHandoffMessage()
+        ) {
+          return this.replyWithSmsHandoff({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: "ai_sms_handoff",
+            messageOverride: safeReply,
+          });
+        }
+        if (this.isHumanFallbackMessage(safeReply)) {
+          return this.replyWithHumanFallback({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: "ai_fallback",
+            messageOverride: safeReply,
+          });
+        }
+        this.logVoiceOutcome({
+          outcome: "no_handoff",
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          reason: "ai_reply_end",
+        });
         return this.replyWithTwiml(res, this.buildTwiml(safeReply));
       }
       if (aiResult.status === "job_created" && "message" in aiResult) {
@@ -1020,9 +1392,22 @@ export class VoiceController {
           occurredAt: new Date(),
           sourceEventId: currentEventId,
         });
+        this.logVoiceOutcome({
+          outcome: "no_handoff",
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          reason: "job_created_in_voice",
+        });
         return this.replyWithTwiml(res, this.buildTwiml(message));
       }
-      return this.replyWithTwiml(res, this.unroutableTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        reason: "ai_unknown_status",
+      });
     } catch {
       this.loggingService.warn(
         {
@@ -1034,27 +1419,44 @@ export class VoiceController {
         },
         VoiceController.name,
       );
-      return this.replyWithTwiml(
+      return this.replyWithHumanFallback({
         res,
-        this.buildTwiml(
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        displayName,
+        reason: "ai_preview_fallback",
+        messageOverride:
           "We're having trouble handling your call. Please try again later.",
-        ),
-      );
+      });
     }
   }
 
   @Post("fallback")
-  handleFallback(@Req() req: Request, @Res() res: Response) {
+  async handleFallback(@Req() req: Request, @Res() res: Response) {
     this.verifySignature(req);
     if (!this.config.voiceEnabled) {
-      return this.replyWithTwiml(res, this.disabledTwiml());
+      return this.replyWithNoHandoff({
+        res,
+        reason: "voice_disabled",
+        twimlOverride: this.disabledTwiml(),
+      });
     }
-    return this.replyWithTwiml(
+    const toNumber = this.extractToNumber(req);
+    const tenant = toNumber
+      ? await this.tenantsService.resolveTenantByPhone(toNumber)
+      : null;
+    const displayName = tenant ? this.getTenantDisplayName(tenant) : undefined;
+    const callSid = this.extractCallSid(req) ?? undefined;
+    return this.replyWithHumanFallback({
       res,
-      this.buildTwiml(
+      tenantId: tenant?.id,
+      callSid,
+      displayName,
+      reason: "twilio_fallback",
+      messageOverride:
         "We're having trouble handling your call. Please try again later.",
-      ),
-    );
+    });
   }
 
   @Post("status")
@@ -1099,7 +1501,8 @@ export class VoiceController {
     }
   }
 
-  private replyWithTwiml(res: Response, twiml: string) {
+  private async replyWithTwiml(res: Response, twiml: string) {
+    await this.logVoiceAssistantMessages(twiml);
     return res.status(200).type("text/xml").send(twiml);
   }
 
@@ -1115,15 +1518,12 @@ export class VoiceController {
     );
   }
 
-  private buildConsentTwiml(): string {
+  private buildConsentTwiml(displayName: string): string {
     const actionUrl = this.buildWebhookUrl("/api/voice/turn");
-    const consent =
-      "This call may be transcribed and handled by automated systems for service and quality purposes. By continuing, you consent to this process.";
-    const greeting = "Thanks for calling. Please say your full name.";
+    const tenantLabel = displayName?.trim() || "our team";
+    const composed = `Thank you for calling ${tenantLabel}. This is Signmons. This call may be transcribed and handled by automated systems for service and quality purposes. By continuing, you consent to this process. How may I help you?`;
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
-      consent,
-    )}</Say><Say>${this.escapeXml(
-      greeting,
+      composed,
     )}</Say><Gather input="speech" action="${this.escapeXml(
       actionUrl,
     )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
@@ -1160,9 +1560,12 @@ export class VoiceController {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
+    const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
+    const thanks = firstName ? `Thanks, ${firstName}. ` : "Thanks. ";
+    const core = `${thanks}I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
     const message = this.applyCsrStrategy(
       strategy,
-      `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`,
+      this.withPrefix("Got it. ", core),
     );
     return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
@@ -1171,38 +1574,43 @@ export class VoiceController {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
+    const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
+    const thanks = firstName ? `Thanks, ${firstName}. ` : "Thanks. ";
+    const core = `${thanks}I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
     const message = this.applyCsrStrategy(
       strategy,
-      `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`,
+      this.withPrefix("Got it. ", core),
     );
     return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
   private buildAskNameTwiml(strategy?: CsrStrategy): string {
+    const core = "Sorry about that. Please say your full name.";
     return this.buildSayGatherTwiml(
       this.applyCsrStrategy(
         strategy,
-        "Sorry about that. Please say your full name.",
+        this.withPrefix(
+          "Thanks, just so we're on the same page. ",
+          core,
+        ),
       ),
     );
   }
 
   private buildSpellNameTwiml(strategy?: CsrStrategy): string {
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(
-        strategy,
-        "I'm having trouble with the name. Please spell your first name, then say your last name.",
-      ),
-    );
+    const core =
+      "I'm having trouble with the name. Please spell your first name, then say your last name.";
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
   }
 
   private buildAddressConfirmationTwiml(
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
+    const core = `Thanks. I heard ${candidate}. I just need the full address to send the right tech. If that's right, say 'yes'. Otherwise, say the full address.`;
     const message = this.applyCsrStrategy(
       strategy,
-      `I heard ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`,
+      this.withPrefix("Got it. ", core),
     );
     return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
   }
@@ -1211,18 +1619,26 @@ export class VoiceController {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
+    const core = `Thanks. I heard ${candidate}. I just need the full address to send the right tech. If that's right, say 'yes'. Otherwise, say the full address.`;
     const message = this.applyCsrStrategy(
       strategy,
-      `Great, I've got ${candidate}. If that's right, say 'yes'. Otherwise, say the full address again.`,
+      this.withPrefix("Got it. ", core),
     );
     return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
   }
 
+  private buildAddressLocalityPromptTwiml(strategy?: CsrStrategy): string {
+    const core = "Thanks. What city, state, and ZIP code is that in?";
+    const message = this.applyCsrStrategy(strategy, core);
+    return this.buildSayGatherTwiml(message, { timeout: 8 });
+  }
+
   private buildAskAddressTwiml(strategy?: CsrStrategy): string {
+    const core = "Sorry about that. Please say your full service address.";
     return this.buildSayGatherTwiml(
       this.applyCsrStrategy(
         strategy,
-        "Sorry about that. Please say your full service address.",
+        this.withPrefix("Thanks. ", core),
       ),
       { timeout: 8 },
     );
@@ -1239,17 +1655,18 @@ export class VoiceController {
       return this.buildSayGatherTwiml(
         this.applyCsrStrategy(
           strategy,
-          "I didn't catch the house number. Please repeat the full street name and city.",
+          this.withPrefix(
+            "Thanks. ",
+            "I didn't catch the house number. Please repeat the full street name and city.",
+          ),
         ),
       );
     }
     const numberToken = tokens[numberIndex];
     const prefixTokens = tokens.slice(numberIndex + 1, numberIndex + 4);
     const prefix = prefixTokens.length ? ` ${prefixTokens.join(" ")}` : "";
-    const message = this.applyCsrStrategy(
-      strategy,
-      `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`,
-    );
+    const core = `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`;
+    const message = this.applyCsrStrategy(strategy, this.withPrefix("Thanks. ", core));
     return this.buildSayGatherTwiml(message, { timeout: 8 });
   }
 
@@ -1257,7 +1674,10 @@ export class VoiceController {
     return this.buildSayGatherTwiml(
       this.applyCsrStrategy(
         strategy,
-        "Please say 'yes' or say the correct details.",
+        this.withPrefix(
+          "Sorry, I didn't catch that. ",
+          "Please say 'yes' or say the correct details.",
+        ),
       ),
       { bargeIn: true },
     );
@@ -1268,6 +1688,273 @@ export class VoiceController {
     return baseUrl ? `${baseUrl}${path}` : path;
   }
 
+  private buildSmsHandoffMessage(): string {
+    return "Perfect. To make sure everything's accurate, I'll send you a quick text to confirm your name and details. Once that's done, we'll move forward.";
+  }
+
+  private buildClosingTwiml(displayName: string, message: string): string {
+    const tenantLabel = displayName?.trim();
+    const prefix = tenantLabel
+      ? `Thanks for calling. ${tenantLabel}. `
+      : "Thanks for calling. ";
+    return this.buildTwiml(`${prefix}${message}`);
+  }
+
+  private isHumanFallbackMessage(message: string): boolean {
+    return (
+      message.trim() === "Thanks. We'll follow up shortly." ||
+      message.trim() === "We'll follow up shortly."
+    );
+  }
+
+  private logVoiceOutcome(params: {
+    outcome: "sms_handoff" | "human_fallback" | "no_handoff";
+    tenantId?: string;
+    conversationId?: string;
+    callSid?: string;
+    reason: string;
+  }) {
+    this.loggingService.log(
+      {
+        event: "voice.outcome",
+        outcome: params.outcome,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        reason: params.reason,
+      },
+      VoiceController.name,
+    );
+  }
+
+  private async replyWithSmsHandoff(params: {
+    res: Response;
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    displayName: string;
+    reason: string;
+    messageOverride?: string;
+  }) {
+    this.logVoiceOutcome({
+      outcome: "sms_handoff",
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      callSid: params.callSid,
+      reason: params.reason,
+    });
+    return this.replyWithTwiml(
+      params.res,
+      this.buildClosingTwiml(
+        params.displayName,
+        params.messageOverride ?? this.buildSmsHandoffMessage(),
+      ),
+    );
+  }
+
+  private async replyWithHumanFallback(params: {
+    res: Response;
+    tenantId?: string;
+    conversationId?: string;
+    callSid?: string;
+    displayName?: string;
+    reason: string;
+    messageOverride?: string;
+  }) {
+    this.logVoiceOutcome({
+      outcome: "human_fallback",
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      callSid: params.callSid,
+      reason: params.reason,
+    });
+    const message = params.messageOverride ?? "We'll follow up shortly.";
+    return this.replyWithTwiml(
+      params.res,
+      this.buildClosingTwiml(params.displayName ?? "", message),
+    );
+  }
+
+  private async replyWithNoHandoff(params: {
+    res: Response;
+    reason: string;
+    tenantId?: string;
+    conversationId?: string;
+    callSid?: string;
+    twimlOverride?: string;
+  }) {
+    this.logVoiceOutcome({
+      outcome: "no_handoff",
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      callSid: params.callSid,
+      reason: params.reason,
+    });
+    return this.replyWithTwiml(
+      params.res,
+      params.twimlOverride ?? this.unroutableTwiml(),
+    );
+  }
+
+  private async handleMissingLocalityPrompt(params: {
+    res: Response;
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    candidate: string;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    currentEventId: string | null;
+    displayName: string;
+    strategy?: CsrStrategy;
+  }) {
+    const nextAttempt = params.addressState.attemptCount + 1;
+    const shouldFailClosed = nextAttempt >= 2;
+    const nextAddressState: typeof params.addressState = {
+      ...params.addressState,
+      candidate: params.candidate,
+      status: shouldFailClosed ? "FAILED" : "CANDIDATE",
+      attemptCount: nextAttempt,
+      needsLocality: !shouldFailClosed,
+      sourceEventId: params.currentEventId,
+    };
+    await this.conversationsService.updateVoiceAddressState({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      addressState: nextAddressState,
+    });
+    if (shouldFailClosed) {
+      this.loggingService.log(
+        {
+          event: "voice.address_capture_failed",
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          attemptCount: nextAttempt,
+          candidate: params.candidate,
+          confidence: params.addressState.confidence,
+        },
+        VoiceController.name,
+      );
+      await this.clearVoiceListeningWindow({
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+      });
+      return this.replyWithSmsHandoff({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        displayName: params.displayName,
+        reason: "address_locality_attempts_exceeded",
+      });
+    }
+    return this.replyWithListeningWindow({
+      res: params.res,
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      field: "address",
+      sourceEventId: params.currentEventId,
+      twiml: this.buildAddressLocalityPromptTwiml(params.strategy),
+    });
+  }
+
+  private getVoiceIssueCandidate(
+    collectedData: unknown,
+  ): { value?: string; sourceEventId?: string } | null {
+    if (!collectedData || typeof collectedData !== "object") {
+      return null;
+    }
+    const record = collectedData as Record<string, unknown>;
+    const candidate = record.issueCandidate as
+      | { value?: string; sourceEventId?: string }
+      | undefined;
+    if (!candidate?.value) {
+      return null;
+    }
+    return candidate;
+  }
+
+  private normalizeIssueCandidate(value: string): string {
+    const cleaned = this.sanitizationService.sanitizeText(value);
+    return this.sanitizationService.normalizeWhitespace(cleaned);
+  }
+
+  private isLikelyIssueCandidate(value: string): boolean {
+    if (!value) {
+      return false;
+    }
+    const normalized = value.toLowerCase();
+    if (normalized.length < 6) {
+      return false;
+    }
+    return /(furnace|heat|heating|cold|ac|air conditioning|cooling|no heat|no hot|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working)/.test(
+      normalized,
+    );
+  }
+
+  private async handleVoiceIssueCandidate(params: {
+    res: Response;
+    tenantId: string;
+    callSid: string;
+    conversationId: string;
+    issueCandidate: string;
+    currentEventId: string | null;
+    displayName: string;
+  }) {
+    try {
+      const aiResult = await this.aiService.triage(
+        params.tenantId,
+        params.callSid,
+        params.issueCandidate,
+        {
+          conversationId: params.conversationId,
+          channel: CommunicationChannel.VOICE,
+        },
+      );
+      if (aiResult.status === "reply" && "reply" in aiResult) {
+        const safeReply = this.capAiReply(aiResult.reply ?? "");
+        await this.callLogService.createVoiceAssistantLog({
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          message: safeReply,
+          occurredAt: new Date(),
+          sourceEventId: params.currentEventId ?? undefined,
+        });
+        if (this.shouldGatherMore(safeReply)) {
+          return this.replyWithTwiml(
+            params.res,
+            this.buildSayGatherTwiml(safeReply),
+          );
+        }
+        return this.replyWithTwiml(
+          params.res,
+          this.buildTwiml(safeReply),
+        );
+      }
+    } catch (error) {
+      this.loggingService.warn(
+        {
+          event: "voice.issue_candidate_failed",
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          error: (error as Error).message,
+        },
+        VoiceController.name,
+      );
+    }
+    return this.replyWithHumanFallback({
+      res: params.res,
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      callSid: params.callSid,
+      displayName: params.displayName,
+      reason: "issue_candidate_failed",
+      messageOverride: "Thanks. We'll follow up shortly.",
+    });
+  }
+
   private escapeXml(value: string): string {
     return value
       .replace(/&/g, "&amp;")
@@ -1275,6 +1962,15 @@ export class VoiceController {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&apos;");
+  }
+
+  private unescapeXml(value: string): string {
+    return value
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, "\"")
+      .replace(/&gt;/g, ">")
+      .replace(/&lt;/g, "<")
+      .replace(/&amp;/g, "&");
   }
 
   private capAiReply(value: string): string {
@@ -1317,6 +2013,17 @@ export class VoiceController {
     });
   }
 
+  private getTenantDisplayName(tenant: TenantOrganization): string {
+    if (tenant.settings && typeof tenant.settings === "object") {
+      const settings = tenant.settings as Record<string, unknown>;
+      const displayName = settings.displayName;
+      if (typeof displayName === "string" && displayName.trim()) {
+        return displayName.trim();
+      }
+    }
+    return tenant.name;
+  }
+
   private isUrgencyEmergency(collectedData: unknown): boolean {
     if (!collectedData || typeof collectedData !== "object") {
       return false;
@@ -1350,11 +2057,72 @@ export class VoiceController {
     const normalizedPrefix = prefix.toLowerCase();
     if (
       normalizedMessage.includes(normalizedPrefix) ||
-      normalizedMessage.startsWith("thanks")
+      normalizedMessage.startsWith("thanks") ||
+      normalizedMessage.startsWith("got it") ||
+      normalizedMessage.startsWith("sorry")
     ) {
       return message;
     }
     return `${prefix} ${message}`.trim();
+  }
+
+  private async logVoiceAssistantMessages(twiml: string) {
+    const context = getRequestContext();
+    if (
+      !context ||
+      context.channel !== "VOICE" ||
+      !context.tenantId ||
+      !context.conversationId ||
+      !context.callSid
+    ) {
+      return;
+    }
+    const messages = this.extractSayMessages(twiml);
+    if (!messages.length) {
+      return;
+    }
+    const baseSourceEventId = context.sourceEventId ?? undefined;
+    await Promise.all(
+      messages.map((message, index) =>
+        this.callLogService.createVoiceAssistantLog({
+          tenantId: context.tenantId as string,
+          conversationId: context.conversationId as string,
+          callSid: context.callSid as string,
+          message,
+          occurredAt: new Date(),
+          sourceEventId: baseSourceEventId
+            ? `${baseSourceEventId}:${index}`
+            : undefined,
+        }),
+      ),
+    );
+  }
+
+  private extractSayMessages(twiml: string): string[] {
+    const results: string[] = [];
+    const regex = /<Say>(.*?)<\/Say>/g;
+    let match: RegExpExecArray | null = null;
+    while ((match = regex.exec(twiml)) !== null) {
+      const raw = this.unescapeXml(match[1] ?? "");
+      const trimmed = raw.trim();
+      if (trimmed) {
+        results.push(trimmed);
+      }
+    }
+    return results;
+  }
+
+  private withPrefix(prefix: string | undefined, message: string): string {
+    if (!prefix) {
+      return message;
+    }
+    const trimmed = message.trim();
+    const normalized = trimmed.toLowerCase();
+    const normalizedPrefix = prefix.trim().toLowerCase();
+    if (normalized.startsWith(normalizedPrefix)) {
+      return message;
+    }
+    return `${prefix}${message}`;
   }
 
   private getCsrPrefix(strategy: CsrStrategy | undefined): string {
@@ -1475,7 +2243,7 @@ export class VoiceController {
           params.strategy,
         );
       }
-      if (params.nameState.attemptCount >= 2) {
+      if (params.nameState.attemptCount >= 1) {
         return this.buildSpellNameTwiml(params.strategy);
       }
       return this.buildAskNameTwiml(params.strategy);
@@ -1487,6 +2255,9 @@ export class VoiceController {
             params.addressState.candidate,
             params.strategy,
           );
+        }
+        if (this.isMissingLocality(params.addressState.candidate)) {
+          return this.buildAddressLocalityPromptTwiml(params.strategy);
         }
         return this.buildAddressConfirmationTwiml(
           params.addressState.candidate,
@@ -1790,6 +2561,9 @@ export class VoiceController {
     if (!cleaned) {
       return null;
     }
+    if (/\d/.test(transcript)) {
+      return null;
+    }
     const tokenPattern = "([A-Za-z][A-Za-z'\\-]*(?:\\s+[A-Za-z][A-Za-z'\\-]*){0,2})";
     const patterns = [
       new RegExp(`\\bmy name is\\s+${tokenPattern}`, "i"),
@@ -1866,6 +2640,19 @@ export class VoiceController {
       .every((token) => !blocked.has(token));
   }
 
+  private isLikelyAddressInputForName(transcript: string): boolean {
+    if (!transcript) {
+      return false;
+    }
+    const normalized = transcript.toLowerCase();
+    if (/\d/.test(normalized)) {
+      return true;
+    }
+    return /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
+      normalized,
+    );
+  }
+
   private normalizeAddressCandidate(value: string): string {
     const cleaned = this.sanitizationService.sanitizeText(value);
     return this.sanitizationService.normalizeWhitespace(cleaned);
@@ -1903,6 +2690,214 @@ export class VoiceController {
       return true;
     }
     return false;
+  }
+
+  private isMissingLocality(candidate: string): boolean {
+    const normalized = candidate.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!normalized) {
+      return true;
+    }
+    const tokens = normalized
+      .split(" ")
+      .filter(Boolean)
+      .map((token) => this.stripLocalityToken(token));
+    const zipIndex = this.findZipTokenIndex(tokens);
+    if (zipIndex < 0) {
+      return true;
+    }
+    const stateIndex = this.findStateTokenIndex(tokens);
+    let effectiveStateIndex: number | null = stateIndex;
+    const beforeZip = zipIndex - 1;
+    if (beforeZip < 0) {
+      return true;
+    }
+    if (this.isStateToken(tokens[beforeZip])) {
+      effectiveStateIndex = beforeZip;
+    } else {
+      return true;
+    }
+    if (effectiveStateIndex === null || effectiveStateIndex < 0) {
+      return true;
+    }
+    const cityTokens = tokens.slice(
+      Math.max(0, effectiveStateIndex - 3),
+      effectiveStateIndex,
+    );
+    return !cityTokens.some((token) => this.isCityToken(token));
+  }
+
+  private findZipTokenIndex(tokens: string[]): number {
+    for (let i = tokens.length - 1; i >= 0; i -= 1) {
+      if (/^\d{5}(?:-\d{4})?$/.test(tokens[i])) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private findStateTokenIndex(tokens: string[]): number | null {
+    for (let i = tokens.length - 1; i >= 0; i -= 1) {
+      if (this.isStateToken(tokens[i])) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  private isStateToken(token: string): boolean {
+    const states = new Set([
+      "al",
+      "ak",
+      "az",
+      "ar",
+      "ca",
+      "co",
+      "ct",
+      "de",
+      "fl",
+      "ga",
+      "hi",
+      "id",
+      "il",
+      "in",
+      "ia",
+      "ks",
+      "ky",
+      "la",
+      "me",
+      "md",
+      "ma",
+      "mi",
+      "mn",
+      "ms",
+      "mo",
+      "mt",
+      "ne",
+      "nv",
+      "nh",
+      "nj",
+      "nm",
+      "ny",
+      "nc",
+      "nd",
+      "oh",
+      "ok",
+      "or",
+      "pa",
+      "ri",
+      "sc",
+      "sd",
+      "tn",
+      "tx",
+      "ut",
+      "vt",
+      "va",
+      "wa",
+      "wv",
+      "wi",
+      "wy",
+      "alabama",
+      "alaska",
+      "arizona",
+      "arkansas",
+      "california",
+      "colorado",
+      "connecticut",
+      "delaware",
+      "florida",
+      "georgia",
+      "hawaii",
+      "idaho",
+      "illinois",
+      "indiana",
+      "iowa",
+      "kansas",
+      "kentucky",
+      "louisiana",
+      "maine",
+      "maryland",
+      "massachusetts",
+      "michigan",
+      "minnesota",
+      "mississippi",
+      "missouri",
+      "montana",
+      "nebraska",
+      "nevada",
+      "newhampshire",
+      "newjersey",
+      "newmexico",
+      "newyork",
+      "northcarolina",
+      "northdakota",
+      "ohio",
+      "oklahoma",
+      "oregon",
+      "pennsylvania",
+      "rhodeisland",
+      "southcarolina",
+      "southdakota",
+      "tennessee",
+      "texas",
+      "utah",
+      "vermont",
+      "virginia",
+      "washington",
+      "westvirginia",
+      "wisconsin",
+      "wyoming",
+    ]);
+    return states.has(token.replace(/\s+/g, ""));
+  }
+
+  private isCityToken(token: string): boolean {
+    if (!token || /^\d+$/.test(token)) {
+      return false;
+    }
+    const streetSuffixes = new Set([
+      "st",
+      "street",
+      "rd",
+      "road",
+      "dr",
+      "drive",
+      "ave",
+      "avenue",
+      "blvd",
+      "boulevard",
+      "ln",
+      "lane",
+      "ct",
+      "court",
+      "way",
+      "pkwy",
+      "parkway",
+      "pl",
+      "place",
+      "cir",
+      "circle",
+    ]);
+    return !streetSuffixes.has(token);
+  }
+
+  private stripLocalityToken(token: string): string {
+    return token.replace(/[^a-z0-9-]/gi, "");
+  }
+
+  private mergeAddressWithLocality(
+    candidate: string,
+    locality: string,
+  ): string {
+    const normalized = locality.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return candidate;
+    }
+    const lowerCandidate = candidate.toLowerCase();
+    const lowerLocality = normalized.toLowerCase();
+    if (lowerCandidate.includes(lowerLocality)) {
+      return candidate;
+    }
+    return `${candidate} ${normalized}`.replace(/\s+/g, " ").trim();
   }
 
   private stripNameFillers(value: string): string {

@@ -271,7 +271,12 @@ describe("AiService", () => {
         }),
     );
 
-    expect(response).toEqual({ status: "reply", reply: replyText });
+    expect(response).toEqual({
+      status: "reply",
+      reply: replyText,
+      outcome: "sms_handoff",
+      reason: "voice_tool_blocked",
+    });
     expect(jobsRepository.createJobFromToolCall).not.toHaveBeenCalled();
     expect(conversationsService.linkJobToConversation).not.toHaveBeenCalled();
     expect(callLogService.clearSession).not.toHaveBeenCalled();
