@@ -15,6 +15,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health/health.controller";
 import { VoiceModule } from "./voice/voice.module";
 import { SmsModule } from "./sms/sms.module";
+import { MarketingModule } from "./marketing/marketing.module";
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { SmsModule } from "./sms/sms.module";
     AiModule,
     VoiceModule,
     SmsModule,
+    MarketingModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

@@ -27,6 +27,7 @@ export interface AppConfig {
   twilioPhoneNumber: string;
   twilioSignatureCheck: boolean;
   twilioWebhookBaseUrl: string;
+  demoTenantId: string;
   voiceMaxTurns: number;
   voiceMaxDurationSec: number;
   voiceAddressMinConfidence: number;
@@ -92,6 +93,7 @@ export default registerAs("app", (): AppConfig => {
     twilioSignatureCheck:
       (process.env.TWILIO_SIGNATURE_CHECK ?? "true").toLowerCase() === "true",
     twilioWebhookBaseUrl: process.env.TWILIO_WEBHOOK_BASE_URL ?? "",
+    demoTenantId: process.env.DEMO_TENANT_ID ?? "",
     voiceMaxTurns: Number(process.env.VOICE_MAX_TURNS ?? 6),
     voiceMaxDurationSec: Number(process.env.VOICE_MAX_DURATION_SEC ?? 180),
     voiceAddressMinConfidence: Number(

@@ -66,6 +66,10 @@ describe("AiService", () => {
     tenantsService = {
       getTenantContext: jest.fn(),
       createTenant: jest.fn(),
+      getTenantById: jest.fn(),
+      getTenantFeePolicy: jest.fn(),
+      syncTenantFeePolicy: jest.fn(),
+      updateTenantFeeSettings: jest.fn(),
     } as unknown as jest.Mocked<TenantsService>;
     tenantsService.getTenantContext.mockResolvedValue({
       tenantId,
