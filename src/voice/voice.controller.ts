@@ -403,11 +403,13 @@ export class VoiceController {
       expectedField = null;
     }
     if (!nameReady && (!expectedField || expectedField === "name")) {
+      const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
       const isOpeningTurn =
         !expectedField &&
         nameState.status === "MISSING" &&
         nameState.attemptCount === 0 &&
-        !nameState.candidate.value;
+        !nameState.candidate.value &&
+        !existingIssueCandidate?.value;
       if (isOpeningTurn) {
         const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
         if (this.isLikelyIssueCandidate(issueCandidate)) {
@@ -2876,7 +2878,7 @@ export class VoiceController {
     const cleaned = this.sanitizationService
       .sanitizeText(value)
       .toLowerCase()
-      .replace(/[^a-z\s'-.]/g, " ");
+      .replace(/[^a-z\s'-]/g, " ");
     const stripped = this.stripNameFillers(cleaned);
     const normalized = this.sanitizationService.normalizeWhitespace(stripped);
     if (!normalized) {

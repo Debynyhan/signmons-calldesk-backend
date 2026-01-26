@@ -2,6 +2,8 @@
 
 NestJS backend powering the Signmons CallDesk AI dispatcher. Provides `/ai/triage` endpoint that proxies to OpenAI Chat Completions with function calling.
 
+Data contract details for frontend/backend integration live in `data-contract.md`.
+
 ## Getting Started
 
 1. Install dependencies:

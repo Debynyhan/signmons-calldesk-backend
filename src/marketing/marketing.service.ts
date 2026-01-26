@@ -5,7 +5,11 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import { Twilio } from "twilio";
-import type { MarketingLead, MarketingLeadStatus } from "@prisma/client";
+import type {
+  MarketingLead,
+  MarketingLeadStatus,
+  Prisma,
+} from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
@@ -106,7 +110,7 @@ export class MarketingService {
           ? this.sanitizationService.sanitizeText(payload.timezone)
           : null,
         preferredCallTime: this.parsePreferredTime(payload.preferredCallTime),
-        utm: payload.utm ?? null,
+        utm: this.sanitizeUtm(payload.utm),
         referrerUrl: payload.referrerUrl
           ? this.sanitizationService.sanitizeText(payload.referrerUrl)
           : null,
@@ -275,5 +279,18 @@ export class MarketingService {
       throw new BadRequestException("Invalid preferredCallTime.");
     }
     return parsed;
+  }
+
+  private sanitizeUtm(
+    utm?: Record<string, unknown>,
+  ): Prisma.InputJsonValue | undefined {
+    if (!utm) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(JSON.stringify(utm)) as Prisma.InputJsonValue;
+    } catch {
+      return undefined;
+    }
   }
 }
