@@ -83,4 +83,88 @@ describe("MarketingController", () => {
 
     await app.close();
   });
+
+  it("accepts try-demo status callbacks", async () => {
+    const handleTryDemoStatusCallback = jest.fn().mockResolvedValue(undefined);
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        MarketingModule,
+      ],
+    })
+      .overrideProvider(MarketingService)
+      .useValue({ handleTryDemoStatusCallback })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    await request(app.getHttpServer())
+      .post("/api/marketing/try-demo/status?leadId=lead-1")
+      .send({ CallSid: "CA123", CallStatus: "busy" })
+      .expect(204);
+
+    expect(handleTryDemoStatusCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CallSid: "CA123",
+        CallStatus: "busy",
+      }),
+      "lead-1",
+    );
+
+    await app.close();
+  });
+
+  it("returns try-demo status for polling", async () => {
+    const getTryDemoStatus = jest.fn().mockResolvedValue({
+      leadId: "lead-1",
+      status: "FAILED",
+      call: { status: "failed", callSid: "CA123" },
+      failureReason: "busy",
+      retry: { allowed: false, afterSec: 120, reason: "rate_limited" },
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        MarketingModule,
+      ],
+    })
+      .overrideProvider(MarketingService)
+      .useValue({ getTryDemoStatus })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .get("/api/marketing/try-demo/lead-1")
+      .expect(200);
+
+    expect(getTryDemoStatus).toHaveBeenCalledWith("lead-1");
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        leadId: "lead-1",
+        status: "FAILED",
+        call: expect.objectContaining({ status: "failed", callSid: "CA123" }),
+        failureReason: "busy",
+        retry: expect.objectContaining({ allowed: false, reason: "rate_limited" }),
+      }),
+    );
+
+    await app.close();
+  });
 });

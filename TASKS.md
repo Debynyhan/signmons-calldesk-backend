@@ -475,6 +475,14 @@ If any one of those is false, the system must fail closed.
 
 #### Policy, Providers & Delivery
 
+##### T-V00 — Target Voice Stack (North Star)
+
+- [x] Twilio Voice for call control
+- [x] Google Streaming STT for transcription
+- [x] FSM orchestrator is the only state-mutation layer
+- [x] LLM reasoning used for intent/phrasing only (no state writes)
+- [x] Google Neural TTS for speech output
+
 ##### T-V23 — Tenant Business Policy Resolver (P0)
 
 

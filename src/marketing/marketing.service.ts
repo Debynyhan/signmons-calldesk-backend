@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
@@ -36,6 +37,19 @@ type TryDemoResponse = {
     afterSec: number;
     reason: string | null;
   };
+};
+
+type TryDemoRetry = TryDemoResponse["retry"];
+
+type TryDemoStatusResponse = {
+  leadId: string;
+  status: MarketingLeadStatus;
+  call: {
+    status: "pending" | "calling" | "completed" | "failed";
+    callSid: string | null;
+  };
+  failureReason: string | null;
+  retry: TryDemoRetry;
 };
 
 @Injectable()
@@ -106,6 +120,7 @@ export class MarketingService {
         consentToAutoCall: true,
         consentTextVersion: payload.consentTextVersion,
         demoScenario: payload.demoScenario ?? null,
+        callMode: payload.callMode ?? "immediate",
         timezone: payload.timezone
           ? this.sanitizationService.sanitizeText(payload.timezone)
           : null,
@@ -119,6 +134,101 @@ export class MarketingService {
     });
 
     return this.placeDemoCall(created);
+  }
+
+  async handleTryDemoStatusCallback(
+    payload: Record<string, string | undefined>,
+    leadId?: string,
+  ): Promise<void> {
+    const callSid = payload.CallSid ?? payload.callSid;
+    const rawStatus = payload.CallStatus ?? payload.callStatus;
+    if (!rawStatus) {
+      this.loggingService.warn(
+        {
+          event: "marketing.try_demo_status_callback_missing_status",
+          leadId: leadId ?? null,
+          callSid: callSid ?? null,
+        },
+        MarketingService.name,
+      );
+      return;
+    }
+
+    const callStatus = rawStatus.toLowerCase();
+    const nextStatus = this.mapCallStatus(callStatus);
+    if (!nextStatus) {
+      return;
+    }
+
+    const lead = leadId
+      ? await this.prisma.marketingLead.findUnique({ where: { id: leadId } })
+      : callSid
+        ? await this.prisma.marketingLead.findFirst({ where: { callSid } })
+        : null;
+
+    if (!lead) {
+      this.loggingService.warn(
+        {
+          event: "marketing.try_demo_status_callback_lead_missing",
+          leadId: leadId ?? null,
+          callSid: callSid ?? null,
+          callStatus,
+        },
+        MarketingService.name,
+      );
+      return;
+    }
+
+    if (lead.status === "CALLED" || lead.status === "FAILED") {
+      return;
+    }
+
+    const errorReason = nextStatus === "FAILED" ? callStatus : undefined;
+    await this.updateLeadStatus(
+      lead.id,
+      nextStatus,
+      callSid ?? lead.callSid ?? null,
+      errorReason,
+    );
+
+    this.loggingService.log(
+      {
+        event: "marketing.try_demo_status_callback",
+        leadId: lead.id,
+        callSid: callSid ?? lead.callSid ?? null,
+        callStatus,
+        nextStatus,
+      },
+      MarketingService.name,
+    );
+  }
+
+  async getTryDemoStatus(leadId: string): Promise<TryDemoStatusResponse> {
+    const lead = await this.prisma.marketingLead.findUnique({
+      where: { id: leadId },
+    });
+
+    if (!lead) {
+      throw new NotFoundException("Demo lead not found.");
+    }
+
+    const now = new Date();
+    const retry = this.buildRetryInfo(lead, now);
+    const failureReason =
+      lead.status === "FAILED"
+        ? this.normalizeFailureReason(lead.errorReason)
+        : null;
+
+    return {
+      leadId: lead.id,
+      status: lead.status,
+      call: {
+        status: this.mapLeadCallStatus(lead.status),
+        callSid: lead.callSid ?? null,
+      },
+      failureReason,
+      retry,
+    };
   }
 
   private async findRecentLead(
@@ -177,9 +287,18 @@ export class MarketingService {
     const from = this.config.twilioPhoneNumber;
     const baseUrl = this.config.twilioWebhookBaseUrl.replace(/\/$/, "");
     const url = `${baseUrl}/api/voice/demo-inbound?leadId=${lead.id}`;
+    const statusCallback = `${baseUrl}/api/marketing/try-demo/status?leadId=${lead.id}`;
 
     try {
-      const call = await twilio.calls.create({ to, from, url, method: "POST" });
+      const call = await twilio.calls.create({
+        to,
+        from,
+        url,
+        method: "POST",
+        statusCallback,
+        statusCallbackMethod: "POST",
+        statusCallbackEvent: ["completed"],
+      });
       await this.updateLeadStatus(lead.id, "CALLING", call.sid);
 
       this.loggingService.log(
@@ -292,5 +411,75 @@ export class MarketingService {
     } catch {
       return undefined;
     }
+  }
+
+  private mapCallStatus(status: string): MarketingLeadStatus | null {
+    switch (status) {
+      case "completed":
+        return "CALLED";
+      case "busy":
+      case "failed":
+      case "no-answer":
+      case "noanswer":
+      case "canceled":
+        return "FAILED";
+      default:
+        return null;
+    }
+  }
+
+  private mapLeadCallStatus(
+    status: MarketingLeadStatus,
+  ): "pending" | "calling" | "completed" | "failed" {
+    switch (status) {
+      case "CALLING":
+        return "calling";
+      case "CALLED":
+        return "completed";
+      case "FAILED":
+        return "failed";
+      default:
+        return "pending";
+    }
+  }
+
+  private buildRetryInfo(lead: MarketingLead, now: Date): TryDemoRetry {
+    if (lead.status !== "FAILED") {
+      return { allowed: false, afterSec: 0, reason: null };
+    }
+
+    const remainingMs =
+      lead.createdAt.getTime() + TRY_DEMO_RATE_LIMIT_MS - now.getTime();
+    const retryAfterSec = Math.max(0, Math.ceil(remainingMs / 1000));
+    const allowed = retryAfterSec === 0;
+
+    return {
+      allowed,
+      afterSec: retryAfterSec,
+      reason: allowed ? null : "rate_limited",
+    };
+  }
+
+  private normalizeFailureReason(reason: string | null): string | null {
+    if (!reason) {
+      return null;
+    }
+
+    const normalized = reason.toLowerCase().trim();
+    const stripped = normalized.startsWith("call_status:")
+      ? normalized.slice("call_status:".length)
+      : normalized;
+    if (
+      stripped === "busy" ||
+      stripped === "failed" ||
+      stripped === "no-answer" ||
+      stripped === "noanswer" ||
+      stripped === "canceled" ||
+      stripped === "provider_unavailable"
+    ) {
+      return stripped.replace("noanswer", "no-answer");
+    }
+
+    return "failed";
   }
 }

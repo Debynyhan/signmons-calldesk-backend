@@ -63,6 +63,11 @@ export class TryDemoDto {
   @IsIn(["hvac", "plumbing", "electrical"])
   demoScenario?: string;
 
+  @Transform(lowerToOptionalString)
+  @IsOptional()
+  @IsIn(["immediate", "scheduled"])
+  callMode?: string;
+
   @IsOptional()
   @IsString()
   timezone?: string;

@@ -49,6 +49,8 @@ Optional:
 - `company` (string)
 - `email` (string, valid email)
 - `demoScenario` (string enum: `hvac`, `plumbing`, `electrical`)
+- `callMode` (string enum: `immediate`, `scheduled`)
+  - Must be the literal value (e.g., `"immediate"`). Do not send placeholders like `"CALL_MODE"`.
 - `timezone` (string, IANA timezone recommended)
 - `preferredCallTime` (string, ISO-8601)
 - `utm` (object, key/value JSON object)
@@ -94,9 +96,31 @@ Content-Type: application/json
   "company": "Leizurely HVAC",
   "email": "ben@leizurely.com",
   "demoScenario": "hvac",
+  "callMode": "immediate",
   "timezone": "America/New_York",
   "utm": { "source": "google", "medium": "cpc", "campaign": "try-demo" },
   "referrerUrl": "https://signmons.com/try-demo"
+}
+```
+
+## GET `/api/marketing/try-demo/:leadId`
+Returns the latest status for a demo lead so the UI can reflect busy/failed and show retry timing.
+
+### Response (200)
+```
+{
+  "leadId": "uuid",
+  "status": "PENDING" | "CALLING" | "CALLED" | "FAILED",
+  "call": {
+    "status": "pending" | "calling" | "completed" | "failed",
+    "callSid": "CA..." | null
+  },
+  "failureReason": "busy" | "failed" | "no-answer" | "canceled" | "provider_unavailable" | null,
+  "retry": {
+    "allowed": true | false,
+    "afterSec": 0 | number,
+    "reason": "rate_limited" | null
+  }
 }
 ```
 
@@ -106,6 +130,10 @@ Content-Type: application/json
 
 ## POST `/api/voice/demo-inbound`
 - Triggered by Twilio outbound call only.
+- Not for direct frontend use.
+
+## POST `/api/marketing/try-demo/status`
+- Triggered by Twilio status callbacks for the demo call.
 - Not for direct frontend use.
 
 ---
