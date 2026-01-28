@@ -1,64 +1,183 @@
-# Signmons Feature List and Outcomes
+# Signmons - Marketing Website Content and Roadmap
 
-This document outlines Signmons capabilities as they exist in the current codebase
-and the planned roadmap. It is intended for marketing site alignment and partner
-communication.
+Trades-first messaging for a marketing site. Plain language, revenue-focused,
+and centered on control, money, and reliability.
 
-## Outcomes (what customers get)
-- 24/7 call coverage so no lead is missed.
-- Higher booking conversion with structured intake and confirmations.
-- Faster response times through automated triage and urgency detection.
-- Lower admin overhead by reducing manual callbacks and data entry.
-- Consistent, professional customer experience with CSR-grade language.
-- Safe, compliant disclosures with consent handled at call start.
+## 1. Core Message
 
-## Live Now (in code today)
-- Voice AI CSR intake on Twilio (inbound + outbound).
-- Deterministic FSM flow for name, address, and issue capture.
-- Humanized phrasing that preserves FSM guarantees.
-- CSR Strategy Selector (opening, empathy, confirmation, urgency, next step).
-- Barge-in support and duplicate event handling.
-- SMS handoff and follow-up messaging.
-- Structured call and transcript logging with outcomes.
-- Tenant-specific settings (company name, phone number, policies).
-- Tenant fee policy support (service fee, emergency fee, credit window).
-- Marketing try-demo flow (form submit -> outbound call) with rate limiting.
-- Try-demo call status callbacks and polling for immediate UI feedback.
+### Plain-English Positioning
+Signmons answers your calls, books your jobs, and keeps your schedule full -
+even when you're busy or closed.
 
-## In Progress (near-term)
-- Google Streaming STT integration for more natural real-time speech capture.
-- Google Neural TTS integration for higher-quality speaking voice.
-- Outbound call quality improvements (status feedback, retry UX refinement).
+### One-Line Value Prop
+We make sure every call turns into the right job.
 
-## Planned / Roadmap
-- Custom brand personality profiles (tone, formality, vocabulary).
-- Per-tenant voice selection (multiple TTS voices).
-- Conversation style packs (concise, friendly, premium).
-- Multilingual support per tenant.
-- Knowledge hooks for FAQs, pricing, and policy responses.
-- ServiceTitan integration (two-way customer/job sync).
-- Signmons Dispatch (job board, tech availability, routing).
-- Secure payments (Stripe): card-on-file, payment links, deposits.
-- Scheduling intelligence (recommended windows and tech matching).
-- Analytics suite (conversion, QA, escalation reasons, call outcomes).
-- Human handoff workflows (warm transfer with context).
+## 2. Hero Section (Above the Fold)
+- Headline: Never Miss Another Job - Day or Night
+- Subheadline: Signmons handles your calls, texts, and website requests like a
+  professional dispatcher - prioritizing emergencies and booking real work.
+- CTA: See How It Works / Get a Demo
 
-## Integrations
-- Twilio Voice (telephony and call control).
-- OpenAI for reasoning and dialog generation.
-- Google STT/TTS (planned for best-in-class speech).
-- ServiceTitan (planned two-way sync).
-- Stripe (planned secure payments).
+## 3. The Real Problem (Their Reality)
+- Missed calls = missed money.
+- After-hours calls go to voicemail.
+- Office staff gets overwhelmed.
+- Emergencies are not caught fast enough.
+- Schedules get messy or double-booked.
 
-## Security and Trust
-- Consent disclosures at call start.
-- Strict input validation and DTO whitelisting.
-- Rate limiting on high-risk endpoints (try-demo).
-- Sanitized logs with structured events.
-- CORS allowlist configuration for marketing frontend.
+Reinforcement: If the phone rings and no one answers, the customer calls someone else.
 
-## Data captured in voice intake
-- Caller name and confirmation state.
-- Service address and completeness confirmation.
-- Problem description / issue summary.
-- Call outcomes (SMS handoff, human fallback, no-handoff end).
+## 4. What Signmons Does (Feature -> Outcome)
+
+### Answers Calls, Texts, and Website Requests
+What it does:
+- Answers customers instantly.
+- Works 24/7, including nights and weekends.
+
+What that means for you:
+- No missed leads.
+- More booked jobs.
+- Less stress on you and your staff.
+
+### Knows When It's an Emergency
+What it does:
+- Recognizes urgent situations like no heat, no AC in extreme weather,
+  flooding, gas smells, or electrical hazards.
+
+What that means for you:
+- High-value emergency calls get handled first.
+- Faster response times.
+- More emergency revenue captured.
+
+### Books Real Jobs (Not Just Messages)
+What it does:
+- Collects the right information step by step.
+- Only books jobs when required details are confirmed.
+
+What that means for you:
+- Fewer bad calls.
+- Cleaner schedules.
+- Less back-and-forth with customers.
+
+### Protects Your Pricing and Policies
+What it does:
+- Clearly explains service fees.
+- Follows your rules every time.
+- Never undercuts your pricing.
+
+What that means for you:
+- No surprise discounts.
+- No awkward conversations.
+- Consistent pricing across every call.
+
+## 5. Works With Your Existing Systems
+
+### ServiceTitan Integration
+What it does:
+- Connects with ServiceTitan.
+- Sends qualified jobs directly into your workflow.
+- Works alongside your existing dispatch process.
+
+What that means for you:
+- No replacing your dispatch team.
+- No double entry.
+- Signmons feeds ServiceTitan clean, usable jobs.
+
+Line: Signmons handles the intake. ServiceTitan handles the operation.
+
+### Supports Your Dispatch Team (Doesn't Replace Them)
+What it does:
+- Handles overflow, after-hours, and routine intake.
+- Escalates emergencies and special cases.
+
+What that means for you:
+- Dispatchers focus on high-value decisions.
+- Less burnout.
+- Better customer experience.
+
+## 6. Revenue and Performance Visibility
+
+### See What's Making You Money
+What it tracks:
+- Calls answered.
+- Jobs booked.
+- Emergency vs standard calls.
+- Missed call recovery.
+- After-hours revenue captured.
+
+What that means for you:
+- Know where your money is coming from.
+- See what hours generate the most jobs.
+- Make smarter staffing and marketing decisions.
+
+## 7. Why Contractors Choose Signmons
+
+| Typical Call Handling | Signmons |
+| --- | --- |
+| Voicemail after hours | Calls answered 24/7 |
+| Missed emergencies | Emergencies prioritized |
+| Staff overwhelmed | Workload reduced |
+| Messy notes | Clean job intake |
+| Lost revenue | More booked jobs |
+
+## 8. Who It's For
+- HVAC
+- Plumbing
+- Electrical
+- Drains
+- Construction / Handyman
+
+Line: If you roll trucks, Signmons works for you.
+
+## 9. Scale With Your Business
+- Works whether you have 1 truck or 100.
+- Same experience across all locations.
+- Consistent call handling.
+- No training drift.
+- No sick days or call-offs.
+
+## 10. Final Call to Action
+- Headline: Stop Missing Calls. Start Booking More Jobs.
+- CTA: Schedule a Demo / See Signmons in Action
+
+## 11. Availability and Roadmap
+
+### Available Now
+- 24/7 call and text answering.
+- Step-by-step intake with confirmed details.
+- Emergency prioritization.
+- Consistent pricing and policy disclosures.
+- Outbound demo calls for marketing leads.
+- Call outcomes and basic performance tracking.
+
+### Coming Soon
+- Custom brand personality and tone per company.
+- Voice selection to match your brand.
+- Multilingual call handling.
+- Deeper ServiceTitan sync (two-way customer and job updates).
+- Native Signmons dispatch (job board and tech routing).
+- Secure payments (card-on-file, deposits, payment links).
+- Smarter scheduling and technician matching.
+- Advanced revenue and conversion analytics.
+- Warm transfer to humans with full context.
+
+## 12. Notes for Frontend Partner
+- No AI jargon.
+- No buzzwords.
+- Focus on money, time, and stress reduction.
+- Speak like a dispatcher or contractor would.
+- Mobile-first, simple sections.
+
+Suggested sections:
+- Hero
+- Pain Points
+- What We Do
+- Emergency Handling
+- ServiceTitan Integration
+- Revenue Analytics
+- Who It's For
+- Final CTA
+
+## Internal North Star (Not Shown on Site)
+Signmons exists to capture more jobs, protect pricing, and keep schedules full -
+without adding more staff.
