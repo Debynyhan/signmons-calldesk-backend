@@ -95,6 +95,26 @@ What that means for you:
 - Less burnout.
 - Better customer experience.
 
+## 5a. Your Brand, Your Rules (Customization and Control)
+
+### Make It Sound Like Your Company
+What it does:
+- Uses your company name in every greeting.
+- Keeps messaging consistent across every call and text.
+
+What that means for you:
+- Customers feel like they reached your office, not a call center.
+- A consistent, professional tone on every interaction.
+
+### Enforces Your Policies Every Time
+What it does:
+- Follows your service fee and emergency fee rules.
+- Confirms details before moving forward.
+
+What that means for you:
+- No pricing surprises.
+- Cleaner handoffs for your team.
+
 ## 6. Revenue and Performance Visibility
 
 ### See What's Making You Money
@@ -140,22 +160,34 @@ Line: If you roll trucks, Signmons works for you.
 - Headline: Stop Missing Calls. Start Booking More Jobs.
 - CTA: Schedule a Demo / See Signmons in Action
 
+## 10a. Owner and Admin Control Center
+- Set company details, pricing rules, and routing preferences.
+- Manage users and roles across locations.
+- Calendar and dispatch visibility (coming soon).
+
 ## 11. Availability and Roadmap
 
 ### Available Now
-- 24/7 call and text answering.
-- Step-by-step intake with confirmed details.
+- 24/7 call answering (voice).
+- 24/7 text answering (SMS).
+- Website intake (forms/chat) routed into Signmons.
+- Authenticated web chat inside the Signmons app.
+- Step-by-step voice intake (name, address, issue capture).
 - Emergency prioritization.
 - Consistent pricing and policy disclosures.
 - Outbound demo calls for marketing leads.
-- Call outcomes and basic performance tracking.
+- Call outcome logging and basic performance tracking (internal).
+- Company-specific settings for greetings and fees.
 
 ### Coming Soon
+- Automated SMS confirmations for identity and fees.
 - Custom brand personality and tone per company.
 - Voice selection to match your brand.
 - Multilingual call handling.
 - Deeper ServiceTitan sync (two-way customer and job updates).
 - Native Signmons dispatch (job board and tech routing).
+- Admin dashboards with calendar and dispatcher views.
+- Team management with roles and permissions.
 - Secure payments (card-on-file, deposits, payment links).
 - Smarter scheduling and technician matching.
 - Advanced revenue and conversion analytics.

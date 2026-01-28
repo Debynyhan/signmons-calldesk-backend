@@ -14,7 +14,7 @@ export interface RequestContextData {
   impersonatedTenantId?: string;
   callSid?: string;
   conversationId?: string;
-  channel?: "WEBCHAT" | "VOICE";
+  channel?: "WEBCHAT" | "VOICE" | "SMS";
   sourceEventId?: string;
 }
 

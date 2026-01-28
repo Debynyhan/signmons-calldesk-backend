@@ -4,6 +4,7 @@ import {
   ConversationChannel,
   ConversationJobRelation,
   ConversationStatus,
+  type Conversation,
   Prisma,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -113,6 +114,85 @@ export class ConversationsService {
     });
   }
 
+  async ensureSmsConversation(params: {
+    tenantId: string;
+    fromNumber: string;
+    smsSid?: string;
+  }): Promise<{ conversation: Conversation; sessionId: string }> {
+    const normalizedFrom = this.sanitizationService.normalizePhoneE164(
+      params.fromNumber,
+    );
+    const customer = await this.resolveSmsCustomer({
+      tenantId: params.tenantId,
+      normalizedPhone: normalizedFrom,
+      smsSid: params.smsSid,
+    });
+
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        customerId: customer.id,
+        channel: ConversationChannel.SMS,
+        status: ConversationStatus.ONGOING,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existing) {
+      const current = (existing.collectedData ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const sessionId =
+        typeof current.sessionId === "string" && current.sessionId.trim()
+          ? current.sessionId
+          : existing.id;
+      const needsSessionId = sessionId !== current.sessionId;
+      const needsFrom =
+        normalizedFrom && current.smsFrom !== normalizedFrom;
+      const needsSid =
+        params.smsSid && existing.twilioSmsSid !== params.smsSid;
+      if (needsSessionId || needsFrom || needsSid) {
+        const merged: Prisma.InputJsonValue = {
+          ...current,
+          ...(needsSessionId ? { sessionId } : {}),
+          ...(needsFrom ? { smsFrom: normalizedFrom } : {}),
+        };
+        const updated = await this.prisma.conversation.update({
+          where: { id: existing.id },
+          data: {
+            collectedData: merged,
+            ...(needsSid ? { twilioSmsSid: params.smsSid } : {}),
+            updatedAt: new Date(),
+          },
+        });
+        return { conversation: updated, sessionId };
+      }
+      return { conversation: existing, sessionId };
+    }
+
+    const sessionId = randomUUID();
+    const conversation = await this.prisma.conversation.create({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        customerId: customer.id,
+        customerTenantId: params.tenantId,
+        channel: ConversationChannel.SMS,
+        status: ConversationStatus.ONGOING,
+        currentFSMState: "TRIAGE",
+        collectedData: {
+          source: "SMS",
+          sessionId,
+          smsFrom: normalizedFrom,
+        } as Prisma.InputJsonValue,
+        twilioSmsSid: params.smsSid ?? undefined,
+      },
+    });
+
+    return { conversation, sessionId };
+  }
+
   async ensureVoiceConsentConversation(params: {
     tenantId: string;
     callSid: string;
@@ -211,6 +291,18 @@ export class ConversationsService {
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
+      },
+    });
+  }
+
+  async getConversationBySmsSid(params: {
+    tenantId: string;
+    smsSid: string;
+  }) {
+    return this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        twilioSmsSid: params.smsSid,
       },
     });
   }
@@ -725,6 +817,86 @@ export class ConversationsService {
           source: "VOICE",
           status: "PROSPECT",
           callSid: params.callSid,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async resolveSmsCustomer(params: {
+    tenantId: string;
+    normalizedPhone?: string;
+    smsSid?: string;
+  }) {
+    if (params.normalizedPhone) {
+      const existing = await this.prisma.customer.findFirst({
+        where: {
+          tenantId: params.tenantId,
+          phone: params.normalizedPhone,
+        },
+      });
+      if (existing) {
+        if (!existing.consentToText) {
+          return this.prisma.customer.update({
+            where: { id: existing.id },
+            data: {
+              consentToText: true,
+              consentToTextAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+        }
+        return existing;
+      }
+      try {
+        return await this.prisma.customer.create({
+          data: {
+            id: randomUUID(),
+            tenantId: params.tenantId,
+            phone: params.normalizedPhone,
+            fullName: "Unknown Caller",
+            consentToText: true,
+            consentToTextAt: new Date(),
+            aiMetadata: {
+              source: "SMS",
+              status: "PROSPECT",
+              smsSid: params.smsSid,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      } catch (error) {
+        this.loggingService.warn(
+          {
+            event: "sms_customer_create_failed",
+            tenantId: params.tenantId,
+            phone: params.normalizedPhone,
+          },
+          ConversationsService.name,
+        );
+        const fallback = await this.prisma.customer.findFirst({
+          where: {
+            tenantId: params.tenantId,
+            phone: params.normalizedPhone,
+          },
+        });
+        if (fallback) {
+          return fallback;
+        }
+      }
+    }
+
+    const placeholderPhone = `unknown-sms-${params.smsSid ?? randomUUID()}`;
+    return this.prisma.customer.create({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        phone: placeholderPhone,
+        fullName: "Unknown Caller",
+        consentToText: true,
+        consentToTextAt: new Date(),
+        aiMetadata: {
+          source: "SMS",
+          status: "PROSPECT",
+          smsSid: params.smsSid,
         } as Prisma.InputJsonValue,
       },
     });

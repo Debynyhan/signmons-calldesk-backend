@@ -251,7 +251,7 @@ If any one of those is false, the system must fail closed.
 - [x] Voice confirmation is provisional only (candidate lock, no canonical write)
 - [ ] Voice is for momentum and intent capture; SMS is for accuracy and commitment
 - [ ] FSM enforces: no job creation until SMS-confirmed name + address and Stripe payment
-- [ ] Voice outcomes are explicit and logged: SMS handoff (success), human fallback (controlled failure), call ends without handoff (true failure)
+- [x] Voice outcomes are explicit and logged: SMS handoff (success), human fallback (controlled failure), call ends without handoff (true failure)
 
 #### SLOs (MVP Targets)
 
@@ -644,7 +644,42 @@ If any one of those is false, the system must fail closed.
 - [ ] Conversations timeline UI (SMS/WEB/VOICE)
 - [ ] Jobs list + job detail view
 - [ ] Payment badge + status indicators
+- [ ] Tenant branding + policy settings UI (greetings, fees, voice choice)
+- [ ] Marketing leads view (try-demo submissions + call status)
+- [ ] Calendar/dispatch view (internal)
+- [ ] Admin analytics summary (calls, bookings, after-hours)
 - [ ] UX polish (loading, retries, inline errors, dev banner)
+
+---
+
+### T-06.5 Marketing Website & Demo (P1)
+
+- [x] `marketing-features.md` (site copy framework)
+- [x] `data-contract.md` (try-demo API contract)
+- [x] Try-demo API: `POST /api/marketing/try-demo`
+- [x] Try-demo outbound call via Twilio
+- [x] 5-minute rate limit per phone
+- [x] Try-demo status callback endpoint (Twilio)
+- [x] Try-demo status polling endpoint
+- [x] CORS allowlist via `FRONTEND_ORIGINS`
+- [ ] Marketing site sections implemented (hero, pain points, what we do, emergency, ServiceTitan, analytics, CTA)
+- [ ] Copy approval for marketing site
+- [ ] Demo tenant configured per environment
+- [ ] Frontend integration: submit + status polling + retry CTA
+- [ ] Abuse protection for try-demo (captcha or verification)
+
+---
+
+### T-06.6 Integrations & Dispatch (P1)
+
+- [ ] ServiceTitan two-way sync (customers, jobs, status updates)
+- [ ] Signmons Dispatch (job board + routing rules)
+- [ ] Scheduling intelligence (recommended windows + tech matching)
+- [ ] Brand personality + voice selection (ties to T-V20/T-V05/T-V23)
+- [ ] Multilingual call handling (initially Spanish + English)
+- [ ] Secure payments (Stripe): deposits + payment links
+- [ ] Revenue analytics suite (conversion, after-hours capture)
+- [ ] Warm transfer to human with full context
 
 ---
 
