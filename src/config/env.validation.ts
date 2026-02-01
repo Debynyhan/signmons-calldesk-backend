@@ -21,7 +21,36 @@ export const envValidationSchema = Joi.object({
   FIREBASE_PROJECT_ID: Joi.string().allow("").default(""),
   FIREBASE_ISSUER: Joi.string().allow("").default(""),
   FIREBASE_AUDIENCE: Joi.string().allow("").default(""),
+  GOOGLE_CLOUD_PROJECT: Joi.string().allow("").default(""),
   GOOGLE_APPLICATION_CREDENTIALS: Joi.string().allow("").default(""),
+  GOOGLE_SPEECH_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  GOOGLE_SPEECH_LANGUAGE_CODE: Joi.string().default("en-US"),
+  GOOGLE_SPEECH_MODEL: Joi.string().allow("").default("phone_call"),
+  GOOGLE_SPEECH_USE_ENHANCED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("true"),
+  GOOGLE_SPEECH_ENCODING: Joi.string()
+    .valid("MULAW", "LINEAR16", "OGG_OPUS")
+    .default("MULAW"),
+  GOOGLE_SPEECH_SAMPLE_RATE_HZ: Joi.number().min(8000).max(48000).default(8000),
+  GOOGLE_SPEECH_INTERIM_RESULTS: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("true"),
+  GOOGLE_TTS_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  GOOGLE_TTS_LANGUAGE_CODE: Joi.string().default("en-US"),
+  GOOGLE_TTS_VOICE_NAME: Joi.string().default("en-US-Studio-O"),
+  GOOGLE_TTS_AUDIO_ENCODING: Joi.string()
+    .valid("MP3", "OGG_OPUS", "LINEAR16")
+    .default("MP3"),
+  GOOGLE_TTS_SPEAKING_RATE: Joi.number().min(0.25).max(4).default(1),
+  GOOGLE_TTS_PITCH: Joi.number().min(-20).max(20).default(0),
+  GOOGLE_TTS_VOLUME_GAIN_DB: Joi.number().min(-96).max(16).default(0),
+  GOOGLE_TTS_BUCKET: Joi.string().allow("").default(""),
+  GOOGLE_TTS_SIGNED_URL_TTL_SEC: Joi.number().min(60).max(3600).default(900),
   ENABLE_GPT5_1_CODEX: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),
@@ -47,6 +76,13 @@ export const envValidationSchema = Joi.object({
   VOICE_MAX_DURATION_SEC: Joi.number().min(30).max(3600).default(180),
   VOICE_ADDRESS_MIN_CONFIDENCE: Joi.number().min(0).max(1).default(0.7),
   VOICE_SOFT_CONFIRM_MIN_CONFIDENCE: Joi.number().min(0).max(1).default(0.85),
+  VOICE_STREAMING_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  VOICE_STREAMING_KEEPALIVE_SEC: Joi.number().min(5).max(600).default(60),
+  VOICE_STREAMING_TRACK: Joi.string()
+    .valid("inbound", "both")
+    .default("inbound"),
   ADDRESS_VALIDATION_PROVIDER: Joi.string()
     .valid("none", "google")
     .default("none"),
@@ -79,6 +115,13 @@ export const envValidationSchema = Joi.object({
       return helpers.error("any.invalid", {
         message:
           "ADDRESS_VALIDATION_PROVIDER=google requires GOOGLE_PLACES_API_KEY.",
+      });
+    }
+  }
+  if (String(values.GOOGLE_TTS_ENABLED).toLowerCase() === "true") {
+    if (!values.GOOGLE_TTS_BUCKET) {
+      return helpers.error("any.invalid", {
+        message: "GOOGLE_TTS_ENABLED=true requires GOOGLE_TTS_BUCKET.",
       });
     }
   }

@@ -21,6 +21,7 @@ export interface AppConfig {
   identityIssuer: string;
   identityAudience: string;
   firebaseProjectId?: string;
+  googleCloudProject?: string;
   voiceEnabled: boolean;
   twilioAccountSid: string;
   twilioAuthToken: string;
@@ -32,8 +33,27 @@ export interface AppConfig {
   voiceMaxDurationSec: number;
   voiceAddressMinConfidence: number;
   voiceSoftConfirmMinConfidence: number;
+  voiceStreamingEnabled: boolean;
+  voiceStreamingKeepAliveSec: number;
+  voiceStreamingTrack: "inbound" | "both";
   addressValidationProvider: "none" | "google";
   googlePlacesApiKey: string;
+  googleSpeechEnabled: boolean;
+  googleSpeechLanguageCode: string;
+  googleSpeechModel: string;
+  googleSpeechUseEnhanced: boolean;
+  googleSpeechEncoding: "MULAW" | "LINEAR16" | "OGG_OPUS";
+  googleSpeechSampleRateHz: number;
+  googleSpeechInterimResults: boolean;
+  googleTtsEnabled: boolean;
+  googleTtsLanguageCode: string;
+  googleTtsVoiceName: string;
+  googleTtsAudioEncoding: "MP3" | "OGG_OPUS" | "LINEAR16";
+  googleTtsSpeakingRate: number;
+  googleTtsPitch: number;
+  googleTtsVolumeGainDb: number;
+  googleTtsBucket: string;
+  googleTtsSignedUrlTtlSec: number;
   corsOrigins: string[];
 }
 
@@ -85,6 +105,7 @@ export default registerAs("app", (): AppConfig => {
       process.env.FIREBASE_ADMIN_PROJECT_ID ??
       process.env.FIREBASE_PROJECT_ID ??
       process.env.GOOGLE_CLOUD_PROJECT,
+    googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT ?? "",
     voiceEnabled:
       (process.env.VOICE_ENABLED ?? "false").toLowerCase() === "true",
     twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
@@ -102,12 +123,48 @@ export default registerAs("app", (): AppConfig => {
     voiceSoftConfirmMinConfidence: Number(
       process.env.VOICE_SOFT_CONFIRM_MIN_CONFIDENCE ?? 0.85,
     ),
+    voiceStreamingEnabled:
+      (process.env.VOICE_STREAMING_ENABLED ?? "false").toLowerCase() === "true",
+    voiceStreamingKeepAliveSec: Number(
+      process.env.VOICE_STREAMING_KEEPALIVE_SEC ?? 60,
+    ),
+    voiceStreamingTrack: (process.env.VOICE_STREAMING_TRACK ??
+      "inbound") as AppConfig["voiceStreamingTrack"],
     addressValidationProvider:
       (process.env.ADDRESS_VALIDATION_PROVIDER ?? "none").toLowerCase() ===
       "google"
         ? "google"
         : "none",
     googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
+    googleSpeechEnabled:
+      (process.env.GOOGLE_SPEECH_ENABLED ?? "false").toLowerCase() === "true",
+    googleSpeechLanguageCode: process.env.GOOGLE_SPEECH_LANGUAGE_CODE ?? "en-US",
+    googleSpeechModel: process.env.GOOGLE_SPEECH_MODEL ?? "phone_call",
+    googleSpeechUseEnhanced:
+      (process.env.GOOGLE_SPEECH_USE_ENHANCED ?? "true").toLowerCase() === "true",
+    googleSpeechEncoding: (process.env.GOOGLE_SPEECH_ENCODING ??
+      "MULAW") as AppConfig["googleSpeechEncoding"],
+    googleSpeechSampleRateHz: Number(
+      process.env.GOOGLE_SPEECH_SAMPLE_RATE_HZ ?? 8000,
+    ),
+    googleSpeechInterimResults:
+      (process.env.GOOGLE_SPEECH_INTERIM_RESULTS ?? "true").toLowerCase() ===
+      "true",
+    googleTtsEnabled:
+      (process.env.GOOGLE_TTS_ENABLED ?? "false").toLowerCase() === "true",
+    googleTtsLanguageCode: process.env.GOOGLE_TTS_LANGUAGE_CODE ?? "en-US",
+    googleTtsVoiceName: process.env.GOOGLE_TTS_VOICE_NAME ?? "en-US-Studio-O",
+    googleTtsAudioEncoding: (process.env.GOOGLE_TTS_AUDIO_ENCODING ??
+      "MP3") as AppConfig["googleTtsAudioEncoding"],
+    googleTtsSpeakingRate: Number(
+      process.env.GOOGLE_TTS_SPEAKING_RATE ?? 1,
+    ),
+    googleTtsPitch: Number(process.env.GOOGLE_TTS_PITCH ?? 0),
+    googleTtsVolumeGainDb: Number(process.env.GOOGLE_TTS_VOLUME_GAIN_DB ?? 0),
+    googleTtsBucket: process.env.GOOGLE_TTS_BUCKET ?? "",
+    googleTtsSignedUrlTtlSec: Number(
+      process.env.GOOGLE_TTS_SIGNED_URL_TTL_SEC ?? 900,
+    ),
     corsOrigins,
   };
 });

@@ -1,9 +1,10 @@
-import { Test } from "@nestjs/testing";
+import { Test, type TestingModule } from "@nestjs/testing";
 import { ConfigModule } from "@nestjs/config";
 import request from "supertest";
 import { BadRequestException } from "@nestjs/common";
+import { WsAdapter } from "@nestjs/platform-ws";
 import { VoiceModule } from "../voice.module";
-import { VoiceController } from "../voice.controller";
+import { VoiceTurnService } from "../voice-turn.service";
 import appConfig from "../../config/app.config";
 import { envValidationSchema } from "../../config/env.validation";
 import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
@@ -112,6 +113,13 @@ const buildConversationsService = (overrides: Record<string, unknown> = {}) => (
   ...overrides,
 });
 
+const createTestApp = async (moduleRef: TestingModule) => {
+  const app = moduleRef.createNestApplication();
+  app.useWebSocketAdapter(new WsAdapter(app));
+  await app.init();
+  return app;
+};
+
 describe("VoiceController", () => {
   beforeEach(() => {
     validateRequestMock.mockReset();
@@ -180,8 +188,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     await request(app.getHttpServer())
       .post("/api/voice/inbound")
@@ -244,8 +251,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/inbound")
@@ -319,8 +325,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/inbound")
@@ -401,8 +406,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/inbound")
@@ -482,8 +486,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -562,8 +565,7 @@ describe("VoiceController", () => {
       .useValue(buildAiService())
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -653,8 +655,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -760,8 +761,7 @@ describe("VoiceController", () => {
       .useValue(buildAiService())
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -862,8 +862,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -955,8 +954,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1067,8 +1065,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1166,8 +1163,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1269,8 +1265,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1370,8 +1365,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1410,7 +1404,7 @@ describe("VoiceController", () => {
         callSid: "CA123",
         sourceEventId: "evt-1",
       }),
-      VoiceController.name,
+      VoiceTurnService.name,
     );
     expect(response.text).toContain("Please say your full address.");
     expect(response.text).toContain("<Gather");
@@ -1491,8 +1485,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1584,8 +1577,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1676,8 +1668,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1778,8 +1769,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1882,8 +1872,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -1984,8 +1973,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -2083,8 +2071,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -2196,8 +2183,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
     const addressValidationService = app.get(AddressValidationService);
     const validateSpy = jest.spyOn(
       addressValidationService,
@@ -2308,8 +2294,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
       .send({
@@ -2345,7 +2330,7 @@ describe("VoiceController", () => {
         callSid: "CA123",
         sourceEventId: "evt-addr-2",
       }),
-      VoiceController.name,
+      VoiceTurnService.name,
     );
     expect(response.text).toContain(
       "Perfect, thanks for confirming that. Now tell me what&apos;s been going on with the system.",
@@ -2431,8 +2416,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
       .send({
@@ -2526,8 +2510,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
       .send({
@@ -2630,8 +2613,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -2738,8 +2720,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -2883,8 +2864,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -2979,8 +2959,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3086,8 +3065,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3176,8 +3154,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3282,8 +3259,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3378,8 +3354,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3496,8 +3471,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3594,8 +3568,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3691,8 +3664,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3782,8 +3754,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3875,8 +3846,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -3976,8 +3946,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     const response = await request(app.getHttpServer())
       .post("/api/voice/turn")
@@ -4000,7 +3969,7 @@ describe("VoiceController", () => {
         callSid: "CA123",
         conversationId: "conversation-1",
       }),
-      VoiceController.name,
+      VoiceTurnService.name,
     );
 
     await app.close();
@@ -4080,8 +4049,7 @@ describe("VoiceController", () => {
       .useValue(aiService)
       .compile();
 
-    const app = moduleRef.createNestApplication();
-    await app.init();
+    const app = await createTestApp(moduleRef);
 
     await request(app.getHttpServer())
       .post("/api/voice/turn")

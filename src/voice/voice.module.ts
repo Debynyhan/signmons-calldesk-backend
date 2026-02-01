@@ -8,6 +8,11 @@ import { AiModule } from "../ai/ai.module";
 import { LoggingModule } from "../logging/logging.module";
 import { AddressValidationService } from "../address/address-validation.service";
 import { CsrStrategySelector } from "./csr-strategy.selector";
+import { GoogleModule } from "../google/google.module";
+import { VoiceCallService } from "./voice-call.service";
+import { VoiceStreamGateway } from "./voice-stream.gateway";
+import { VoiceTurnService } from "./voice-turn.service";
+import { VoiceConsentAudioService } from "./voice-consent-audio.service";
 
 @Module({
   imports: [
@@ -16,8 +21,17 @@ import { CsrStrategySelector } from "./csr-strategy.selector";
     SanitizationModule,
     AiModule,
     LoggingModule,
+    GoogleModule,
   ],
-  providers: [ConversationsService, AddressValidationService, CsrStrategySelector],
+  providers: [
+    ConversationsService,
+    AddressValidationService,
+    CsrStrategySelector,
+    VoiceCallService,
+    VoiceStreamGateway,
+    VoiceTurnService,
+    VoiceConsentAudioService,
+  ],
   controllers: [VoiceController],
 })
 export class VoiceModule {}

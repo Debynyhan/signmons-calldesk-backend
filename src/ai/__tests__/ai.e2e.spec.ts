@@ -2,6 +2,7 @@ import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import type OpenAI from "openai";
+import { WsAdapter } from "@nestjs/platform-ws";
 import { AppModule } from "../../app.module";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AI_PROVIDER } from "../ai.constants";
@@ -108,6 +109,7 @@ describeOrSkip("AI create-job flow (e2e)", () => {
       .compile();
 
     app = moduleRef.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     app.use(requestContextMiddleware);
     await app.init();
 

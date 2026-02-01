@@ -1,6 +1,7 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ConfigType } from "@nestjs/config";
+import { WsAdapter } from "@nestjs/platform-ws";
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import { AppModule } from "./app.module";
@@ -12,6 +13,7 @@ import { requestContextMiddleware } from "./common/context/request-context";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useWebSocketAdapter(new WsAdapter(app));
   const config = app.get<ConfigType<typeof appConfig>>(appConfig.KEY);
   const port = config?.port ?? Number(process.env.PORT ?? 3000);
   const loggingService = app.get(LoggingService);
