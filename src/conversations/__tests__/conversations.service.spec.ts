@@ -133,6 +133,7 @@ describe("ConversationsService", () => {
       id: "conv-1",
       collectedData: { callerPhone: "+12167448929", voiceConsent: { granted: true } },
     } as never);
+    prisma.conversation.update.mockResolvedValue({ id: "conv-1" } as never);
 
     await service.ensureVoiceConsentConversation({
       tenantId: "tenant-1",
@@ -140,7 +141,18 @@ describe("ConversationsService", () => {
       callerPhone: "2165550000",
     });
 
-    expect(prisma.conversation.update).not.toHaveBeenCalled();
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            callerPhone: "+12167448929",
+            smsPhone: expect.objectContaining({
+              value: "+12167448929",
+            }),
+          }),
+        }),
+      }),
+    );
   });
 
   it("stores normalized transcript on voice turn", async () => {

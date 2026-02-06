@@ -28,6 +28,12 @@ type VoiceNameState = {
   status: VoiceNameStatus;
   locked: boolean;
   attemptCount: number;
+  corrections?: number;
+  lastConfidence?: number | null;
+  spellPromptedAt?: number | null;
+  spellPromptedTurnIndex?: number | null;
+  spellPromptCount?: number;
+  firstNameSpelled?: string | null;
 };
 type VoiceAddressStatus = "MISSING" | "CANDIDATE" | "CONFIRMED" | "FAILED";
 type VoiceAddressState = {
@@ -40,6 +46,20 @@ type VoiceAddressState = {
   sourceEventId?: string | null;
   needsLocality?: boolean;
 };
+type VoiceSmsPhoneSource = "twilio_ani" | "user_spoken";
+type VoiceSmsPhoneState = {
+  value: string | null;
+  source: VoiceSmsPhoneSource | null;
+  confirmed: boolean;
+  confirmedAt: string | null;
+  attemptCount: number;
+  lastPromptedAt?: string | null;
+};
+type VoiceSmsHandoff = {
+  reason: string;
+  messageOverride?: string | null;
+  createdAt: string;
+};
 type VoiceFieldConfirmation = {
   field: "name" | "address";
   value: string;
@@ -47,7 +67,7 @@ type VoiceFieldConfirmation = {
   sourceEventId: string;
   channel: "VOICE" | "SMS";
 };
-type VoiceListeningField = "name" | "address" | "confirmation";
+type VoiceListeningField = "name" | "address" | "confirmation" | "sms_phone";
 type VoiceListeningWindow = {
   field: VoiceListeningField;
   sourceEventId: string | null;
@@ -213,21 +233,32 @@ export class ConversationsService {
         callerPhone?: string;
         name?: VoiceNameState;
         address?: VoiceAddressState;
+        smsPhone?: VoiceSmsPhoneState;
       };
       const needsConsent = !current.voiceConsent?.granted;
       const needsRequestId = !current.requestId && params.requestId;
       const normalizedCallerPhone = params.callerPhone
         ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
         : undefined;
+      const existingCallerPhone =
+        typeof current.callerPhone === "string" ? current.callerPhone : null;
       const needsCallerPhone =
-        Boolean(normalizedCallerPhone) && !current.callerPhone;
-      if (needsConsent || needsRequestId || needsCallerPhone) {
+        Boolean(normalizedCallerPhone) && !existingCallerPhone;
+      const needsSmsPhone = !current.smsPhone;
+      const smsPhoneSeed =
+        existingCallerPhone ?? normalizedCallerPhone ?? null;
+      if (needsConsent || needsRequestId || needsCallerPhone || needsSmsPhone) {
         const merged = {
           ...current,
           ...(needsRequestId ? { requestId: params.requestId } : {}),
           ...(needsCallerPhone ? { callerPhone: normalizedCallerPhone } : {}),
           ...(current.name ? {} : { name: this.getDefaultNameState() }),
           ...(current.address ? {} : { address: this.getDefaultAddressState() }),
+          ...(needsSmsPhone
+            ? {
+                smsPhone: this.getDefaultSmsPhoneState(smsPhoneSeed),
+              }
+            : {}),
           ...(needsConsent
             ? {
                 voiceConsent: {
@@ -269,6 +300,9 @@ export class ConversationsService {
           source: "VOICE",
           requestId: params.requestId,
           callerPhone: normalizedCallerPhone,
+          smsPhone: this.getDefaultSmsPhoneState(
+            normalizedCallerPhone ?? null,
+          ),
           name: this.getDefaultNameState(),
           address: this.getDefaultAddressState(),
           voiceConsent: {
@@ -453,6 +487,49 @@ export class ConversationsService {
     return this.parseNameState(data.name);
   }
 
+  getVoiceSmsPhoneState(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceSmsPhoneState {
+    if (!collectedData || typeof collectedData !== "object") {
+      return this.getDefaultSmsPhoneState(null);
+    }
+    const data = collectedData as Record<string, unknown>;
+    if (data.smsPhone) {
+      return this.parseSmsPhoneState(data.smsPhone);
+    }
+    const fallback =
+      typeof data.callerPhone === "string" ? data.callerPhone : null;
+    return this.getDefaultSmsPhoneState(fallback);
+  }
+
+  getVoiceSmsHandoff(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceSmsHandoff | null {
+    if (!collectedData || typeof collectedData !== "object") {
+      return null;
+    }
+    const data = collectedData as Record<string, unknown>;
+    const raw = data.voiceSmsHandoff;
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const record = raw as Record<string, unknown>;
+    if (typeof record.reason !== "string") {
+      return null;
+    }
+    return {
+      reason: record.reason,
+      messageOverride:
+        typeof record.messageOverride === "string"
+          ? record.messageOverride
+          : null,
+      createdAt:
+        typeof record.createdAt === "string"
+          ? record.createdAt
+          : new Date().toISOString(),
+    };
+  }
+
   getVoiceAddressState(
     collectedData: Prisma.JsonValue | null | undefined,
   ): VoiceAddressState {
@@ -511,6 +588,93 @@ export class ConversationsService {
       name: nextName,
       ...(confirmations.length ? { fieldConfirmations: confirmations } : {}),
     };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceSmsPhoneState(params: {
+    tenantId: string;
+    conversationId: string;
+    phoneState: VoiceSmsPhoneState;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      smsPhone: params.phoneState,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceSmsHandoff(params: {
+    tenantId: string;
+    conversationId: string;
+    handoff: VoiceSmsHandoff;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceSmsHandoff: params.handoff,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async clearVoiceSmsHandoff(params: {
+    tenantId: string;
+    conversationId: string;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const { voiceSmsHandoff: _ignored, ...rest } = current;
+    const merged = rest as Prisma.InputJsonValue;
 
     return this.prisma.conversation.update({
       where: { id: conversation.id },
@@ -909,6 +1073,12 @@ export class ConversationsService {
       status: "MISSING",
       locked: false,
       attemptCount: 0,
+      corrections: 0,
+      lastConfidence: null,
+      spellPromptedAt: null,
+      spellPromptedTurnIndex: null,
+      spellPromptCount: 0,
+      firstNameSpelled: null,
     };
   }
 
@@ -925,6 +1095,19 @@ export class ConversationsService {
     };
   }
 
+  private getDefaultSmsPhoneState(
+    value: string | null,
+  ): VoiceSmsPhoneState {
+    return {
+      value,
+      source: value ? "twilio_ani" : null,
+      confirmed: false,
+      confirmedAt: null,
+      attemptCount: 0,
+      lastPromptedAt: null,
+    };
+  }
+
   private parseNameState(value: unknown): VoiceNameState {
     const defaults = this.getDefaultNameState();
     if (!value || typeof value !== "object") {
@@ -937,6 +1120,24 @@ export class ConversationsService {
       data.status === "CANDIDATE" || data.status === "CONFIRMED"
         ? data.status
         : "MISSING";
+    const corrections =
+      typeof data.corrections === "number" && data.corrections >= 0
+        ? data.corrections
+        : 0;
+    const lastConfidence =
+      typeof data.lastConfidence === "number" ? data.lastConfidence : null;
+    const spellPromptedAt =
+      typeof data.spellPromptedAt === "number" ? data.spellPromptedAt : null;
+    const spellPromptedTurnIndex =
+      typeof data.spellPromptedTurnIndex === "number"
+        ? data.spellPromptedTurnIndex
+        : null;
+    const spellPromptCount =
+      typeof data.spellPromptCount === "number" && data.spellPromptCount >= 0
+        ? data.spellPromptCount
+        : 0;
+    const firstNameSpelled =
+      typeof data.firstNameSpelled === "string" ? data.firstNameSpelled : null;
     return {
       candidate: {
         value: typeof candidate.value === "string" ? candidate.value : null,
@@ -964,6 +1165,12 @@ export class ConversationsService {
         typeof data.attemptCount === "number" && data.attemptCount >= 0
           ? data.attemptCount
           : 0,
+      corrections,
+      lastConfidence,
+      spellPromptedAt,
+      spellPromptedTurnIndex,
+      spellPromptCount,
+      firstNameSpelled,
     };
   }
 
@@ -1033,6 +1240,33 @@ export class ConversationsService {
       confidence,
       sourceEventId,
       needsLocality,
+    };
+  }
+
+  private parseSmsPhoneState(value: unknown): VoiceSmsPhoneState {
+    if (!value || typeof value !== "object") {
+      return this.getDefaultSmsPhoneState(null);
+    }
+    const data = value as Partial<VoiceSmsPhoneState>;
+    const rawValue = typeof data.value === "string" ? data.value : null;
+    const source =
+      data.source === "twilio_ani" || data.source === "user_spoken"
+        ? data.source
+        : rawValue
+          ? "twilio_ani"
+          : null;
+    return {
+      value: rawValue,
+      source,
+      confirmed: Boolean(data.confirmed),
+      confirmedAt:
+        typeof data.confirmedAt === "string" ? data.confirmedAt : null,
+      attemptCount:
+        typeof data.attemptCount === "number" && data.attemptCount >= 0
+          ? data.attemptCount
+          : 0,
+      lastPromptedAt:
+        typeof data.lastPromptedAt === "string" ? data.lastPromptedAt : null,
     };
   }
 

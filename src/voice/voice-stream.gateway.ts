@@ -65,6 +65,8 @@ type VoiceStreamSession = {
   processing: boolean;
   lastTranscript?: string;
   lastTranscriptAt?: number;
+  lastResponseText?: string;
+  lastResponseAt?: number;
   closed: boolean;
 };
 
@@ -73,6 +75,11 @@ export class VoiceStreamGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
+  private readonly callSessions = new Map<string, WebSocket>();
+  private readonly lastResponseByCall = new Map<
+    string,
+    { text: string; at: number }
+  >();
 
   constructor(
     @Inject(appConfig.KEY)
@@ -178,6 +185,15 @@ export class VoiceStreamGateway
       client.close();
       return;
     }
+    const existingClient = this.callSessions.get(callSid);
+    if (existingClient && existingClient !== client) {
+      this.cleanupSession(existingClient);
+      try {
+        existingClient.close();
+      } catch {
+        // Best effort cleanup.
+      }
+    }
 
     const params = message.start.customParameters ?? {};
     const tenantId = params.tenantId ?? this.config.demoTenantId;
@@ -229,6 +245,7 @@ export class VoiceStreamGateway
       closed: false,
     };
     this.sessions.set(client, session);
+    this.callSessions.set(callSid, client);
 
     speechStream.on("data", (data) => {
       this.handleSpeechData(
@@ -293,6 +310,9 @@ export class VoiceStreamGateway
     if (!result?.isFinal) {
       return;
     }
+    if (this.isFillerTranscript(transcript)) {
+      return;
+    }
     const now = Date.now();
     if (
       session.lastTranscript === transcript &&
@@ -343,6 +363,24 @@ export class VoiceStreamGateway
         text: sayText,
       });
       const hangup = hasHangup(twiml);
+      const now = Date.now();
+      if (!hangup) {
+        const lastResponse = this.lastResponseByCall.get(session.callSid);
+        if (
+          lastResponse &&
+          lastResponse.text === sayText &&
+          now - lastResponse.at < 2000
+        ) {
+          return;
+        }
+        if (
+          session.lastResponseText === sayText &&
+          session.lastResponseAt &&
+          now - session.lastResponseAt < 2000
+        ) {
+          return;
+        }
+      }
       const responseTwiml = buildStreamingTwiml({
         streamUrl: session.streamUrl,
         streamParams: {
@@ -360,9 +398,28 @@ export class VoiceStreamGateway
         session.callSid,
         responseTwiml,
       );
+      session.lastResponseText = sayText;
+      session.lastResponseAt = now;
+      this.lastResponseByCall.set(session.callSid, { text: sayText, at: now });
     } finally {
       session.processing = false;
     }
+  }
+
+  private isFillerTranscript(transcript: string): boolean {
+    const normalized = transcript.toLowerCase().trim();
+    if (!normalized) {
+      return true;
+    }
+    if (/\d/.test(normalized)) {
+      return false;
+    }
+    if (normalized.length <= 2) {
+      return true;
+    }
+    return /\b(hold on|hang on|one sec|one second|just a sec|give me a sec|wait|um|uh|hmm|thank you for calling|this call may be recorded|this call may be transcribed)\b/.test(
+      normalized,
+    );
   }
 
   private cleanupSession(client: WebSocket) {
@@ -371,6 +428,9 @@ export class VoiceStreamGateway
       session.closed = true;
       session.speechStream.removeAllListeners();
       session.speechStream.end();
+      if (this.callSessions.get(session.callSid) === client) {
+        this.callSessions.delete(session.callSid);
+      }
       this.sessions.delete(client);
     }
   }

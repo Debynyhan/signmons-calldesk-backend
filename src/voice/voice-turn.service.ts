@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Request, Response } from "express";
-import { CommunicationChannel, TenantOrganization } from "@prisma/client";
+import { CommunicationChannel, Prisma, TenantOrganization } from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
@@ -25,7 +25,7 @@ type ConfirmationResolution = {
   outcome: ConfirmationOutcome;
   candidate: string | null;
 };
-type VoiceListeningField = "name" | "address" | "confirmation";
+type VoiceListeningField = "name" | "address" | "confirmation" | "sms_phone";
 type VoiceListeningWindow = {
   field: VoiceListeningField;
   sourceEventId: string | null;
@@ -126,6 +126,39 @@ export class VoiceTurnService {
     }
 
     const now = new Date();
+    const speechResult = params.speechResult ?? null;
+    const normalizedSpeech = speechResult
+      ? speechResult.replace(/\s+/g, " ").trim()
+      : "";
+    if (!normalizedSpeech) {
+      return res ? this.replyWithTwiml(res, this.buildRepromptTwiml()) : "";
+    }
+    const collectedDataSnapshot = conversation.collectedData ?? null;
+    const listeningWindowSnapshot =
+      this.getVoiceListeningWindow(collectedDataSnapshot);
+    const expectedFieldSnapshot =
+      this.getExpectedListeningField(listeningWindowSnapshot);
+    if (
+      !res &&
+      this.shouldIgnoreStreamingTranscript(
+        normalizedSpeech,
+        collectedDataSnapshot,
+        expectedFieldSnapshot,
+      )
+    ) {
+      return "";
+    }
+    if (
+      !res &&
+      this.isDuplicateTranscript(
+        conversation?.collectedData,
+        normalizedSpeech,
+        now,
+      )
+    ) {
+      return "";
+    }
+
     const turnState = await this.conversationsService.incrementVoiceTurn({
       tenantId: tenant.id,
       conversationId: conversation.id,
@@ -142,6 +175,7 @@ export class VoiceTurnService {
       });
     }
 
+    const voiceTurnCount = turnState.voiceTurnCount;
     const maxTurns = Math.max(1, this.config.voiceMaxTurns ?? 6);
     const maxDurationSec = Math.max(30, this.config.voiceMaxDurationSec ?? 180);
     const startedAt = new Date(turnState.voiceStartedAt);
@@ -159,13 +193,6 @@ export class VoiceTurnService {
             ? "max_turns_exceeded"
             : "max_duration_exceeded",
       });
-    }
-    const speechResult = params.speechResult ?? null;
-    const normalizedSpeech = speechResult
-      ? speechResult.replace(/\s+/g, " ").trim()
-      : "";
-    if (!normalizedSpeech) {
-      return this.replyWithTwiml(res, this.buildRepromptTwiml());
     }
     if (
       this.isDuplicateTranscript(
@@ -222,20 +249,27 @@ export class VoiceTurnService {
       updatedConversation?.collectedData ?? conversation.collectedData;
     const nameState =
       this.conversationsService.getVoiceNameState(collectedData);
+    const phoneState =
+      this.conversationsService.getVoiceSmsPhoneState(collectedData);
     const addressState =
       this.conversationsService.getVoiceAddressState(collectedData);
-    const csrStrategy = this.selectCsrStrategy({
+    const rawCsrStrategy = this.selectCsrStrategy({
       conversation: updatedConversation ?? conversation,
       collectedData,
       nameState,
       addressState,
     });
+    const csrStrategy = this.normalizeCsrStrategyForTurn(
+      rawCsrStrategy,
+      voiceTurnCount,
+    );
     this.loggingService.log(
       {
         event: "voice.strategy_selected",
         tenantId: tenant.id,
         conversationId,
-        strategy: csrStrategy,
+        strategy: csrStrategy ?? "NONE",
+        rawStrategy: rawCsrStrategy,
         fsmState:
           updatedConversation?.currentFSMState ??
           conversation.currentFSMState ??
@@ -257,10 +291,11 @@ export class VoiceTurnService {
     if (
       listeningWindow &&
       this.shouldClearListeningWindow(
-        listeningWindow,
-        now,
-        nameState,
-        addressState,
+      listeningWindow,
+      now,
+      nameState,
+      addressState,
+      phoneState,
       )
     ) {
       await this.clearVoiceListeningWindow({
@@ -277,6 +312,7 @@ export class VoiceTurnService {
           window: listeningWindow,
           nameState,
           addressState,
+          phoneState,
           strategy: csrStrategy,
         }),
       );
@@ -297,13 +333,18 @@ export class VoiceTurnService {
       });
       expectedField = null;
     }
-    if (expectedField === "address" && !nameReady) {
+    if (expectedField === "address" && !nameReady && nameState.attemptCount === 0) {
       await this.clearVoiceListeningWindow({
         tenantId: tenant.id,
         conversationId,
       });
       expectedField = null;
     }
+    // Name flow map (current):
+    // - Yes/no prompts: buildNameConfirmationTwiml/buildNameSoftConfirmationTwiml/buildYesNoRepromptTwiml.
+    // - Confirmation parsing: resolveConfirmation + extractReplacementCandidate.
+    // - Progression gate: nameReady (locked/confirmed) before moving to address.
+    // - Listening window gate: voiceListeningWindow field "confirmation" with targetField "name".
     if (!nameReady && (!expectedField || expectedField === "name")) {
       const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
       const isOpeningTurn =
@@ -312,9 +353,282 @@ export class VoiceTurnService {
         nameState.attemptCount === 0 &&
         !nameState.candidate.value &&
         !existingIssueCandidate?.value;
+      const buildAddressPrompt = (preface?: string) => {
+        const base = "Please say your full address.";
+        if (preface && preface.trim()) {
+          return this.applyCsrStrategy(
+            csrStrategy,
+            `${preface.trim()} ${base}`,
+          );
+        }
+        return this.applyCsrStrategy(csrStrategy, `Thanks. ${base}`);
+      };
+      const replyWithAddressPrompt = async (preface?: string) =>
+        this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "address",
+          sourceEventId: currentEventId,
+          timeoutSec: 8,
+          twiml: this.buildSayGatherTwiml(buildAddressPrompt(preface), {
+            timeout: 8,
+          }),
+        });
+      const recordNameAttemptIfNeeded = async () => {
+        if (nameState.attemptCount > 0) {
+          return;
+        }
+        const nextNameState: typeof nameState = {
+          ...nameState,
+          attemptCount: 1,
+        };
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: nextNameState,
+        });
+      };
+      const replyWithNameTwiml = async (twiml: string) => {
+        await recordNameAttemptIfNeeded();
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "name",
+          sourceEventId: currentEventId,
+          twiml,
+        });
+      };
+      const turnIndex = voiceTurnCount;
+      const storeProvisionalName = async (
+        candidate: string,
+        options?: {
+          lastConfidence?: number | null;
+          corrections?: number;
+          firstNameSpelled?: string | null;
+          spellPromptedAt?: number | null;
+          spellPromptedTurnIndex?: number | null;
+          spellPromptCount?: number;
+        },
+      ) => {
+        const nextNameState: typeof nameState = {
+          ...nameState,
+          candidate: {
+            value: candidate,
+            sourceEventId: currentEventId,
+            createdAt: new Date().toISOString(),
+          },
+          status: "CANDIDATE",
+          attemptCount: Math.max(1, nameState.attemptCount),
+          corrections:
+            typeof options?.corrections === "number"
+              ? options.corrections
+              : nameState.corrections ?? 0,
+          lastConfidence:
+            typeof options?.lastConfidence === "number"
+              ? options.lastConfidence
+              : nameState.lastConfidence ?? null,
+          firstNameSpelled:
+            typeof options?.firstNameSpelled === "string"
+              ? options.firstNameSpelled
+              : nameState.firstNameSpelled ?? null,
+          spellPromptedAt:
+            options && "spellPromptedAt" in options
+              ? options.spellPromptedAt ?? null
+              : nameState.spellPromptedAt ?? null,
+          spellPromptedTurnIndex:
+            options && "spellPromptedTurnIndex" in options
+              ? options.spellPromptedTurnIndex ?? null
+              : nameState.spellPromptedTurnIndex ?? null,
+          spellPromptCount:
+            typeof options?.spellPromptCount === "number"
+              ? options.spellPromptCount
+              : nameState.spellPromptCount ?? 0,
+        };
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: nextNameState,
+        });
+        return nextNameState;
+      };
+      const buildNameFollowUp = (issueSummary?: string | null) => {
+        const trimmedIssue =
+          issueSummary?.trim().replace(/[.?!]+$/, "") ?? "";
+        const issueAck = trimmedIssue ? `I heard ${trimmedIssue}. ` : "";
+        return `Thanks. ${issueAck}What's your full name?`
+          .replace(/\s+/g, " ")
+          .trim();
+      };
+      const promptForNameSpelling = async (
+        candidate: string,
+        baseNameState: typeof nameState,
+      ) => {
+        const nextPromptCount = (baseNameState.spellPromptCount ?? 0) + 1;
+        const promptState: typeof nameState = {
+          ...baseNameState,
+          spellPromptedAt: Date.now(),
+          spellPromptedTurnIndex: turnIndex,
+          spellPromptCount: nextPromptCount,
+        };
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: promptState,
+        });
+        this.loggingService.log(
+          {
+            event: "nameCapture.spellPrompted",
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            candidate,
+            lastConfidence: promptState.lastConfidence ?? null,
+            corrections: promptState.corrections ?? 0,
+            turnIndex,
+          },
+          VoiceTurnService.name,
+        );
+        return replyWithNameTwiml(this.buildSpellNameTwiml(csrStrategy));
+      };
+      const maybePromptForSpelling = async (
+        candidate: string,
+        nextNameState: typeof nameState,
+        issueSummary?: string | null,
+      ) => {
+        if (this.shouldPromptForNameSpelling(nextNameState, candidate)) {
+          return promptForNameSpelling(candidate, nextNameState);
+        }
+        return acknowledgeNameAndMoveOn(candidate, issueSummary ?? null);
+      };
+      const acknowledgeNameAndMoveOn = async (
+        candidate: string,
+        issueSummary?: string | null,
+      ) => {
+        const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
+        const thanks = firstName ? `Thanks, ${firstName}.` : "Thanks.";
+        const trimmedIssue =
+          issueSummary?.trim().replace(/[.?!]+$/, "") ?? "";
+        const issueAck = trimmedIssue
+          ? `I heard ${trimmedIssue}.`
+          : "";
+        const preface = issueAck ? `${thanks} ${issueAck}` : thanks;
+        return replyWithAddressPrompt(preface);
+      };
+      const shouldHandleSpellingResponse =
+        nameState.spellPromptedAt &&
+        typeof nameState.spellPromptedTurnIndex === "number" &&
+        turnIndex > nameState.spellPromptedTurnIndex;
+
+      if (shouldHandleSpellingResponse) {
+        const parsed = this.parseSpelledNameParts(normalizedSpeech);
+        if (parsed.firstName) {
+          const candidate = parsed.lastName
+            ? `${parsed.firstName} ${parsed.lastName}`
+            : parsed.firstName;
+          await storeProvisionalName(candidate, {
+            lastConfidence: 0.95,
+            corrections: nameState.corrections ?? 0,
+            firstNameSpelled: parsed.firstName,
+            spellPromptedAt: null,
+            spellPromptedTurnIndex: null,
+            spellPromptCount: nameState.spellPromptCount ?? 1,
+          });
+          this.loggingService.log(
+            {
+              event: "nameCapture.spellParsed",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              parsed: parsed.firstName,
+              letterCount: parsed.letterCount,
+              turnIndex,
+            },
+            VoiceTurnService.name,
+          );
+          return acknowledgeNameAndMoveOn(candidate);
+        }
+        if (parsed.reason === "no_letters") {
+          const fallbackCandidate =
+            this.extractNameCandidateDeterministic(normalizedSpeech) ??
+            this.normalizeNameCandidate(normalizedSpeech);
+          if (
+            fallbackCandidate &&
+            this.isValidNameCandidate(fallbackCandidate) &&
+            this.isLikelyNameCandidate(fallbackCandidate)
+          ) {
+            await storeProvisionalName(fallbackCandidate, {
+              lastConfidence: confidence ?? null,
+              corrections: nameState.corrections ?? 0,
+              spellPromptedAt: null,
+              spellPromptedTurnIndex: null,
+              spellPromptCount: nameState.spellPromptCount ?? 1,
+            });
+            return acknowledgeNameAndMoveOn(fallbackCandidate);
+          }
+        }
+        this.loggingService.log(
+          {
+            event: "nameCapture.spellParseFailed",
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            reason: parsed.reason ?? "unknown",
+            letterCount: parsed.letterCount,
+            turnIndex,
+          },
+          VoiceTurnService.name,
+        );
+        const promptCount = nameState.spellPromptCount ?? 0;
+        if (promptCount < 2) {
+          await this.conversationsService.updateVoiceNameState({
+            tenantId: tenant.id,
+            conversationId,
+            nameState: {
+              ...nameState,
+              spellPromptedAt: Date.now(),
+              spellPromptedTurnIndex: turnIndex,
+              spellPromptCount: promptCount + 1,
+            },
+          });
+          this.loggingService.log(
+            {
+              event: "nameCapture.spellPrompted",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              candidate: nameState.candidate.value ?? null,
+              lastConfidence: nameState.lastConfidence ?? null,
+              corrections: nameState.corrections ?? 0,
+              turnIndex,
+            },
+            VoiceTurnService.name,
+          );
+          return replyWithNameTwiml(this.buildSpellNameTwiml(csrStrategy));
+        }
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: {
+            ...nameState,
+            spellPromptedAt: null,
+            spellPromptedTurnIndex: null,
+          },
+        });
+        return replyWithAddressPrompt();
+      }
+
       if (isOpeningTurn) {
+        const openingCandidate =
+          this.extractNameCandidateDeterministic(normalizedSpeech);
+        const hasOpeningName =
+          openingCandidate &&
+          this.isValidNameCandidate(openingCandidate) &&
+          this.isLikelyNameCandidate(openingCandidate);
         const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
-        if (this.isLikelyIssueCandidate(issueCandidate)) {
+        const hasIssue = this.isLikelyIssueCandidate(issueCandidate);
+        if (hasIssue) {
           await this.conversationsService.updateVoiceIssueCandidate({
             tenantId: tenant.id,
             conversationId,
@@ -324,71 +638,49 @@ export class VoiceTurnService {
               createdAt: new Date().toISOString(),
             },
           });
-          const followUp =
-            "Got it—that's definitely something we want to address quickly. I'll take care of this for you. May I have your name, please?";
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "name",
-            sourceEventId: currentEventId,
-            twiml: this.buildSayGatherTwiml(
+          if (hasOpeningName && openingCandidate) {
+            const issueSummary =
+              this.buildIssueAcknowledgement(normalizedSpeech);
+            const nextNameState = await storeProvisionalName(openingCandidate, {
+              lastConfidence: confidence ?? null,
+              corrections: nameState.corrections ?? 0,
+            });
+            return maybePromptForSpelling(
+              openingCandidate,
+              nextNameState,
+              issueSummary,
+            );
+          }
+          const followUp = buildNameFollowUp(
+            this.buildIssueAcknowledgement(normalizedSpeech),
+          );
+          return replyWithNameTwiml(
+            this.buildSayGatherTwiml(
               this.applyCsrStrategy(csrStrategy, followUp),
             ),
-          });
+          );
         }
-        const openingCandidate =
-          this.extractNameCandidateDeterministic(normalizedSpeech);
-        if (
-          openingCandidate &&
-          this.isValidNameCandidate(openingCandidate) &&
-          this.isLikelyNameCandidate(openingCandidate)
-        ) {
-          const nextNameState: typeof nameState = {
-            ...nameState,
-            candidate: {
-              value: openingCandidate,
-              sourceEventId: currentEventId,
-              createdAt: new Date().toISOString(),
-            },
-            status: "CANDIDATE",
-          };
-          await this.conversationsService.updateVoiceNameState({
-            tenantId: tenant.id,
-            conversationId,
-            nameState: nextNameState,
+        if (hasOpeningName && openingCandidate) {
+          const nextNameState = await storeProvisionalName(openingCandidate, {
+            lastConfidence: confidence ?? null,
+            corrections: nameState.corrections ?? 0,
           });
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "confirmation",
-            targetField: "name",
-            sourceEventId: currentEventId,
-            twiml: this.buildNameConfirmationTwiml(
-              openingCandidate,
-              csrStrategy,
-            ),
-          });
+          return maybePromptForSpelling(openingCandidate, nextNameState);
         }
         const sideQuestionReply = await this.buildSideQuestionReply(
           tenant.id,
           normalizedSpeech,
         );
         const followUp = sideQuestionReply
-          ? `${sideQuestionReply} May I have your name, please?`
-          : "Thanks for that. To get this started, may I have your name, please?";
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildSayGatherTwiml(
+          ? `${sideQuestionReply} What's your full name?`
+          : "Thanks. What's your full name?";
+        return replyWithNameTwiml(
+          this.buildSayGatherTwiml(
             this.applyCsrStrategy(csrStrategy, followUp),
           ),
-        });
+        );
       }
+
       const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
       if (this.isLikelyIssueCandidate(issueCandidate)) {
         const existingIssue = this.getVoiceIssueCandidate(collectedData);
@@ -403,18 +695,18 @@ export class VoiceTurnService {
             },
           });
         }
-        const followUp =
-          "Got it—that's definitely something we want to address quickly. I'll take care of this for you. May I have your name, please?";
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildSayGatherTwiml(
+        const followUp = buildNameFollowUp(
+          this.buildIssueAcknowledgement(normalizedSpeech),
+        );
+        if (nameState.attemptCount >= 1) {
+          await recordNameAttemptIfNeeded();
+          return replyWithAddressPrompt();
+        }
+        return replyWithNameTwiml(
+          this.buildSayGatherTwiml(
             this.applyCsrStrategy(csrStrategy, followUp),
           ),
-        });
+        );
       }
 
       const sideQuestionReply = await this.buildSideQuestionReply(
@@ -430,297 +722,31 @@ export class VoiceTurnService {
           occurredAt: new Date(),
           sourceEventId: currentEventId,
         });
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildSayGatherTwiml(
-            `${sideQuestionReply} Please say your full name.`,
+        if (nameState.attemptCount >= 1) {
+          await recordNameAttemptIfNeeded();
+          return replyWithAddressPrompt(`${sideQuestionReply}`);
+        }
+        return replyWithNameTwiml(
+          this.buildSayGatherTwiml(
+            `${sideQuestionReply} What's your full name?`,
           ),
-        });
+        );
       }
 
       const duplicateMissing =
         !nameState.candidate.value &&
         nameState.candidate.sourceEventId === currentEventId;
       if (duplicateMissing) {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildAskNameTwiml(csrStrategy),
-        });
-      }
-      const candidateForEvent =
-        Boolean(nameState.candidate.value) &&
-        nameState.candidate.sourceEventId === currentEventId;
-      if (candidateForEvent && nameState.candidate.value) {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "confirmation",
-          targetField: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildNameConfirmationTwiml(
-            nameState.candidate.value,
-            csrStrategy,
-          ),
-        });
-      }
-      if (nameState.candidate.value) {
-        if (
-          this.isSoftConfirmationEligible(
-            "name",
-            nameState.candidate.value,
-            normalizedSpeech,
-            confidence,
-          )
-        ) {
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "confirmation",
-            targetField: "name",
-            sourceEventId: currentEventId,
-            twiml: this.buildNameSoftConfirmationTwiml(
-              nameState.candidate.value,
-              csrStrategy,
-            ),
-          });
+        if (nameState.attemptCount >= 1) {
+          await recordNameAttemptIfNeeded();
+          return replyWithAddressPrompt();
         }
-        const resolution = this.resolveConfirmation(
-          normalizedSpeech,
-          nameState.candidate.value,
-          "name",
-        );
-        if (resolution.outcome === "CONFIRM") {
-          if (!nameState.locked) {
-            const confirmedAt = new Date().toISOString();
-            const nextNameState: typeof nameState = {
-              ...nameState,
-              status: "CANDIDATE",
-              locked: true,
-            };
-            await this.conversationsService.updateVoiceNameState({
-              tenantId: tenant.id,
-              conversationId,
-              nameState: nextNameState,
-              confirmation: {
-                field: "name",
-                value: nameState.candidate.value,
-                confirmedAt,
-                sourceEventId: currentEventId ?? "",
-                channel: "VOICE",
-              },
-            });
-            this.loggingService.log(
-              {
-                event: "voice.field_confirmed",
-                field: "name",
-                tenantId: tenant.id,
-                conversationId,
-                callSid,
-                sourceEventId: currentEventId,
-              },
-              VoiceTurnService.name,
-            );
-          }
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "address",
-            sourceEventId: currentEventId,
-            timeoutSec: 8,
-            twiml: this.buildSayGatherTwiml(
-              "Thanks. Please say your full address.",
-              { timeout: 8 },
-            ),
-          });
-        }
-        if (resolution.outcome === "REJECT") {
-          const nextAttempt = nameState.attemptCount + 1;
-          const shouldFailClosed = nextAttempt >= 3;
-          const nextNameState: typeof nameState = {
-            ...nameState,
-            candidate: {
-              value: null,
-              sourceEventId: currentEventId,
-              createdAt: null,
-            },
-            status: "MISSING",
-            attemptCount: nextAttempt,
-          };
-          await this.conversationsService.updateVoiceNameState({
-            tenantId: tenant.id,
-            conversationId,
-            nameState: nextNameState,
-          });
-          if (shouldFailClosed) {
-            await this.clearVoiceListeningWindow({
-              tenantId: tenant.id,
-              conversationId,
-            });
-            return this.replyWithSmsHandoff({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              displayName,
-              reason: "name_attempts_exceeded",
-            });
-          }
-          if (nextAttempt >= 1) {
-            return this.replyWithListeningWindow({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              field: "name",
-              sourceEventId: currentEventId,
-              twiml: this.buildSpellNameTwiml(csrStrategy),
-            });
-          }
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "name",
-            sourceEventId: currentEventId,
-            twiml: this.buildAskNameTwiml(csrStrategy),
-          });
-        }
-        if (
-          resolution.outcome === "REPLACE_CANDIDATE" &&
-          resolution.candidate
-        ) {
-          const nextAttempt = nameState.attemptCount + 1;
-          const shouldFailClosed = nextAttempt >= 3;
-          const nextNameState: typeof nameState = {
-            ...nameState,
-            candidate: {
-              value: resolution.candidate,
-              sourceEventId: currentEventId,
-              createdAt: new Date().toISOString(),
-            },
-            status: "CANDIDATE",
-            attemptCount: nextAttempt,
-          };
-          await this.conversationsService.updateVoiceNameState({
-            tenantId: tenant.id,
-            conversationId,
-            nameState: nextNameState,
-          });
-          if (shouldFailClosed) {
-            await this.clearVoiceListeningWindow({
-              tenantId: tenant.id,
-              conversationId,
-            });
-            return this.replyWithSmsHandoff({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              displayName,
-              reason: "name_attempts_exceeded",
-            });
-          }
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "confirmation",
-            targetField: "name",
-            sourceEventId: currentEventId,
-            twiml: this.buildNameConfirmationTwiml(
-              resolution.candidate,
-              csrStrategy,
-            ),
-          });
-        }
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "confirmation",
-          targetField: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildYesNoRepromptTwiml(csrStrategy),
-        });
+        return replyWithNameTwiml(this.buildAskNameTwiml(csrStrategy));
       }
 
       if (this.isLikelyAddressInputForName(normalizedSpeech)) {
-        const nextAttempt = nameState.attemptCount + 1;
-        const shouldFailClosed = nextAttempt >= 3;
-        const nextNameState: typeof nameState = {
-          ...nameState,
-          candidate: {
-            value: null,
-            sourceEventId: currentEventId,
-            createdAt: null,
-          },
-          status: "MISSING",
-          attemptCount: nextAttempt,
-        };
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: nextNameState,
-        });
-        if (shouldFailClosed) {
-          await this.clearVoiceListeningWindow({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          return this.replyWithSmsHandoff({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: "name_attempts_exceeded",
-          });
-        }
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildSpellNameTwiml(csrStrategy),
-        });
-      }
-
-      if (!expectedField) {
-        const sideQuestionReply = await this.buildSideQuestionReply(
-          tenant.id,
-          normalizedSpeech,
-        );
-        if (sideQuestionReply) {
-          await this.callLogService.createVoiceAssistantLog({
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            message: sideQuestionReply,
-            occurredAt: new Date(),
-            sourceEventId: currentEventId,
-          });
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "name",
-            sourceEventId: currentEventId,
-            twiml: this.buildSayGatherTwiml(
-              `${sideQuestionReply} Now, please say your full name.`,
-            ),
-          });
-        }
+        await recordNameAttemptIfNeeded();
+        return replyWithAddressPrompt();
       }
 
       const deterministicCandidate =
@@ -737,81 +763,264 @@ export class VoiceTurnService {
         this.isLikelyNameCandidate(candidateName)
           ? candidateName
           : "";
-      if (!validatedCandidate) {
-        const nextAttempt = nameState.attemptCount + 1;
-        const shouldFailClosed = nextAttempt >= 3;
-        const nextNameState: typeof nameState = {
-          ...nameState,
-          candidate: {
-            value: null,
+      if (validatedCandidate) {
+        const existingCandidate = nameState.candidate.value;
+        if (
+          existingCandidate &&
+          existingCandidate.trim().toLowerCase() ===
+            validatedCandidate.trim().toLowerCase()
+        ) {
+          if (
+            this.shouldPromptForNameSpelling(
+              nameState,
+              existingCandidate,
+            )
+          ) {
+            return promptForNameSpelling(existingCandidate, nameState);
+          }
+          return acknowledgeNameAndMoveOn(existingCandidate);
+        }
+        const isCorrection =
+          Boolean(existingCandidate) && validatedCandidate !== existingCandidate;
+        const nextCorrections = isCorrection
+          ? (nameState.corrections ?? 0) + 1
+          : nameState.corrections ?? 0;
+        const nextNameState = await storeProvisionalName(validatedCandidate, {
+          lastConfidence: confidence ?? null,
+          corrections: nextCorrections,
+        });
+        return maybePromptForSpelling(validatedCandidate, nextNameState);
+      }
+      if (nameState.candidate.value) {
+        if (
+          this.shouldPromptForNameSpelling(
+            nameState,
+            nameState.candidate.value,
+          )
+        ) {
+          return promptForNameSpelling(nameState.candidate.value, nameState);
+        }
+        return acknowledgeNameAndMoveOn(nameState.candidate.value);
+      }
+
+      if (!expectedField) {
+        const extraSideReply = await this.buildSideQuestionReply(
+          tenant.id,
+          normalizedSpeech,
+        );
+        if (extraSideReply) {
+          await this.callLogService.createVoiceAssistantLog({
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            message: extraSideReply,
+            occurredAt: new Date(),
             sourceEventId: currentEventId,
-            createdAt: null,
-          },
-          status: "MISSING",
-          attemptCount: nextAttempt,
-        };
-        await this.conversationsService.updateVoiceNameState({
+          });
+          if (nameState.attemptCount >= 1) {
+            await recordNameAttemptIfNeeded();
+            return replyWithAddressPrompt(`${extraSideReply}`);
+          }
+          return replyWithNameTwiml(
+            this.buildSayGatherTwiml(
+              `${extraSideReply} What's your full name?`,
+            ),
+          );
+        }
+      }
+
+      if (nameState.attemptCount >= 1) {
+        await recordNameAttemptIfNeeded();
+        return replyWithAddressPrompt();
+      }
+
+      return replyWithNameTwiml(this.buildAskNameTwiml(csrStrategy));
+    }
+
+    if (expectedField === "sms_phone") {
+      const smsHandoff =
+        this.conversationsService.getVoiceSmsHandoff(collectedData);
+      if (!smsHandoff) {
+        await this.clearVoiceListeningWindow({
           tenantId: tenant.id,
           conversationId,
-          nameState: nextNameState,
         });
-        if (shouldFailClosed) {
+        expectedField = null;
+      } else {
+        const callerPhone = this.getCallerPhoneFromCollectedData(collectedData);
+        const fallbackPhone = phoneState.value ?? callerPhone;
+        const normalized = this.normalizeConfirmationUtterance(normalizedSpeech);
+        const isSameNumber = this.isSmsNumberConfirmation(normalized);
+        const parsedPhone = this.extractSmsPhoneCandidate(normalizedSpeech);
+        if (isSameNumber && fallbackPhone) {
+          await this.conversationsService.updateVoiceSmsPhoneState({
+            tenantId: tenant.id,
+            conversationId,
+            phoneState: {
+              ...phoneState,
+              value: fallbackPhone,
+              source: phoneState.source ?? "twilio_ani",
+              confirmed: true,
+              confirmedAt: new Date().toISOString(),
+            },
+          });
+          await this.conversationsService.clearVoiceSmsHandoff({
+            tenantId: tenant.id,
+            conversationId,
+          });
           await this.clearVoiceListeningWindow({
             tenantId: tenant.id,
             conversationId,
           });
+          this.loggingService.log(
+            {
+              event: "voice.sms_phone_confirmed",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              source: "twilio_ani",
+            },
+            VoiceTurnService.name,
+          );
           return this.replyWithSmsHandoff({
             res,
             tenantId: tenant.id,
             conversationId,
             callSid,
             displayName,
-            reason: "name_attempts_exceeded",
+            reason: smsHandoff.reason,
+            messageOverride: smsHandoff.messageOverride ?? undefined,
           });
         }
-        if (nextAttempt >= 1) {
+        if (parsedPhone) {
+          await this.conversationsService.updateVoiceSmsPhoneState({
+            tenantId: tenant.id,
+            conversationId,
+            phoneState: {
+              ...phoneState,
+              value: parsedPhone,
+              source: "user_spoken",
+              confirmed: true,
+              confirmedAt: new Date().toISOString(),
+            },
+          });
+          await this.conversationsService.clearVoiceSmsHandoff({
+            tenantId: tenant.id,
+            conversationId,
+          });
+          await this.clearVoiceListeningWindow({
+            tenantId: tenant.id,
+            conversationId,
+          });
+          this.loggingService.log(
+            {
+              event: "voice.sms_phone_confirmed",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              source: "user_spoken",
+            },
+            VoiceTurnService.name,
+          );
+          return this.replyWithSmsHandoff({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: smsHandoff.reason,
+            messageOverride: smsHandoff.messageOverride ?? undefined,
+          });
+        }
+
+        const nextAttempt = phoneState.attemptCount + 1;
+        if (nextAttempt < 2) {
+          await this.conversationsService.updateVoiceSmsPhoneState({
+            tenantId: tenant.id,
+            conversationId,
+            phoneState: {
+              ...phoneState,
+              attemptCount: nextAttempt,
+              lastPromptedAt: new Date().toISOString(),
+            },
+          });
+          this.loggingService.warn(
+            {
+              event: "voice.sms_phone_parse_failed",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              attemptCount: nextAttempt,
+            },
+            VoiceTurnService.name,
+          );
           return this.replyWithListeningWindow({
             res,
             tenantId: tenant.id,
             conversationId,
-            field: "name",
+            field: "sms_phone",
             sourceEventId: currentEventId,
-            twiml: this.buildSpellNameTwiml(csrStrategy),
+            twiml: this.buildAskSmsNumberTwiml(csrStrategy),
           });
         }
-        return this.replyWithListeningWindow({
+
+        if (fallbackPhone) {
+          await this.conversationsService.updateVoiceSmsPhoneState({
+            tenantId: tenant.id,
+            conversationId,
+            phoneState: {
+              ...phoneState,
+              value: fallbackPhone,
+              source: phoneState.source ?? "twilio_ani",
+              confirmed: true,
+              confirmedAt: new Date().toISOString(),
+            },
+          });
+          await this.conversationsService.clearVoiceSmsHandoff({
+            tenantId: tenant.id,
+            conversationId,
+          });
+          await this.clearVoiceListeningWindow({
+            tenantId: tenant.id,
+            conversationId,
+          });
+          this.loggingService.warn(
+            {
+              event: "voice.sms_phone_defaulted",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+            },
+            VoiceTurnService.name,
+          );
+          return this.replyWithSmsHandoff({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            reason: smsHandoff.reason,
+            messageOverride: smsHandoff.messageOverride ?? undefined,
+          });
+        }
+
+        await this.conversationsService.clearVoiceSmsHandoff({
+          tenantId: tenant.id,
+          conversationId,
+        });
+        await this.clearVoiceListeningWindow({
+          tenantId: tenant.id,
+          conversationId,
+        });
+        return this.replyWithHumanFallback({
           res,
           tenantId: tenant.id,
           conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildAskNameTwiml(csrStrategy),
+          callSid,
+          displayName,
+          reason: "sms_phone_missing",
         });
       }
-
-      const nextNameState: typeof nameState = {
-        ...nameState,
-        candidate: {
-          value: validatedCandidate,
-          sourceEventId: currentEventId,
-          createdAt: new Date().toISOString(),
-        },
-        status: "CANDIDATE",
-      };
-      await this.conversationsService.updateVoiceNameState({
-        tenantId: tenant.id,
-        conversationId,
-        nameState: nextNameState,
-      });
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "confirmation",
-        targetField: "name",
-        sourceEventId: currentEventId,
-        twiml: this.buildNameConfirmationTwiml(validatedCandidate, csrStrategy),
-      });
     }
 
     const addressReady =
@@ -1585,18 +1794,22 @@ export class VoiceTurnService {
   }
 
   private buildAskNameTwiml(strategy?: CsrStrategy): string {
-    const core = "Sorry about that. Please say your full name.";
+    const core = "What's your full name?";
     return this.buildSayGatherTwiml(
       this.applyCsrStrategy(
         strategy,
-        this.withPrefix("Thanks, just so we're on the same page. ", core),
+        this.withPrefix("Thanks. ", core),
       ),
     );
   }
 
   private buildSpellNameTwiml(strategy?: CsrStrategy): string {
-    const core =
-      "I'm having trouble with the name. Please spell your first name, then say your last name.";
+    const core = "Thanks—how do you spell your first name?";
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+  }
+
+  private buildAskSmsNumberTwiml(strategy?: CsrStrategy): string {
+    const core = "What's the best number to text updates to?";
     return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
   }
 
@@ -1773,6 +1986,53 @@ export class VoiceTurnService {
     reason: string;
     messageOverride?: string;
   }) {
+    const conversation = await this.conversationsService.getConversationById({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+    });
+    if (conversation?.collectedData) {
+      const phoneState = this.conversationsService.getVoiceSmsPhoneState(
+        conversation.collectedData,
+      );
+      if (!phoneState.confirmed) {
+        await this.conversationsService.updateVoiceSmsHandoff({
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          handoff: {
+            reason: params.reason,
+            messageOverride: params.messageOverride ?? null,
+            createdAt: new Date().toISOString(),
+          },
+        });
+        await this.conversationsService.updateVoiceSmsPhoneState({
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          phoneState: {
+            ...phoneState,
+            lastPromptedAt: new Date().toISOString(),
+          },
+        });
+        const sourceEventId = getRequestContext()?.sourceEventId ?? null;
+        this.loggingService.log(
+          {
+            event: "voice.sms_phone_prompted",
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            callSid: params.callSid,
+          },
+          VoiceTurnService.name,
+        );
+        return this.replyWithListeningWindow({
+          res: params.res,
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          field: "sms_phone",
+          sourceEventId,
+          twiml: this.buildAskSmsNumberTwiml(),
+        });
+      }
+    }
+
     this.logVoiceOutcome({
       outcome: "sms_handoff",
       tenantId: params.tenantId,
@@ -1916,6 +2176,72 @@ export class VoiceTurnService {
     return this.sanitizationService.normalizeWhitespace(cleaned);
   }
 
+  private buildIssueAcknowledgement(value: string): string | null {
+    const cleaned = this.sanitizationService.sanitizeText(value);
+    if (!cleaned) {
+      return null;
+    }
+    const normalized = this.sanitizationService.normalizeWhitespace(cleaned);
+    if (!normalized) {
+      return null;
+    }
+    const lower = normalized.toLowerCase();
+    const keywords = [
+      "furnace",
+      "heat",
+      "heating",
+      "cold",
+      "ac",
+      "air conditioning",
+      "cooling",
+      "no heat",
+      "no hot",
+      "leak",
+      "leaking",
+      "water",
+      "burst",
+      "clog",
+      "drain",
+      "electrical",
+      "power",
+      "spark",
+      "smell",
+      "smoke",
+      "gas",
+      "broken",
+      "not working",
+      "stopped working",
+      "went out",
+      "went down",
+      "blizzard",
+    ];
+    let startIndex = -1;
+    for (const keyword of keywords) {
+      const idx = lower.indexOf(keyword);
+      if (idx >= 0 && (startIndex < 0 || idx < startIndex)) {
+        startIndex = idx;
+      }
+    }
+    const slice = startIndex >= 0 ? normalized.slice(startIndex) : normalized;
+    let summary = this.sanitizationService.normalizeWhitespace(slice).replace(
+      /[.?!]+$/,
+      "",
+    );
+    summary = summary.replace(/^my\s+/i, "your ");
+    const lowerSummary = summary.toLowerCase();
+    if (
+      !lowerSummary.startsWith("your ") &&
+      (lowerSummary.startsWith("furnace") ||
+        lowerSummary.startsWith("ac") ||
+        lowerSummary.startsWith("air conditioning") ||
+        lowerSummary.startsWith("heating") ||
+        lowerSummary.startsWith("cooling"))
+    ) {
+      summary = `your ${summary}`;
+    }
+    return summary || null;
+  }
+
   private isLikelyIssueCandidate(value: string): boolean {
     if (!value) {
       return false;
@@ -1924,7 +2250,7 @@ export class VoiceTurnService {
     if (normalized.length < 6) {
       return false;
     }
-    return /(furnace|heat|heating|cold|ac|air conditioning|cooling|no heat|no hot|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working|went out|went down|blizzard)/.test(
+    return /(furnace|heat|heating|cold|ac|air conditioning|cooling|no heat|no hot|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working|went out|went down|blizzard|acting up|issue|problem)/.test(
       normalized,
     );
   }
@@ -2294,7 +2620,12 @@ export class VoiceTurnService {
     }
     const window = raw as Record<string, unknown>;
     const field = window.field;
-    if (field !== "name" && field !== "address" && field !== "confirmation") {
+    if (
+      field !== "name" &&
+      field !== "address" &&
+      field !== "confirmation" &&
+      field !== "sms_phone"
+    ) {
       return null;
     }
     const expiresAt =
@@ -2325,6 +2656,67 @@ export class VoiceTurnService {
       : null;
   }
 
+  private shouldIgnoreStreamingTranscript(
+    transcript: string,
+    collectedData: unknown,
+    expectedField?: VoiceListeningField | null,
+  ): boolean {
+    const normalized = transcript.toLowerCase().trim();
+    if (!normalized) {
+      return true;
+    }
+    if (/\d/.test(normalized)) {
+      return false;
+    }
+    if (
+      expectedField === "confirmation" &&
+      /^(yes|yeah|yep|no|nope|correct|that's right|that is right)$/i.test(
+        normalized,
+      )
+    ) {
+      return false;
+    }
+    const normalizedCandidate = this.normalizeNameCandidate(normalized);
+    if (
+      this.isValidNameCandidate(normalizedCandidate) &&
+      this.isLikelyNameCandidate(normalizedCandidate)
+    ) {
+      return false;
+    }
+    if (this.isLikelyIssueCandidate(this.normalizeIssueCandidate(normalized))) {
+      return false;
+    }
+    const confirmation = this.normalizeConfirmationUtterance(normalized);
+    if (this.isSmsNumberConfirmation(confirmation)) {
+      return false;
+    }
+    if (
+      /(thank you for calling|this call may be recorded|this call may be transcribed|by continuing)/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    if (
+      expectedField === "address" &&
+      !/\d/.test(normalized) &&
+      !/\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    if (/^(my address is|the address is|address is)$/.test(normalized)) {
+      return true;
+    }
+    if (normalized.length <= 3) {
+      return true;
+    }
+    return /\b(hold on|hang on|one sec|one second|just a sec|give me a sec|wait|um|uh|hmm|okay|ok|yeah|yep|right|sure|thanks|thank you)\b/.test(
+      normalized,
+    );
+  }
+
   private isListeningWindowExpired(
     window: VoiceListeningWindow,
     now: Date,
@@ -2335,7 +2727,7 @@ export class VoiceTurnService {
 
   private getExpectedListeningField(
     window: VoiceListeningWindow | null,
-  ): "name" | "address" | null {
+  ): "name" | "address" | "sms_phone" | null {
     if (!window) {
       return null;
     }
@@ -2350,6 +2742,7 @@ export class VoiceTurnService {
     now: Date,
     nameState: ReturnType<ConversationsService["getVoiceNameState"]>,
     addressState: ReturnType<ConversationsService["getVoiceAddressState"]>,
+    phoneState: ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
   ): boolean {
     if (this.isListeningWindowExpired(window, now)) {
       return true;
@@ -2365,6 +2758,9 @@ export class VoiceTurnService {
         addressState.attemptCount >= 2
       );
     }
+    if (expectedField === "sms_phone") {
+      return phoneState.confirmed || phoneState.attemptCount >= 2;
+    }
     return false;
   }
 
@@ -2372,19 +2768,11 @@ export class VoiceTurnService {
     window: VoiceListeningWindow | null;
     nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
     addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    phoneState: ReturnType<ConversationsService["getVoiceSmsPhoneState"]>;
     strategy?: CsrStrategy;
   }): string {
     const expectedField = this.getExpectedListeningField(params.window);
     if (expectedField === "name") {
-      if (params.nameState.candidate.value) {
-        return this.buildNameConfirmationTwiml(
-          params.nameState.candidate.value,
-          params.strategy,
-        );
-      }
-      if (params.nameState.attemptCount >= 1) {
-        return this.buildSpellNameTwiml(params.strategy);
-      }
       return this.buildAskNameTwiml(params.strategy);
     }
     if (expectedField === "address") {
@@ -2404,6 +2792,9 @@ export class VoiceTurnService {
         );
       }
       return this.buildAskAddressTwiml(params.strategy);
+    }
+    if (expectedField === "sms_phone") {
+      return this.buildAskSmsNumberTwiml(params.strategy);
     }
     return this.buildRepromptTwiml(params.strategy);
   }
@@ -2535,6 +2926,46 @@ export class VoiceTurnService {
       .replace(/[^a-z0-9'\s]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  private isSmsNumberConfirmation(normalizedUtterance: string): boolean {
+    const directMatches = [
+      "yes",
+      "yeah",
+      "yep",
+      "correct",
+      "that's right",
+      "that is right",
+      "this one",
+      "this number",
+      "same number",
+      "use this",
+      "use this number",
+    ];
+    if (directMatches.includes(normalizedUtterance)) {
+      return true;
+    }
+    return (
+      normalizedUtterance.includes("this number") ||
+      normalizedUtterance.includes("same number") ||
+      normalizedUtterance.includes("this one") ||
+      normalizedUtterance.startsWith("use this")
+    );
+  }
+
+  private extractSmsPhoneCandidate(utterance: string): string | null {
+    const normalized = this.sanitizationService.normalizePhoneE164(utterance);
+    return normalized || null;
+  }
+
+  private getCallerPhoneFromCollectedData(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): string | null {
+    if (!collectedData || typeof collectedData !== "object") {
+      return null;
+    }
+    const data = collectedData as Record<string, unknown>;
+    return typeof data.callerPhone === "string" ? data.callerPhone : null;
   }
 
   private extractReplacementCandidate(
@@ -2769,50 +3200,183 @@ export class VoiceTurnService {
     return this.isLikelyNameCandidate(direct) ? direct : null;
   }
 
-  private extractSpelledNameCandidate(transcript: string): string | null {
-    const lowered = transcript.toLowerCase().replace(/[^a-z\s'-]/g, " ");
-    const stripped = lowered.replace(
-      /\b(spell|spelling|first|last|name|is|my|its|it's)\b/g,
-      " ",
-    );
-    const tokens = stripped.split(/\s+/).filter(Boolean);
-    if (tokens.length < 3) {
-      return null;
-    }
+  private parseSpelledNameParts(transcript: string): {
+    firstName: string | null;
+    lastName?: string;
+    letterCount: number;
+    reason?: "no_letters" | "too_short" | "too_long";
+  } {
+    const cleaned = transcript.toUpperCase().replace(/[^A-Z\s]/g, " ");
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
     const letters: string[] = [];
+    let startIndex = -1;
     let index = 0;
-    while (index < tokens.length && tokens[index].length === 1) {
-      letters.push(tokens[index]);
+    while (index < tokens.length) {
+      const token = tokens[index];
+      if (/^[A-Z]$/.test(token)) {
+        if (startIndex < 0) {
+          startIndex = index;
+        }
+        letters.push(token);
+      } else if (letters.length >= 3) {
+        break;
+      } else {
+        letters.length = 0;
+        startIndex = -1;
+      }
       index += 1;
     }
+    if (letters.length === 0) {
+      const shortTokens = tokens.filter(
+        (token) => token.length >= 2 && token.length <= 4,
+      );
+      if (shortTokens.length >= 2 && shortTokens.length <= 6) {
+        const joinedShort = shortTokens.join("");
+        if (joinedShort.length >= 3 && joinedShort.length <= 12) {
+          const firstName = this.toTitleCase(joinedShort.toLowerCase());
+          return {
+            firstName,
+            letterCount: joinedShort.length,
+          };
+        }
+      }
+      return { firstName: null, letterCount: 0, reason: "no_letters" };
+    }
     if (letters.length < 3) {
+      return {
+        firstName: null,
+        letterCount: letters.length,
+        reason: "too_short",
+      };
+    }
+    if (letters.length > 12) {
+      return {
+        firstName: null,
+        letterCount: letters.length,
+        reason: "too_long",
+      };
+    }
+    const joined = letters.join("").toLowerCase();
+    const firstName = this.toTitleCase(joined);
+    const remainderIndex = startIndex >= 0 ? startIndex + letters.length : index;
+    const remaining = tokens
+      .slice(remainderIndex)
+      .filter((token) => token.length > 1);
+    const rawLastName = remaining[0];
+    const normalizedLastName = rawLastName
+      ? this.toTitleCase(rawLastName.toLowerCase())
+      : null;
+    const lastName =
+      normalizedLastName && this.isValidLastNameToken(normalizedLastName)
+        ? normalizedLastName
+        : undefined;
+    return { firstName, lastName, letterCount: letters.length };
+  }
+
+  private isValidLastNameToken(value: string): boolean {
+    return /^[A-Za-z][A-Za-z'-]*$/.test(value) && value.length >= 2;
+  }
+
+  private extractSpelledNameCandidate(transcript: string): string | null {
+    const parsed = this.parseSpelledNameParts(transcript);
+    if (!parsed.firstName) {
       return null;
     }
-    const remaining = tokens.slice(index).filter((token) => token.length > 1);
-    if (remaining.length === 0) {
-      return null;
-    }
-    const firstName = letters.join("");
-    const lastName = remaining[0];
-    const candidate = this.normalizeNameCandidate(`${firstName} ${lastName}`);
+    const candidate = parsed.lastName
+      ? `${parsed.firstName} ${parsed.lastName}`
+      : parsed.firstName;
     return this.isValidNameCandidate(candidate) ? candidate : null;
   }
 
   private isValidNameCandidate(candidate: string): boolean {
     const tokens = candidate.split(" ").filter(Boolean);
-    if (tokens.length < 2 || tokens.length > 3) {
+    if (tokens.length < 1 || tokens.length > 3) {
       return false;
     }
     return tokens.every((token) => /^[A-Za-z][A-Za-z'-]*$/.test(token));
   }
 
   private isLikelyNameCandidate(candidate: string): boolean {
-    const blocked = new Set(["hello", "hi", "hey", "there"]);
+    const blocked = new Set([
+      "hello",
+      "hi",
+      "hey",
+      "there",
+      "this",
+      "that",
+      "you",
+      "your",
+      "me",
+      "my",
+      "the",
+      "yes",
+      "yeah",
+      "yep",
+      "no",
+      "nope",
+      "correct",
+      "incorrect",
+      "right",
+      "ok",
+      "okay",
+      "maybe",
+      "sure",
+      "acting",
+      "act",
+      "up",
+      "issue",
+      "problem",
+      "help",
+    ]);
     return candidate
       .toLowerCase()
       .split(" ")
       .filter(Boolean)
       .every((token) => !blocked.has(token));
+  }
+
+  private isNameFragment(candidate: string): boolean {
+    const normalized = this.sanitizationService.normalizeWhitespace(
+      this.stripNameFillers(candidate.toLowerCase()),
+    );
+    const tokens = normalized.split(" ").filter(Boolean);
+    if (tokens.length === 0) {
+      return true;
+    }
+    return tokens[0].length <= 2;
+  }
+
+  private normalizeCsrStrategyForTurn(
+    strategy: CsrStrategy,
+    turnCount: number,
+  ): CsrStrategy | undefined {
+    if (turnCount <= 1) {
+      return strategy;
+    }
+    if (strategy === CsrStrategy.OPENING || strategy === CsrStrategy.EMPATHY) {
+      return undefined;
+    }
+    return strategy;
+  }
+
+  private shouldPromptForNameSpelling(
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>,
+    candidate: string | null,
+  ): boolean {
+    if (!candidate) {
+      return false;
+    }
+    if ((nameState.spellPromptCount ?? 0) > 0) {
+      return false;
+    }
+    const tokenCount = candidate.split(" ").filter(Boolean).length;
+    const lowConfidence = (nameState.lastConfidence ?? 1) < 0.8;
+    const repeatedCorrections = (nameState.corrections ?? 0) >= 2;
+    const fragment = this.isNameFragment(candidate);
+    if (repeatedCorrections || fragment) {
+      return true;
+    }
+    return lowConfidence && tokenCount <= 1;
   }
 
   private isLikelyAddressInputForName(transcript: string): boolean {
@@ -3076,6 +3640,27 @@ export class VoiceTurnService {
   }
 
   private stripNameFillers(value: string): string {
+    const leadingTokens = new Set([
+      "um",
+      "uh",
+      "erm",
+      "er",
+      "hey",
+      "hi",
+      "hello",
+    ]);
+    let result = value.trim();
+    let trimmed = true;
+    while (trimmed) {
+      trimmed = false;
+      for (const token of leadingTokens) {
+        if (result.startsWith(`${token} `)) {
+          result = result.slice(token.length).trim();
+          trimmed = true;
+          break;
+        }
+      }
+    }
     const fillers = [
       "my name is",
       "this is",
@@ -3086,11 +3671,21 @@ export class VoiceTurnService {
       "its",
       "it's",
     ];
-    let result = value;
     for (const filler of fillers) {
-      if (result.startsWith(filler + " ")) {
+      if (result.startsWith(`${filler} `)) {
         result = result.slice(filler.length).trim();
         break;
+      }
+    }
+    trimmed = true;
+    while (trimmed) {
+      trimmed = false;
+      for (const token of leadingTokens) {
+        if (result.startsWith(`${token} `)) {
+          result = result.slice(token.length).trim();
+          trimmed = true;
+          break;
+        }
       }
     }
     return result;
