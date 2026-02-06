@@ -251,7 +251,15 @@ export class AiService {
   async extractAddressCandidate(
     tenantId: string,
     transcript: string,
-  ): Promise<{ address: string | null; confidence?: number } | null> {
+  ): Promise<{
+    address: string | null;
+    confidence?: number;
+    houseNumber?: string | null;
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+  } | null> {
     const safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
     const safeTranscript = this.sanitizationService.sanitizeText(transcript);
     if (!safeTenantId || !safeTranscript) {
@@ -262,7 +270,7 @@ export class AiService {
       {
         role: "system",
         content:
-          "Extract the service address from the transcript. Return JSON only: {\"address\": string|null, \"confidence\": number|null}. Confidence must be 0-1. If no address is present, return {\"address\": null, \"confidence\": null}.",
+          "Extract the service address from the transcript. Return JSON only: {\"address\": string|null, \"houseNumber\": string|null, \"street\": string|null, \"city\": string|null, \"state\": string|null, \"zip\": string|null, \"confidence\": number|null}. Confidence must be 0-1. If no address is present, return all fields null.",
       },
       { role: "user", content: safeTranscript },
     ];
@@ -290,10 +298,30 @@ export class AiService {
       const address = parsed.address
         ? this.sanitizationService.sanitizeText(parsed.address)
         : null;
+      const houseNumber = parsed.houseNumber
+        ? this.sanitizationService.sanitizeText(parsed.houseNumber)
+        : null;
+      const street = parsed.street
+        ? this.sanitizationService.sanitizeText(parsed.street)
+        : null;
+      const city = parsed.city
+        ? this.sanitizationService.sanitizeText(parsed.city)
+        : null;
+      const state = parsed.state
+        ? this.sanitizationService.sanitizeText(parsed.state)
+        : null;
+      const zip = parsed.zip
+        ? this.sanitizationService.sanitizeText(parsed.zip)
+        : null;
       const confidence = this.normalizeConfidence(parsed.confidence);
       return {
         address: address || null,
         ...(typeof confidence === "number" ? { confidence } : {}),
+        ...(houseNumber ? { houseNumber } : {}),
+        ...(street ? { street } : {}),
+        ...(city ? { city } : {}),
+        ...(state ? { state } : {}),
+        ...(zip ? { zip } : {}),
       };
     } catch (error) {
       this.loggingService.warn(
@@ -336,6 +364,11 @@ export class AiService {
   private parseAddressJson(value: string): {
     address: string | null;
     confidence?: number | null;
+    houseNumber?: string | null;
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
   } | null {
     if (!value) {
       return null;
@@ -350,15 +383,27 @@ export class AiService {
       const parsed = JSON.parse(slice) as {
         address?: unknown;
         confidence?: unknown;
+        houseNumber?: unknown;
+        street?: unknown;
+        city?: unknown;
+        state?: unknown;
+        zip?: unknown;
       };
       const address =
         typeof parsed.address === "string" ? parsed.address : null;
+      const houseNumber =
+        typeof parsed.houseNumber === "string" ? parsed.houseNumber : null;
+      const street =
+        typeof parsed.street === "string" ? parsed.street : null;
+      const city = typeof parsed.city === "string" ? parsed.city : null;
+      const state = typeof parsed.state === "string" ? parsed.state : null;
+      const zip = typeof parsed.zip === "string" ? parsed.zip : null;
       const confidence =
         typeof parsed.confidence === "number" ||
         typeof parsed.confidence === "string"
           ? Number(parsed.confidence)
           : null;
-      return { address, confidence };
+      return { address, confidence, houseNumber, street, city, state, zip };
     } catch {
       return null;
     }

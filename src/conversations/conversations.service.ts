@@ -39,12 +39,18 @@ type VoiceAddressStatus = "MISSING" | "CANDIDATE" | "CONFIRMED" | "FAILED";
 type VoiceAddressState = {
   candidate: string | null;
   confirmed: string | null;
+  houseNumber?: string | null;
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
   status: VoiceAddressStatus;
   locked: boolean;
   attemptCount: number;
   confidence?: number;
   sourceEventId?: string | null;
   needsLocality?: boolean;
+  smsConfirmNeeded?: boolean;
 };
 type VoiceSmsPhoneSource = "twilio_ani" | "user_spoken";
 type VoiceSmsPhoneState = {
@@ -67,12 +73,18 @@ type VoiceFieldConfirmation = {
   sourceEventId: string;
   channel: "VOICE" | "SMS";
 };
-type VoiceListeningField = "name" | "address" | "confirmation" | "sms_phone";
+type VoiceListeningField =
+  | "name"
+  | "address"
+  | "confirmation"
+  | "sms_phone"
+  | "booking"
+  | "callback";
 type VoiceListeningWindow = {
   field: VoiceListeningField;
   sourceEventId: string | null;
   expiresAt: string;
-  targetField?: "name" | "address";
+  targetField?: "name" | "address" | "booking" | "callback";
 };
 
 @Injectable()
@@ -1086,12 +1098,18 @@ export class ConversationsService {
     return {
       candidate: null,
       confirmed: null,
+      houseNumber: null,
+      street: null,
+      city: null,
+      state: null,
+      zip: null,
       status: "MISSING",
       locked: false,
       attemptCount: 0,
       confidence: undefined,
       sourceEventId: null,
       needsLocality: false,
+      smsConfirmNeeded: false,
     };
   }
 
@@ -1192,6 +1210,16 @@ export class ConversationsService {
       typeof data.confidence === "number" ? data.confidence : undefined;
     const needsLocality =
       typeof data.needsLocality === "boolean" ? data.needsLocality : false;
+    const smsConfirmNeeded =
+      typeof data.smsConfirmNeeded === "boolean"
+        ? data.smsConfirmNeeded
+        : false;
+    const houseNumber =
+      typeof data.houseNumber === "string" ? data.houseNumber : null;
+    const street = typeof data.street === "string" ? data.street : null;
+    const city = typeof data.city === "string" ? data.city : null;
+    const state = typeof data.state === "string" ? data.state : null;
+    const zip = typeof data.zip === "string" ? data.zip : null;
     if (candidateRaw && typeof candidateRaw === "object") {
       const legacyCandidate = candidateRaw as {
         value?: unknown;
@@ -1231,6 +1259,11 @@ export class ConversationsService {
     return {
       candidate: candidate ?? null,
       confirmed: confirmed ?? null,
+      houseNumber,
+      street,
+      city,
+      state,
+      zip,
       status,
       locked: Boolean(data.locked),
       attemptCount:
@@ -1240,6 +1273,7 @@ export class ConversationsService {
       confidence,
       sourceEventId,
       needsLocality,
+      smsConfirmNeeded,
     };
   }
 

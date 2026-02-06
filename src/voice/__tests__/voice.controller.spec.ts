@@ -1313,19 +1313,10 @@ describe("VoiceController", () => {
       .expect(200);
 
     expect(createVoiceAssistantLog).toHaveBeenCalled();
-    expect(updateVoiceNameState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: "tenant-1",
-        conversationId: "conversation-1",
-        nameState: expect.objectContaining({
-          attemptCount: 1,
-          status: "MISSING",
-        }),
-      }),
-    );
+    expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(aiService.extractNameCandidate).not.toHaveBeenCalled();
     expect(response.text).toContain("I&apos;m doing well, thanks for asking.");
-    expect(response.text).toContain("What&apos;s your full name?");
+    expect(response.text).toContain("Would you like to book a visit?");
 
     await app.close();
   });
@@ -2855,7 +2846,7 @@ describe("VoiceController", () => {
     await app.close();
   });
 
-  it("fails closed after repeated low-confidence address attempts", async () => {
+  it("moves on after repeated low-confidence address attempts", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -2954,11 +2945,12 @@ describe("VoiceController", () => {
         addressState: expect.objectContaining({
           status: "FAILED",
           attemptCount: 2,
+          smsConfirmNeeded: true,
         }),
       }),
     );
     expect(response.text).toContain(
-      "What&apos;s the best number to text updates to?",
+      "confirm the address by text after we finish",
     );
 
     await app.close();
