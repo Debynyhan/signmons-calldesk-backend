@@ -473,6 +473,21 @@ If any one of those is false, the system must fail closed.
 - [ ] Matches human dispatcher expectations
 - [ ] Consistent across tenants
 
+##### T-V24 — Voice UX Loop Breaker + Comfort Advisor
+
+
+- [x] Answer side questions before field prompts and continue in the same turn
+- [x] Trim issue acknowledgements to avoid echoing caller questions
+- [x] Reduce repetitive "Thanks." prefixes in name/address prompts
+- [x] Use progressive address prompts (missing parts only)
+- [x] Parse locality with full state names and avoid zip-as-house-number
+- [x] Add empathy response for frustration and keep flow moving
+- [x] Handle hangup intents (bye/never mind) without treating as name
+- [x] Add comfort-advisor risk check for HVAC (kids/elderly/no heat)
+- [ ] Add single service-fee disclosure timing in voice flow
+- [ ] Implement SMS payment link transition script
+- [ ] Add regression tests for question-first and address loop breaker
+
 #### Policy, Providers & Delivery
 
 ##### T-V00 — Target Voice Stack (North Star)

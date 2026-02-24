@@ -23,13 +23,7 @@ export const CREATE_JOB_TOOL: ChatCompletionTool = {
         issueCategory: {
           type: "string",
           description: "High-level issue category.",
-          enum: [
-            "HEATING",
-            "COOLING",
-            "PLUMBING",
-            "ELECTRICAL",
-            "GENERAL",
-          ],
+          enum: ["HEATING", "COOLING", "PLUMBING", "ELECTRICAL", "GENERAL"],
         },
         urgency: {
           type: "string",

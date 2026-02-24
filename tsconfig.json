@@ -18,7 +18,8 @@
     "isolatedModules": true,
     "incremental": true,
     "lib": ["ES2021"],
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "rootDir": "./src"
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist", "ui"]

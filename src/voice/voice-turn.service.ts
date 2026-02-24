@@ -1,6 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Request, Response } from "express";
-import { CommunicationChannel, Prisma, TenantOrganization } from "@prisma/client";
+import {
+  CommunicationChannel,
+  Prisma,
+  TenantOrganization,
+} from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
@@ -31,12 +35,32 @@ type VoiceListeningField =
   | "confirmation"
   | "sms_phone"
   | "booking"
-  | "callback";
+  | "callback"
+  | "comfort_risk"
+  | "urgency_confirm";
 type VoiceListeningWindow = {
   field: VoiceListeningField;
   sourceEventId: string | null;
   expiresAt: string;
-  targetField?: "name" | "address" | "booking" | "callback";
+  targetField?:
+    | "name"
+    | "address"
+    | "booking"
+    | "callback"
+    | "comfort_risk"
+    | "urgency_confirm";
+};
+type VoiceComfortRiskResponse = "YES" | "NO";
+type VoiceComfortRisk = {
+  askedAt: string | null;
+  response: VoiceComfortRiskResponse | null;
+  sourceEventId: string | null;
+};
+type VoiceUrgencyConfirmationResponse = "YES" | "NO";
+type VoiceUrgencyConfirmation = {
+  askedAt: string | null;
+  response: VoiceUrgencyConfirmationResponse | null;
+  sourceEventId: string | null;
 };
 type TenantFeePolicy = {
   serviceFeeCents: number;
@@ -145,10 +169,12 @@ export class VoiceTurnService {
       return res ? this.replyWithTwiml(res, this.buildRepromptTwiml()) : "";
     }
     const collectedDataSnapshot = conversation.collectedData ?? null;
-    const listeningWindowSnapshot =
-      this.getVoiceListeningWindow(collectedDataSnapshot);
-    const expectedFieldSnapshot =
-      this.getExpectedListeningField(listeningWindowSnapshot);
+    const listeningWindowSnapshot = this.getVoiceListeningWindow(
+      collectedDataSnapshot,
+    );
+    const expectedFieldSnapshot = this.getExpectedListeningField(
+      listeningWindowSnapshot,
+    );
     if (
       !res &&
       this.shouldIgnoreStreamingTranscript(
@@ -302,11 +328,11 @@ export class VoiceTurnService {
     if (
       listeningWindow &&
       this.shouldClearListeningWindow(
-      listeningWindow,
-      now,
-      nameState,
-      addressState,
-      phoneState,
+        listeningWindow,
+        now,
+        nameState,
+        addressState,
+        phoneState,
       )
     ) {
       await this.clearVoiceListeningWindow({
@@ -337,6 +363,11 @@ export class VoiceTurnService {
     const nameReady =
       Boolean(nameState.confirmed.value) ||
       this.isVoiceFieldReady(nameState.locked, nameState.confirmed.value);
+    const addressDeferred = Boolean(addressState.smsConfirmNeeded);
+    const addressReady =
+      Boolean(addressState.confirmed) ||
+      this.isVoiceFieldReady(addressState.locked, addressState.confirmed) ||
+      addressDeferred;
     if (expectedField === "name" && nameReady) {
       await this.clearVoiceListeningWindow({
         tenantId: tenant.id,
@@ -344,7 +375,11 @@ export class VoiceTurnService {
       });
       expectedField = null;
     }
-    if (expectedField === "address" && !nameReady && nameState.attemptCount === 0) {
+    if (
+      expectedField === "address" &&
+      !nameReady &&
+      nameState.attemptCount === 0
+    ) {
       await this.clearVoiceListeningWindow({
         tenantId: tenant.id,
         conversationId,
@@ -425,6 +460,123 @@ export class VoiceTurnService {
         twiml: this.buildCallbackOfferTwiml(csrStrategy),
       });
     }
+    if (expectedField === "comfort_risk") {
+      const isYes = this.isAffirmativeUtterance(normalizedSpeech);
+      const isNo = this.isNegativeUtterance(normalizedSpeech);
+      if (isYes || isNo) {
+        await this.conversationsService.updateVoiceComfortRisk({
+          tenantId: tenant.id,
+          conversationId,
+          comfortRisk: {
+            askedAt: new Date().toISOString(),
+            response: isYes ? "YES" : "NO",
+            sourceEventId: currentEventId ?? null,
+          },
+        });
+        await this.clearVoiceListeningWindow({
+          tenantId: tenant.id,
+          conversationId,
+        });
+        if (isYes) {
+          await this.conversationsService.updateVoiceUrgencyConfirmation({
+            tenantId: tenant.id,
+            conversationId,
+            urgencyConfirmation: {
+              askedAt: new Date().toISOString(),
+              response: null,
+              sourceEventId: currentEventId ?? null,
+            },
+          });
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "urgency_confirm",
+            sourceEventId: currentEventId,
+            twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
+          });
+        }
+        const followUp = await this.replyWithSideQuestionAndContinue({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          sideQuestionReply: "Got it.",
+          expectedField: null,
+          nameReady,
+          addressReady,
+          addressState,
+          currentEventId,
+          strategy: csrStrategy,
+        });
+        if (followUp) {
+          return followUp;
+        }
+        return this.replyWithTwiml(
+          res,
+          this.buildSayGatherTwiml("How can I help?"),
+        );
+      }
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "comfort_risk",
+        sourceEventId: currentEventId,
+        twiml: this.buildComfortRiskTwiml(csrStrategy),
+      });
+    }
+    if (expectedField === "urgency_confirm") {
+      const isYes = this.isAffirmativeUtterance(normalizedSpeech);
+      const isNo = this.isNegativeUtterance(normalizedSpeech);
+      if (isYes || isNo) {
+        await this.conversationsService.updateVoiceUrgencyConfirmation({
+          tenantId: tenant.id,
+          conversationId,
+          urgencyConfirmation: {
+            askedAt: new Date().toISOString(),
+            response: isYes ? "YES" : "NO",
+            sourceEventId: currentEventId ?? null,
+          },
+        });
+        await this.clearVoiceListeningWindow({
+          tenantId: tenant.id,
+          conversationId,
+        });
+        const preface = isYes
+          ? "Thanks. We'll treat this as urgent."
+          : "Okay, we'll keep it standard.";
+        const followUp = await this.replyWithSideQuestionAndContinue({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          sideQuestionReply: preface,
+          expectedField: null,
+          nameReady,
+          addressReady,
+          addressState,
+          currentEventId,
+          strategy: csrStrategy,
+        });
+        if (followUp) {
+          return followUp;
+        }
+        return this.replyWithTwiml(
+          res,
+          this.buildSayGatherTwiml("How can I help?"),
+        );
+      }
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "urgency_confirm",
+        sourceEventId: currentEventId,
+        twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
+      });
+    }
     if (this.isSlowDownRequest(normalizedSpeech)) {
       if (expectedField === "name") {
         return this.replyWithListeningWindow({
@@ -461,7 +613,50 @@ export class VoiceTurnService {
         this.buildSayGatherTwiml("Sure—take your time. How can I help?"),
       );
     }
-    if (this.isFrustrationRequest(normalizedSpeech)) {
+
+    const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
+    const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
+    const hasIssueCandidate = this.isLikelyIssueCandidate(issueCandidate);
+    if (hasIssueCandidate && !existingIssueCandidate?.value) {
+      await this.conversationsService.updateVoiceIssueCandidate({
+        tenantId: tenant.id,
+        conversationId,
+        issue: {
+          value: issueCandidate,
+          sourceEventId: currentEventId ?? "",
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
+    const comfortRisk =
+      this.conversationsService.getVoiceComfortRisk(collectedData);
+    const urgencyConfirmation =
+      this.conversationsService.getVoiceUrgencyConfirmation(collectedData);
+    const comfortRiskRelevant = this.isComfortRiskRelevant(
+      existingIssueCandidate?.value ??
+        (hasIssueCandidate ? issueCandidate : ""),
+    );
+    const shouldAskComfortRisk =
+      comfortRiskRelevant &&
+      !comfortRisk.response &&
+      !comfortRisk.askedAt &&
+      !expectedField;
+    const shouldAskUrgencyConfirm =
+      comfortRisk.response === "YES" &&
+      !urgencyConfirmation.response &&
+      !urgencyConfirmation.askedAt &&
+      !expectedField;
+
+    if (this.isHangupRequest(normalizedSpeech)) {
+      return this.replyWithTwiml(
+        res,
+        this.buildTwiml(
+          "No problem. If you need anything later, call us back.",
+        ),
+      );
+    }
+
+    if (this.isHumanTransferRequest(normalizedSpeech)) {
       return this.replyWithListeningWindow({
         res,
         tenantId: tenant.id,
@@ -472,13 +667,151 @@ export class VoiceTurnService {
         twiml: this.buildCallbackOfferTwiml(csrStrategy),
       });
     }
+
+    if (this.isFrustrationRequest(normalizedSpeech)) {
+      const apologyReply = await this.replyWithSideQuestionAndContinue({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        sideQuestionReply: "Sorry about that.",
+        expectedField,
+        nameReady,
+        addressReady,
+        addressState,
+        currentEventId,
+        strategy: csrStrategy,
+      });
+      if (apologyReply) {
+        return apologyReply;
+      }
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "callback",
+        sourceEventId: currentEventId,
+        twiml: this.buildCallbackOfferTwiml(csrStrategy),
+      });
+    }
+
+    const sideQuestionReply = await this.buildSideQuestionReply(
+      tenant.id,
+      normalizedSpeech,
+    );
+    if (sideQuestionReply) {
+      if (shouldAskComfortRisk) {
+        await this.conversationsService.updateVoiceComfortRisk({
+          tenantId: tenant.id,
+          conversationId,
+          comfortRisk: {
+            askedAt: new Date().toISOString(),
+            response: null,
+            sourceEventId: currentEventId ?? null,
+          },
+        });
+        const baseTwiml = this.buildComfortRiskTwiml(csrStrategy);
+        const twiml = this.prependPrefaceToGatherTwiml(
+          sideQuestionReply,
+          baseTwiml,
+        );
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "confirmation",
+          targetField: "comfort_risk",
+          sourceEventId: currentEventId,
+          twiml,
+        });
+      }
+      if (shouldAskUrgencyConfirm) {
+        await this.conversationsService.updateVoiceUrgencyConfirmation({
+          tenantId: tenant.id,
+          conversationId,
+          urgencyConfirmation: {
+            askedAt: new Date().toISOString(),
+            response: null,
+            sourceEventId: currentEventId ?? null,
+          },
+        });
+        const baseTwiml = this.buildUrgencyConfirmTwiml(csrStrategy);
+        const twiml = this.prependPrefaceToGatherTwiml(
+          sideQuestionReply,
+          baseTwiml,
+        );
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "confirmation",
+          targetField: "urgency_confirm",
+          sourceEventId: currentEventId,
+          twiml,
+        });
+      }
+      const earlyReply = await this.replyWithSideQuestionAndContinue({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        sideQuestionReply,
+        expectedField,
+        nameReady,
+        addressReady,
+        addressState,
+        currentEventId,
+        strategy: csrStrategy,
+      });
+      if (earlyReply) {
+        return earlyReply;
+      }
+    }
+    if (shouldAskUrgencyConfirm) {
+      await this.conversationsService.updateVoiceUrgencyConfirmation({
+        tenantId: tenant.id,
+        conversationId,
+        urgencyConfirmation: {
+          askedAt: new Date().toISOString(),
+          response: null,
+          sourceEventId: currentEventId ?? null,
+        },
+      });
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "urgency_confirm",
+        sourceEventId: currentEventId,
+        twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
+      });
+    }
+    if (shouldAskComfortRisk) {
+      await this.conversationsService.updateVoiceComfortRisk({
+        tenantId: tenant.id,
+        conversationId,
+        comfortRisk: {
+          askedAt: new Date().toISOString(),
+          response: null,
+          sourceEventId: currentEventId ?? null,
+        },
+      });
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "comfort_risk",
+        sourceEventId: currentEventId,
+        twiml: this.buildComfortRiskTwiml(csrStrategy),
+      });
+    }
     // Name flow map (current):
     // - Yes/no prompts: buildNameConfirmationTwiml/buildNameSoftConfirmationTwiml/buildYesNoRepromptTwiml.
     // - Confirmation parsing: resolveConfirmation + extractReplacementCandidate.
     // - Progression gate: nameReady (locked/confirmed) before moving to address.
     // - Listening window gate: voiceListeningWindow field "confirmation" with targetField "name".
     if (!nameReady && (!expectedField || expectedField === "name")) {
-      const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
       const existingIssueSummary = existingIssueCandidate?.value
         ? this.buildIssueAcknowledgement(existingIssueCandidate.value)
         : null;
@@ -490,14 +823,14 @@ export class VoiceTurnService {
         !nameState.candidate.value &&
         !existingIssueCandidate?.value;
       const buildAddressPrompt = (preface?: string) => {
-        const base = "Please say your full address.";
+        const base = "Please say the service address.";
         if (preface && preface.trim()) {
           return this.applyCsrStrategy(
             csrStrategy,
             `${preface.trim()} ${base}`,
           );
         }
-        return this.applyCsrStrategy(csrStrategy, `Thanks. ${base}`);
+        return this.applyCsrStrategy(csrStrategy, base);
       };
       const replyWithAddressPrompt = async (preface?: string) =>
         this.replyWithListeningWindow({
@@ -560,27 +893,27 @@ export class VoiceTurnService {
           corrections:
             typeof options?.corrections === "number"
               ? options.corrections
-              : nameState.corrections ?? 0,
+              : (nameState.corrections ?? 0),
           lastConfidence:
             typeof options?.lastConfidence === "number"
               ? options.lastConfidence
-              : nameState.lastConfidence ?? null,
+              : (nameState.lastConfidence ?? null),
           firstNameSpelled:
             typeof options?.firstNameSpelled === "string"
               ? options.firstNameSpelled
-              : nameState.firstNameSpelled ?? null,
+              : (nameState.firstNameSpelled ?? null),
           spellPromptedAt:
             options && "spellPromptedAt" in options
-              ? options.spellPromptedAt ?? null
-              : nameState.spellPromptedAt ?? null,
+              ? (options.spellPromptedAt ?? null)
+              : (nameState.spellPromptedAt ?? null),
           spellPromptedTurnIndex:
             options && "spellPromptedTurnIndex" in options
-              ? options.spellPromptedTurnIndex ?? null
-              : nameState.spellPromptedTurnIndex ?? null,
+              ? (options.spellPromptedTurnIndex ?? null)
+              : (nameState.spellPromptedTurnIndex ?? null),
           spellPromptCount:
             typeof options?.spellPromptCount === "number"
               ? options.spellPromptCount
-              : nameState.spellPromptCount ?? 0,
+              : (nameState.spellPromptCount ?? 0),
         };
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
@@ -590,12 +923,9 @@ export class VoiceTurnService {
         return nextNameState;
       };
       const buildNameFollowUp = (issueSummary?: string | null) => {
-        const trimmedIssue =
-          issueSummary?.trim().replace(/[.?!]+$/, "") ?? "";
+        const trimmedIssue = issueSummary?.trim().replace(/[.?!]+$/, "") ?? "";
         const issueAck = trimmedIssue ? `I heard ${trimmedIssue}. ` : "";
-        return `Thanks. ${issueAck}What's your full name?`
-          .replace(/\s+/g, " ")
-          .trim();
+        return `${issueAck}What's your full name?`.replace(/\s+/g, " ").trim();
       };
       const promptForNameSpelling = async (
         candidate: string,
@@ -644,19 +974,14 @@ export class VoiceTurnService {
       ) => {
         const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
         const thanks = firstName ? `Thanks, ${firstName}.` : "Thanks.";
-        const resolvedIssue =
-          issueSummary ?? existingIssueSummary ?? null;
-        const trimmedIssue =
-          resolvedIssue?.trim().replace(/[.?!]+$/, "") ?? "";
-        const issueAck = trimmedIssue
-          ? `I heard ${trimmedIssue}.`
-          : "";
+        const resolvedIssue = issueSummary ?? existingIssueSummary ?? null;
+        const trimmedIssue = resolvedIssue?.trim().replace(/[.?!]+$/, "") ?? "";
+        const issueAck = trimmedIssue ? `I heard ${trimmedIssue}.` : "";
         const preface = issueAck ? `${thanks} ${issueAck}` : thanks;
         return replyWithAddressPrompt(preface);
       };
-      const spellingResponseCandidate = this.normalizeNameCandidate(
-        normalizedSpeech,
-      );
+      const spellingResponseCandidate =
+        this.normalizeNameCandidate(normalizedSpeech);
       const shouldHandleSpellingResponse =
         Boolean(nameState.spellPromptedAt) &&
         (typeof nameState.spellPromptedTurnIndex !== "number" ||
@@ -828,7 +1153,7 @@ export class VoiceTurnService {
         }
         const followUp = sideQuestionReply
           ? `${sideQuestionReply} What's your full name?`
-          : "Thanks. What's your full name?";
+          : "What's your full name?";
         return replyWithNameTwiml(
           this.buildSayGatherTwiml(
             this.applyCsrStrategy(csrStrategy, followUp),
@@ -917,21 +1242,17 @@ export class VoiceTurnService {
           existingCandidate.trim().toLowerCase() ===
             validatedCandidate.trim().toLowerCase()
         ) {
-          if (
-            this.shouldPromptForNameSpelling(
-              nameState,
-              existingCandidate,
-            )
-          ) {
+          if (this.shouldPromptForNameSpelling(nameState, existingCandidate)) {
             return promptForNameSpelling(existingCandidate, nameState);
           }
           return acknowledgeNameAndMoveOn(existingCandidate);
         }
         const isCorrection =
-          Boolean(existingCandidate) && validatedCandidate !== existingCandidate;
+          Boolean(existingCandidate) &&
+          validatedCandidate !== existingCandidate;
         const nextCorrections = isCorrection
           ? (nameState.corrections ?? 0) + 1
-          : nameState.corrections ?? 0;
+          : (nameState.corrections ?? 0);
         const nextNameState = await storeProvisionalName(validatedCandidate, {
           lastConfidence: confidence ?? null,
           corrections: nextCorrections,
@@ -940,10 +1261,7 @@ export class VoiceTurnService {
       }
       if (nameState.candidate.value) {
         if (
-          this.shouldPromptForNameSpelling(
-            nameState,
-            nameState.candidate.value,
-          )
+          this.shouldPromptForNameSpelling(nameState, nameState.candidate.value)
         ) {
           return promptForNameSpelling(nameState.candidate.value, nameState);
         }
@@ -988,7 +1306,8 @@ export class VoiceTurnService {
       } else {
         const callerPhone = this.getCallerPhoneFromCollectedData(collectedData);
         const fallbackPhone = phoneState.value ?? callerPhone;
-        const normalized = this.normalizeConfirmationUtterance(normalizedSpeech);
+        const normalized =
+          this.normalizeConfirmationUtterance(normalizedSpeech);
         const isSameNumber = this.isSmsNumberConfirmation(normalized);
         const parsedPhone = this.extractSmsPhoneCandidate(normalizedSpeech);
         if (isSameNumber && fallbackPhone) {
@@ -1162,11 +1481,6 @@ export class VoiceTurnService {
       }
     }
 
-    const addressDeferred = Boolean(addressState.smsConfirmNeeded);
-    const addressReady =
-      Boolean(addressState.confirmed) ||
-      this.isVoiceFieldReady(addressState.locked, addressState.confirmed) ||
-      addressDeferred;
     if (expectedField === "address" && addressReady) {
       await this.clearVoiceListeningWindow({
         tenantId: tenant.id,
@@ -1214,10 +1528,7 @@ export class VoiceTurnService {
               addressState.candidate,
               normalizedLocality,
             );
-        const mergedParts = this.mergeAddressParts(
-          addressState,
-          localityParts,
-        );
+        const mergedParts = this.mergeAddressParts(addressState, localityParts);
         const mergedCandidateFromParts =
           this.buildAddressCandidateFromParts(mergedParts);
         const nextAddressState: typeof addressState = {
@@ -1312,10 +1623,7 @@ export class VoiceTurnService {
             conversationId,
             field: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAddressPromptForState(
-              addressState,
-              csrStrategy,
-            ),
+            twiml: this.buildAddressPromptForState(addressState, csrStrategy),
           });
         }
         return this.replyWithListeningWindow({
@@ -1390,10 +1698,7 @@ export class VoiceTurnService {
               conversationId,
               field: "address",
               sourceEventId: currentEventId,
-              twiml: this.buildAddressPromptForState(
-                addressState,
-                csrStrategy,
-              ),
+              twiml: this.buildAddressPromptForState(addressState, csrStrategy),
             });
           }
           if (!addressState.locked) {
@@ -1532,7 +1837,8 @@ export class VoiceTurnService {
               strategy: csrStrategy,
             });
           }
-          const hasStructured = this.hasStructuredAddressParts(nextAddressState);
+          const hasStructured =
+            this.hasStructuredAddressParts(nextAddressState);
           const missingParts = this.getAddressMissingParts(nextAddressState);
           const missingLocality = hasStructured
             ? missingParts.locality
@@ -1614,7 +1920,7 @@ export class VoiceTurnService {
             sourceEventId: currentEventId,
             timeoutSec: 8,
             twiml: this.buildSayGatherTwiml(
-              `${addressQuestionReply} Now, please say your full service address.`,
+              `${addressQuestionReply} Now, please say the service address.`,
               { timeout: 8 },
             ),
           });
@@ -1628,8 +1934,18 @@ export class VoiceTurnService {
       const normalizedAddress = this.normalizeAddressCandidate(
         extracted?.address ?? "",
       );
+      const fallbackCandidate = !normalizedAddress
+        ? this.normalizeAddressCandidate(normalizedSpeech)
+        : "";
+      const usableFallbackCandidate =
+        fallbackCandidate && this.isLikelyAddressCandidate(fallbackCandidate)
+          ? fallbackCandidate
+          : "";
       const seedCandidate =
-        normalizedAddress || addressState.candidate || null;
+        normalizedAddress ||
+        usableFallbackCandidate ||
+        addressState.candidate ||
+        null;
       const extractedParts = {
         houseNumber: this.normalizeAddressComponent(
           extracted?.houseNumber ?? null,
@@ -1639,16 +1955,38 @@ export class VoiceTurnService {
         state: this.normalizeAddressComponent(extracted?.state ?? null),
         zip: this.normalizeAddressComponent(extracted?.zip ?? null),
       };
+      const normalizedAddressInput =
+        this.normalizeAddressCandidate(normalizedSpeech);
+      const directParts: {
+        houseNumber?: string | null;
+        street?: string | null;
+      } = {};
+      if (
+        addressState.street &&
+        !addressState.houseNumber &&
+        this.isLikelyHouseNumberOnly(normalizedAddressInput)
+      ) {
+        directParts.houseNumber = normalizedAddressInput;
+      }
+      if (
+        addressState.houseNumber &&
+        !addressState.street &&
+        this.isLikelyStreetOnly(normalizedAddressInput)
+      ) {
+        directParts.street = normalizedAddressInput;
+      }
       const derivedParts = seedCandidate
         ? this.extractAddressPartsFromCandidate(seedCandidate)
         : {};
       const mergedParts = this.mergeAddressParts(addressState, {
         ...derivedParts,
         ...extractedParts,
+        ...directParts,
       });
       const candidateAddress =
         normalizedAddress ||
         this.buildAddressCandidateFromParts(mergedParts) ||
+        usableFallbackCandidate ||
         addressState.candidate ||
         null;
       const minConfidence = this.config.voiceAddressMinConfidence ?? 0.7;
@@ -1657,8 +1995,9 @@ export class VoiceTurnService {
           ? extracted.confidence
           : undefined;
       const meetsConfidence =
-        typeof extractedConfidence === "number" &&
-        extractedConfidence >= minConfidence;
+        typeof extractedConfidence === "number"
+          ? extractedConfidence >= minConfidence
+          : Boolean(usableFallbackCandidate);
       const baseAddressState: typeof addressState = {
         ...addressState,
         ...mergedParts,
@@ -1708,10 +2047,7 @@ export class VoiceTurnService {
           conversationId,
           field: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildAddressPromptForState(
-            nextAddressState,
-            csrStrategy,
-          ),
+          twiml: this.buildAddressPromptForState(nextAddressState, csrStrategy),
         });
       }
 
@@ -2022,12 +2358,7 @@ export class VoiceTurnService {
 
   private buildAskNameTwiml(strategy?: CsrStrategy): string {
     const core = "What's your full name?";
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(
-        strategy,
-        this.withPrefix("Thanks. ", core),
-      ),
-    );
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
   }
 
   private buildSpellNameTwiml(strategy?: CsrStrategy): string {
@@ -2049,16 +2380,15 @@ export class VoiceTurnService {
     if (field === "name") {
       question = "What's your full name?";
     } else if (field === "address") {
-      question = "Please say your full service address.";
+      question = "Please say the service address.";
       timeout = 8;
     } else if (field === "sms_phone") {
       question = "What's the best number to text updates to?";
     }
     const message = `Sure—take your time. ${question}`.trim();
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, message),
-      { timeout },
-    );
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, message), {
+      timeout,
+    });
   }
 
   private buildBookingPromptTwiml(strategy?: CsrStrategy): string {
@@ -2071,11 +2401,23 @@ export class VoiceTurnService {
     return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
   }
 
+  private buildComfortRiskTwiml(strategy?: CsrStrategy): string {
+    const core =
+      "Is anyone in the home at risk, like kids or elderly, or without heat or AC?";
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+  }
+
+  private buildUrgencyConfirmTwiml(strategy?: CsrStrategy): string {
+    const core =
+      "I can treat this as urgent, which may include an additional emergency fee. Should I mark it urgent?";
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+  }
+
   private buildAddressConfirmationTwiml(
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const core = `Thanks. I heard ${candidate}. I just need the full address to send the right tech. If that's right, say 'yes'. Otherwise, say the full address.`;
+    const core = `Thanks. I heard ${candidate}. I just need the service address to send the right tech. If that's right, say 'yes'. Otherwise, say the service address.`;
     const message = this.applyCsrStrategy(
       strategy,
       this.withPrefix("Got it. ", core),
@@ -2087,7 +2429,7 @@ export class VoiceTurnService {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const core = `Thanks. I heard ${candidate}. I just need the full address to send the right tech. If that's right, say 'yes'. Otherwise, say the full address.`;
+    const core = `Thanks. I heard ${candidate}. I just need the service address to send the right tech. If that's right, say 'yes'. Otherwise, say the service address.`;
     const message = this.applyCsrStrategy(
       strategy,
       this.withPrefix("Got it. ", core),
@@ -2096,17 +2438,16 @@ export class VoiceTurnService {
   }
 
   private buildAddressLocalityPromptTwiml(strategy?: CsrStrategy): string {
-    const core = "Thanks. What city, state, and ZIP code is that in?";
+    const core = "What city, state, and ZIP code is that in?";
     const message = this.applyCsrStrategy(strategy, core);
     return this.buildSayGatherTwiml(message, { timeout: 8 });
   }
 
   private buildAskAddressTwiml(strategy?: CsrStrategy): string {
-    const core = "Sorry about that. Please say your full service address.";
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, this.withPrefix("Thanks. ", core)),
-      { timeout: 8 },
-    );
+    const core = "What's the service address?";
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
+      timeout: 8,
+    });
   }
 
   private buildIncompleteAddressTwiml(
@@ -2120,10 +2461,7 @@ export class VoiceTurnService {
       return this.buildSayGatherTwiml(
         this.applyCsrStrategy(
           strategy,
-          this.withPrefix(
-            "Thanks. ",
-            "I didn't catch the house number. Please repeat the full street name and city.",
-          ),
+          "I didn't catch the house number. Please repeat the full street name and city.",
         ),
       );
     }
@@ -2131,10 +2469,7 @@ export class VoiceTurnService {
     const prefixTokens = tokens.slice(numberIndex + 1, numberIndex + 4);
     const prefix = prefixTokens.length ? ` ${prefixTokens.join(" ")}` : "";
     const core = `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`;
-    const message = this.applyCsrStrategy(
-      strategy,
-      this.withPrefix("Thanks. ", core),
-    );
+    const message = this.applyCsrStrategy(strategy, core);
     return this.buildSayGatherTwiml(message, { timeout: 8 });
   }
 
@@ -2420,7 +2755,8 @@ export class VoiceTurnService {
       status: "FAILED",
       smsConfirmNeeded: true,
       needsLocality: false,
-      sourceEventId: params.currentEventId ?? params.addressState.sourceEventId ?? null,
+      sourceEventId:
+        params.currentEventId ?? params.addressState.sourceEventId ?? null,
     };
     await this.conversationsService.updateVoiceAddressState({
       tenantId: params.tenantId,
@@ -2468,9 +2804,7 @@ export class VoiceTurnService {
       "No problem—I'll confirm the address by text after we finish. What's been going on with the system?";
     return this.replyWithTwiml(
       params.res,
-      this.buildSayGatherTwiml(
-        this.applyCsrStrategy(params.strategy, message),
-      ),
+      this.buildSayGatherTwiml(this.applyCsrStrategy(params.strategy, message)),
     );
   }
 
@@ -2490,9 +2824,65 @@ export class VoiceTurnService {
     return candidate;
   }
 
+  private getVoiceComfortRisk(collectedData: unknown): VoiceComfortRisk {
+    if (!collectedData || typeof collectedData !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const data = collectedData as Record<string, unknown>;
+    const raw = data.voiceComfortRisk;
+    if (!raw || typeof raw !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const record = raw as Partial<VoiceComfortRisk>;
+    const response =
+      record.response === "YES" || record.response === "NO"
+        ? record.response
+        : null;
+    return {
+      askedAt: typeof record.askedAt === "string" ? record.askedAt : null,
+      response,
+      sourceEventId:
+        typeof record.sourceEventId === "string" ? record.sourceEventId : null,
+    };
+  }
+
+  private getVoiceUrgencyConfirmation(
+    collectedData: unknown,
+  ): VoiceUrgencyConfirmation {
+    if (!collectedData || typeof collectedData !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const data = collectedData as Record<string, unknown>;
+    const raw = data.voiceUrgencyConfirmation;
+    if (!raw || typeof raw !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const record = raw as Partial<VoiceUrgencyConfirmation>;
+    const response =
+      record.response === "YES" || record.response === "NO"
+        ? record.response
+        : null;
+    return {
+      askedAt: typeof record.askedAt === "string" ? record.askedAt : null,
+      response,
+      sourceEventId:
+        typeof record.sourceEventId === "string" ? record.sourceEventId : null,
+    };
+  }
+
   private normalizeIssueCandidate(value: string): string {
     const cleaned = this.sanitizationService.sanitizeText(value);
     return this.sanitizationService.normalizeWhitespace(cleaned);
+  }
+
+  private isComfortRiskRelevant(value: string): boolean {
+    if (!value) {
+      return false;
+    }
+    const normalized = value.toLowerCase();
+    return /\b(furnace|heat|heating|no heat|ac|air conditioning|cooling|no ac|hvac)\b/.test(
+      normalized,
+    );
   }
 
   private buildIssueAcknowledgement(value: string): string | null {
@@ -2542,19 +2932,29 @@ export class VoiceTurnService {
       }
     }
     const slice = startIndex >= 0 ? normalized.slice(startIndex) : normalized;
-    let summary = this.sanitizationService.normalizeWhitespace(slice).replace(
-      /[.?!]+$/,
-      "",
-    );
-    summary = summary.replace(/^my\s+/i, "your ");
+    let summary = this.sanitizationService.normalizeWhitespace(slice);
     const lowerSummary = summary.toLowerCase();
+    const stopCandidates = [
+      summary.search(/[.?!]/),
+      lowerSummary.indexOf(" i was wondering"),
+      lowerSummary.indexOf(" can you"),
+      lowerSummary.indexOf(" could you"),
+      lowerSummary.indexOf(" do you"),
+      lowerSummary.indexOf(" would you"),
+    ].filter((index) => index > 0);
+    if (stopCandidates.length) {
+      summary = summary.slice(0, Math.min(...stopCandidates));
+    }
+    summary = summary.replace(/[.?!]+$/, "");
+    summary = summary.replace(/^my\s+/i, "your ");
+    const lowerSummaryFinal = summary.toLowerCase();
     if (
-      !lowerSummary.startsWith("your ") &&
-      (lowerSummary.startsWith("furnace") ||
-        lowerSummary.startsWith("ac") ||
-        lowerSummary.startsWith("air conditioning") ||
-        lowerSummary.startsWith("heating") ||
-        lowerSummary.startsWith("cooling"))
+      !lowerSummaryFinal.startsWith("your ") &&
+      (lowerSummaryFinal.startsWith("furnace") ||
+        lowerSummaryFinal.startsWith("ac") ||
+        lowerSummaryFinal.startsWith("air conditioning") ||
+        lowerSummaryFinal.startsWith("heating") ||
+        lowerSummaryFinal.startsWith("cooling"))
     ) {
       summary = `your ${summary}`;
     }
@@ -2809,6 +3209,17 @@ export class VoiceTurnService {
       return false;
     }
     const data = collectedData as Record<string, unknown>;
+    const urgencyConfirmation = this.getVoiceUrgencyConfirmation(data);
+    if (urgencyConfirmation.response === "YES") {
+      return true;
+    }
+    const urgencyConfirmed =
+      typeof data.urgencyConfirmed === "boolean"
+        ? data.urgencyConfirmed
+        : false;
+    if (!urgencyConfirmed) {
+      return false;
+    }
     const urgency = data.urgency;
     if (typeof urgency === "string") {
       const normalized = urgency.trim().toUpperCase();
@@ -2883,7 +3294,7 @@ export class VoiceTurnService {
     if (!context || context.channel !== "VOICE" || !context.callSid) {
       return false;
     }
-    const callSid = context.callSid as string;
+    const callSid = context.callSid;
     const now = Date.now();
     const last = this.lastResponseByCall.get(callSid);
     if (last && last.twiml === twiml && now - last.at < 2000) {
@@ -2905,6 +3316,57 @@ export class VoiceTurnService {
       }
     }
     return results;
+  }
+
+  private extractGatherOptions(twiml: string): {
+    timeout?: number;
+    bargeIn?: boolean;
+  } {
+    const timeoutMatch = twiml.match(/timeout="(\d+)"/);
+    const timeout = timeoutMatch ? Number(timeoutMatch[1]) : undefined;
+    const bargeIn = /bargeIn="true"/.test(twiml) ? true : undefined;
+    return {
+      ...(typeof timeout === "number" ? { timeout } : {}),
+      ...(bargeIn ? { bargeIn } : {}),
+    };
+  }
+
+  private combineSideQuestionReply(preface: string, message: string): string {
+    const cleanedPreface = preface.trim();
+    const cleanedMessage = message.trim();
+    if (!cleanedPreface) {
+      return cleanedMessage;
+    }
+    if (!cleanedMessage) {
+      return cleanedPreface;
+    }
+    const normalizedPreface = cleanedPreface.toLowerCase();
+    const normalizedMessage = cleanedMessage.toLowerCase();
+    if (normalizedMessage.startsWith(normalizedPreface)) {
+      return cleanedMessage;
+    }
+    return `${cleanedPreface} ${cleanedMessage}`.replace(/\s+/g, " ").trim();
+  }
+
+  private prependPrefaceToGatherTwiml(
+    preface: string,
+    baseTwiml: string,
+  ): string {
+    const cleanedPreface = preface.trim();
+    if (!cleanedPreface) {
+      return baseTwiml;
+    }
+    const messages = this.extractSayMessages(baseTwiml);
+    if (!messages.length) {
+      return baseTwiml;
+    }
+    const baseMessage = messages.join(" ").trim();
+    if (!baseMessage) {
+      return baseTwiml;
+    }
+    const combined = this.combineSideQuestionReply(cleanedPreface, baseMessage);
+    const options = this.extractGatherOptions(baseTwiml);
+    return this.buildSayGatherTwiml(combined, options);
   }
 
   private withPrefix(prefix: string | undefined, message: string): string {
@@ -2959,7 +3421,9 @@ export class VoiceTurnService {
       field !== "name" &&
       field !== "address" &&
       field !== "confirmation" &&
-      field !== "sms_phone"
+      field !== "sms_phone" &&
+      field !== "comfort_risk" &&
+      field !== "urgency_confirm"
     ) {
       return null;
     }
@@ -2972,7 +3436,9 @@ export class VoiceTurnService {
       window.targetField === "name" ||
       window.targetField === "address" ||
       window.targetField === "booking" ||
-      window.targetField === "callback"
+      window.targetField === "callback" ||
+      window.targetField === "comfort_risk" ||
+      window.targetField === "urgency_confirm"
         ? window.targetField
         : undefined;
     return {
@@ -3003,7 +3469,12 @@ export class VoiceTurnService {
     if (!normalized) {
       return true;
     }
-    if (this.isSlowDownRequest(normalized) || this.isFrustrationRequest(normalized)) {
+    if (
+      this.isSlowDownRequest(normalized) ||
+      this.isFrustrationRequest(normalized) ||
+      this.isHumanTransferRequest(normalized) ||
+      this.isHangupRequest(normalized)
+    ) {
       return false;
     }
     if (/\d/.test(normalized)) {
@@ -3012,7 +3483,9 @@ export class VoiceTurnService {
     if (
       (expectedField === "confirmation" ||
         expectedField === "booking" ||
-        expectedField === "callback") &&
+        expectedField === "callback" ||
+        expectedField === "comfort_risk" ||
+        expectedField === "urgency_confirm") &&
       /^(yes|yeah|yep|no|nope|correct|that's right|that is right)$/i.test(
         normalized,
       )
@@ -3070,7 +3543,15 @@ export class VoiceTurnService {
 
   private getExpectedListeningField(
     window: VoiceListeningWindow | null,
-  ): "name" | "address" | "sms_phone" | "booking" | "callback" | null {
+  ):
+    | "name"
+    | "address"
+    | "sms_phone"
+    | "booking"
+    | "callback"
+    | "comfort_risk"
+    | "urgency_confirm"
+    | null {
     if (!window) {
       return null;
     }
@@ -3104,7 +3585,12 @@ export class VoiceTurnService {
     if (expectedField === "sms_phone") {
       return phoneState.confirmed || phoneState.attemptCount >= 2;
     }
-    if (expectedField === "booking" || expectedField === "callback") {
+    if (
+      expectedField === "booking" ||
+      expectedField === "callback" ||
+      expectedField === "comfort_risk" ||
+      expectedField === "urgency_confirm"
+    ) {
       return this.isListeningWindowExpired(window, now);
     }
     return false;
@@ -3136,6 +3622,12 @@ export class VoiceTurnService {
     if (expectedField === "callback") {
       return this.buildCallbackOfferTwiml(params.strategy);
     }
+    if (expectedField === "comfort_risk") {
+      return this.buildComfortRiskTwiml(params.strategy);
+    }
+    if (expectedField === "urgency_confirm") {
+      return this.buildUrgencyConfirmTwiml(params.strategy);
+    }
     return this.buildRepromptTwiml(params.strategy);
   }
 
@@ -3147,7 +3639,13 @@ export class VoiceTurnService {
     sourceEventId: string | null;
     twiml: string;
     timeoutSec?: number;
-    targetField?: "name" | "address" | "booking" | "callback";
+    targetField?:
+      | "name"
+      | "address"
+      | "booking"
+      | "callback"
+      | "comfort_risk"
+      | "urgency_confirm";
   }) {
     const timeoutSec = params.timeoutSec ?? 8;
     const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
@@ -3426,6 +3924,14 @@ export class VoiceTurnService {
     }
 
     if (
+      /(do you|do you guys|can you|will you)\s+(come|send|dispatch|service|work on|handle|repair|fix|check|look at|look over|check out|take a look)/.test(
+        normalized,
+      )
+    ) {
+      return "Yes, we can help with that.";
+    }
+
+    if (
       /(when|availability|available|can you come|how soon)/.test(normalized)
     ) {
       return "We can check availability once I have your address.";
@@ -3442,6 +3948,102 @@ export class VoiceTurnService {
       } catch {
         return "You're speaking with the dispatcher.";
       }
+    }
+
+    return "I can help with that. Let me grab a couple quick details.";
+  }
+
+  private async replyWithSideQuestionAndContinue(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    sideQuestionReply: string;
+    expectedField: VoiceListeningField | null;
+    nameReady: boolean;
+    addressReady: boolean;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    currentEventId: string | null;
+    strategy?: CsrStrategy;
+  }): Promise<string | null> {
+    const preface = params.sideQuestionReply.trim();
+    if (!preface) {
+      return null;
+    }
+
+    if (
+      !params.nameReady &&
+      (!params.expectedField || params.expectedField === "name")
+    ) {
+      const baseTwiml = this.buildAskNameTwiml(params.strategy);
+      const twiml = this.prependPrefaceToGatherTwiml(preface, baseTwiml);
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "name",
+        sourceEventId: params.currentEventId,
+        twiml,
+      });
+    }
+
+    if (
+      !params.addressReady &&
+      (!params.expectedField || params.expectedField === "address")
+    ) {
+      const baseTwiml = this.buildAddressPromptForState(
+        params.addressState,
+        params.strategy,
+      );
+      const twiml = this.prependPrefaceToGatherTwiml(preface, baseTwiml);
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "address",
+        sourceEventId: params.currentEventId,
+        twiml,
+      });
+    }
+
+    if (params.expectedField === "sms_phone") {
+      const baseTwiml = this.buildAskSmsNumberTwiml(params.strategy);
+      const twiml = this.prependPrefaceToGatherTwiml(preface, baseTwiml);
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "sms_phone",
+        sourceEventId: params.currentEventId,
+        twiml,
+      });
+    }
+
+    if (params.expectedField === "booking") {
+      const baseTwiml = this.buildBookingPromptTwiml(params.strategy);
+      const twiml = this.prependPrefaceToGatherTwiml(preface, baseTwiml);
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "confirmation",
+        targetField: "booking",
+        sourceEventId: params.currentEventId,
+        twiml,
+      });
+    }
+
+    if (params.expectedField === "callback") {
+      const baseTwiml = this.buildCallbackOfferTwiml(params.strategy);
+      const twiml = this.prependPrefaceToGatherTwiml(preface, baseTwiml);
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "confirmation",
+        targetField: "callback",
+        sourceEventId: params.currentEventId,
+        twiml,
+      });
     }
 
     return null;
@@ -3519,7 +4121,21 @@ export class VoiceTurnService {
     if (this.isSlowDownRequest(normalized)) {
       return false;
     }
-    return /\b(human|agent|representative|supervisor|manager|person|talk to|speak to|operator|buggy|repeating|not listening|ridiculous|frustrated|annoying)\b/.test(
+    return /\b(human|agent|representative|supervisor|manager|person|talk to|speak to|operator|buggy|repeating|not listening|ridiculous|frustrated|annoying|robotic|already told|told you already|said that already)\b/.test(
+      normalized,
+    );
+  }
+
+  private isHumanTransferRequest(transcript: string): boolean {
+    const normalized = this.normalizeConfirmationUtterance(transcript);
+    return /\b(human|agent|representative|supervisor|manager|person|talk to|speak to|operator)\b/.test(
+      normalized,
+    );
+  }
+
+  private isHangupRequest(transcript: string): boolean {
+    const normalized = this.normalizeConfirmationUtterance(transcript);
+    return /\b(bye|goodbye|hang up|hangup|stop calling|no thanks|no thank you|cancel|never mind|nevermind|that'?s all)\b/.test(
       normalized,
     );
   }
@@ -3669,7 +4285,11 @@ export class VoiceTurnService {
       const shortTokens = tokens.filter(
         (token) => token.length >= 2 && token.length <= 4,
       );
-      if (!hasLongTokens && shortTokens.length >= 2 && shortTokens.length <= 6) {
+      if (
+        !hasLongTokens &&
+        shortTokens.length >= 2 &&
+        shortTokens.length <= 6
+      ) {
         const joinedShort = shortTokens.join("");
         if (joinedShort.length >= 3 && joinedShort.length <= 12) {
           const firstName = this.toTitleCase(joinedShort.toLowerCase());
@@ -3697,7 +4317,8 @@ export class VoiceTurnService {
     }
     const joined = letters.join("").toLowerCase();
     const firstName = this.toTitleCase(joined);
-    const remainderIndex = startIndex >= 0 ? startIndex + letters.length : index;
+    const remainderIndex =
+      startIndex >= 0 ? startIndex + letters.length : index;
     const remaining = tokens
       .slice(remainderIndex)
       .filter((token) => token.length > 1);
@@ -3770,6 +4391,8 @@ export class VoiceTurnService {
       "buggy",
       "slow",
       "down",
+      "bye",
+      "goodbye",
     ]);
     return candidate
       .toLowerCase()
@@ -3835,6 +4458,50 @@ export class VoiceTurnService {
     );
   }
 
+  private isLikelyAddressCandidate(candidate: string): boolean {
+    if (!candidate) {
+      return false;
+    }
+    const normalized = candidate.toLowerCase();
+    const hasStreetSuffix =
+      /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
+        normalized,
+      );
+    const hasZip = /\b\d{5}(?:-\d{4})?\b/.test(normalized);
+    const hasDigit = /\d/.test(normalized);
+    if (hasZip) {
+      return true;
+    }
+    if (hasDigit && hasStreetSuffix) {
+      return true;
+    }
+    if (!hasDigit && hasStreetSuffix) {
+      const tokens = normalized.split(/\s+/).filter(Boolean);
+      return tokens.length >= 2;
+    }
+    return false;
+  }
+
+  private isLikelyHouseNumberOnly(value: string): boolean {
+    if (!value) {
+      return false;
+    }
+    const compact = value.replace(/\s+/g, "");
+    return /^[0-9]{1,6}[A-Za-z]?$/.test(compact);
+  }
+
+  private isLikelyStreetOnly(value: string): boolean {
+    if (!value) {
+      return false;
+    }
+    if (/\d/.test(value)) {
+      return false;
+    }
+    return /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/i.test(
+      value,
+    );
+  }
+
   private normalizeAddressCandidate(value: string): string {
     const cleaned = this.sanitizationService.sanitizeText(value);
     return this.sanitizationService.normalizeWhitespace(cleaned);
@@ -3862,8 +4529,7 @@ export class VoiceTurnService {
     },
   ) {
     return {
-      houseNumber:
-        extracted.houseNumber ?? current.houseNumber ?? null,
+      houseNumber: extracted.houseNumber ?? current.houseNumber ?? null,
       street: extracted.street ?? current.street ?? null,
       city: extracted.city ?? current.city ?? null,
       state: extracted.state ?? current.state ?? null,
@@ -3897,14 +4563,14 @@ export class VoiceTurnService {
     if (!normalized) {
       return {};
     }
-    const tokens = normalized
-      .replace(/,/g, " , ")
-      .split(/\s+/)
-      .filter(Boolean);
+    const tokens = normalized.replace(/,/g, " , ").split(/\s+/).filter(Boolean);
     if (!tokens.length) {
       return {};
     }
-    let zipIndex = tokens.findIndex((token) =>
+    const normalizedTokens = tokens.map((token) =>
+      this.stripLocalityToken(token.toLowerCase()),
+    );
+    let zipIndex = normalizedTokens.findIndex((token) =>
       /^\d{5}(?:-\d{4})?$/.test(token),
     );
     if (zipIndex === 0 && tokens.length === 1) {
@@ -3912,17 +4578,19 @@ export class VoiceTurnService {
     }
     const zip = zipIndex >= 0 ? tokens[zipIndex] : null;
     let stateIndex = -1;
-    if (
-      zipIndex > 0 &&
-      /^[A-Za-z]{2}$/.test(tokens[zipIndex - 1])
-    ) {
+    if (zipIndex > 0 && this.isStateToken(normalizedTokens[zipIndex - 1])) {
       stateIndex = zipIndex - 1;
     } else {
-      stateIndex = tokens.findIndex((token) => /^[A-Za-z]{2}$/.test(token));
+      stateIndex = normalizedTokens.findIndex((token) =>
+        this.isStateToken(token),
+      );
     }
-    const state = stateIndex >= 0 ? tokens[stateIndex].toUpperCase() : null;
+    const stateToken = stateIndex >= 0 ? normalizedTokens[stateIndex] : null;
+    const state = stateToken ? this.normalizeStateToken(stateToken) : null;
     const commaIndex = tokens.indexOf(",");
-    const houseIndex = tokens.findIndex((token) => /\d/.test(token));
+    const houseIndex = normalizedTokens.findIndex(
+      (token, index) => /\d/.test(token) && index !== zipIndex,
+    );
     const houseNumber = houseIndex >= 0 ? tokens[houseIndex] : null;
 
     const suffixes = new Set([
@@ -3983,8 +4651,7 @@ export class VoiceTurnService {
         cityTokens = tokens.slice(commaIndex + 1, endIndex);
       }
     } else if (streetTokens.length) {
-      const startIndex =
-        streetTokens.length + (houseIndex >= 0 ? 1 : 0);
+      const startIndex = streetTokens.length + (houseIndex >= 0 ? 1 : 0);
       const endCandidates = [stateIndex, zipIndex].filter(
         (index) => index >= 0,
       );
@@ -4011,10 +4678,10 @@ export class VoiceTurnService {
   ): boolean {
     return Boolean(
       addressState.houseNumber ||
-        addressState.street ||
-        addressState.city ||
-        addressState.state ||
-        addressState.zip,
+      addressState.street ||
+      addressState.city ||
+      addressState.state ||
+      addressState.zip,
     );
   }
 
@@ -4028,8 +4695,7 @@ export class VoiceTurnService {
     return {
       houseNumber: !addressState.houseNumber,
       street: !addressState.street,
-      locality:
-        !addressState.city || !addressState.state || !addressState.zip,
+      locality: !addressState.city || !addressState.state || !addressState.zip,
     };
   }
 
@@ -4043,20 +4709,34 @@ export class VoiceTurnService {
       return { city: null, state: null, zip: null };
     }
     const tokens = cleaned.split(/\s+/).filter(Boolean);
-    const zipIndex = tokens.findIndex((token) =>
+    const normalizedTokens = tokens.map((token) =>
+      this.stripLocalityToken(token.toLowerCase()),
+    );
+    const zipIndex = normalizedTokens.findIndex((token) =>
       /^\d{5}(?:-\d{4})?$/.test(token),
     );
-    const stateIndex = tokens.findIndex((token) =>
-      /^[A-Za-z]{2}$/.test(token),
+    const stateIndex = normalizedTokens.findIndex((token) =>
+      this.isStateToken(token),
     );
     const zip = zipIndex >= 0 ? tokens[zipIndex] : null;
-    const state =
-      stateIndex >= 0 ? tokens[stateIndex].toUpperCase() : null;
+    const stateToken = stateIndex >= 0 ? normalizedTokens[stateIndex] : null;
+    const state = stateToken ? this.normalizeStateToken(stateToken) : null;
     const cityTokens = tokens.filter(
       (_token, index) => index !== zipIndex && index !== stateIndex,
     );
     const city = cityTokens.length ? cityTokens.join(" ") : null;
     return { city, state, zip };
+  }
+
+  private normalizeStateToken(token: string): string {
+    if (!token) {
+      return "";
+    }
+    const cleaned = token.replace(/\s+/g, "");
+    if (cleaned.length === 2) {
+      return cleaned.toUpperCase();
+    }
+    return this.toTitleCase(cleaned.toLowerCase());
   }
 
   private buildAskHouseNumberTwiml(
@@ -4065,10 +4745,9 @@ export class VoiceTurnService {
   ): string {
     const prefix = street ? `I heard ${street}. ` : "";
     const core = `${prefix}What's the house number?`;
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, core),
-      { timeout: 8 },
-    );
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
+      timeout: 8,
+    });
   }
 
   private buildAskStreetTwiml(
@@ -4077,10 +4756,16 @@ export class VoiceTurnService {
   ): string {
     const prefix = houseNumber ? `I heard ${houseNumber}. ` : "";
     const core = `${prefix}What's the street name?`;
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, core),
-      { timeout: 8 },
-    );
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
+      timeout: 8,
+    });
+  }
+
+  private buildAskStreetAddressTwiml(strategy?: CsrStrategy): string {
+    const core = "What's the street address?";
+    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
+      timeout: 8,
+    });
   }
 
   private buildAddressPromptForState(
@@ -4090,16 +4775,16 @@ export class VoiceTurnService {
     if (this.hasStructuredAddressParts(addressState)) {
       const missing = this.getAddressMissingParts(addressState);
       if (missing.houseNumber && addressState.street) {
-        return this.buildAskHouseNumberTwiml(
-          strategy,
-          addressState.street,
-        );
+        return this.buildAskHouseNumberTwiml(strategy, addressState.street);
       }
       if (missing.street && addressState.houseNumber) {
-        return this.buildAskStreetTwiml(
-          strategy,
-          addressState.houseNumber,
-        );
+        return this.buildAskStreetTwiml(strategy, addressState.houseNumber);
+      }
+      if (missing.houseNumber && missing.street) {
+        if (!missing.locality) {
+          return this.buildAskStreetAddressTwiml(strategy);
+        }
+        return this.buildAskAddressTwiml(strategy);
       }
       if (missing.houseNumber || missing.street) {
         return this.buildAskAddressTwiml(strategy);

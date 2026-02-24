@@ -22,7 +22,9 @@ export type CsrStrategyInput = {
 export class CsrStrategySelector {
   selectStrategy(input: CsrStrategyInput): CsrStrategy {
     const state = (input.fsmState ?? "").trim().toUpperCase();
-    const missingRequired = !(input.hasConfirmedName && input.hasConfirmedAddress);
+    const missingRequired = !(
+      input.hasConfirmedName && input.hasConfirmedAddress
+    );
     const isCollecting =
       state.includes("CONFIRM") ||
       state.includes("COLLECT") ||

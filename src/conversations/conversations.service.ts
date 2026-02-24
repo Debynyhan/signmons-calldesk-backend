@@ -66,6 +66,18 @@ type VoiceSmsHandoff = {
   messageOverride?: string | null;
   createdAt: string;
 };
+type VoiceComfortRiskResponse = "YES" | "NO";
+type VoiceComfortRisk = {
+  askedAt: string | null;
+  response: VoiceComfortRiskResponse | null;
+  sourceEventId: string | null;
+};
+type VoiceUrgencyConfirmationResponse = "YES" | "NO";
+type VoiceUrgencyConfirmation = {
+  askedAt: string | null;
+  response: VoiceUrgencyConfirmationResponse | null;
+  sourceEventId: string | null;
+};
 type VoiceFieldConfirmation = {
   field: "name" | "address";
   value: string;
@@ -79,12 +91,20 @@ type VoiceListeningField =
   | "confirmation"
   | "sms_phone"
   | "booking"
-  | "callback";
+  | "callback"
+  | "comfort_risk"
+  | "urgency_confirm";
 type VoiceListeningWindow = {
   field: VoiceListeningField;
   sourceEventId: string | null;
   expiresAt: string;
-  targetField?: "name" | "address" | "booking" | "callback";
+  targetField?:
+    | "name"
+    | "address"
+    | "booking"
+    | "callback"
+    | "comfort_risk"
+    | "urgency_confirm";
 };
 
 @Injectable()
@@ -552,6 +572,54 @@ export class ConversationsService {
     return this.parseAddressState(data.address);
   }
 
+  getVoiceComfortRisk(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceComfortRisk {
+    if (!collectedData || typeof collectedData !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const data = collectedData as Record<string, unknown>;
+    const raw = data.voiceComfortRisk;
+    if (!raw || typeof raw !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const record = raw as Partial<VoiceComfortRisk>;
+    const response =
+      record.response === "YES" || record.response === "NO"
+        ? record.response
+        : null;
+    return {
+      askedAt: typeof record.askedAt === "string" ? record.askedAt : null,
+      response,
+      sourceEventId:
+        typeof record.sourceEventId === "string" ? record.sourceEventId : null,
+    };
+  }
+
+  getVoiceUrgencyConfirmation(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceUrgencyConfirmation {
+    if (!collectedData || typeof collectedData !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const data = collectedData as Record<string, unknown>;
+    const raw = data.voiceUrgencyConfirmation;
+    if (!raw || typeof raw !== "object") {
+      return { askedAt: null, response: null, sourceEventId: null };
+    }
+    const record = raw as Partial<VoiceUrgencyConfirmation>;
+    const response =
+      record.response === "YES" || record.response === "NO"
+        ? record.response
+        : null;
+    return {
+      askedAt: typeof record.askedAt === "string" ? record.askedAt : null,
+      response,
+      sourceEventId:
+        typeof record.sourceEventId === "string" ? record.sourceEventId : null,
+    };
+  }
+
   async updateVoiceNameState(params: {
     tenantId: string;
     conversationId: string;
@@ -659,6 +727,104 @@ export class ConversationsService {
     const merged: Prisma.InputJsonValue = {
       ...current,
       voiceSmsHandoff: params.handoff,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceComfortRisk(params: {
+    tenantId: string;
+    conversationId: string;
+    comfortRisk: Partial<VoiceComfortRisk>;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const existing = this.getVoiceComfortRisk(
+      current as Prisma.JsonValue,
+    );
+    const next: VoiceComfortRisk = {
+      askedAt:
+        typeof params.comfortRisk.askedAt === "string"
+          ? params.comfortRisk.askedAt
+          : existing.askedAt,
+      response:
+        params.comfortRisk.response === "YES" ||
+        params.comfortRisk.response === "NO"
+          ? params.comfortRisk.response
+          : existing.response,
+      sourceEventId:
+        typeof params.comfortRisk.sourceEventId === "string"
+          ? params.comfortRisk.sourceEventId
+          : existing.sourceEventId,
+    };
+
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceComfortRisk: next,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceUrgencyConfirmation(params: {
+    tenantId: string;
+    conversationId: string;
+    urgencyConfirmation: Partial<VoiceUrgencyConfirmation>;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const existing = this.getVoiceUrgencyConfirmation(
+      current as Prisma.JsonValue,
+    );
+    const next: VoiceUrgencyConfirmation = {
+      askedAt:
+        typeof params.urgencyConfirmation.askedAt === "string"
+          ? params.urgencyConfirmation.askedAt
+          : existing.askedAt,
+      response:
+        params.urgencyConfirmation.response === "YES" ||
+        params.urgencyConfirmation.response === "NO"
+          ? params.urgencyConfirmation.response
+          : existing.response,
+      sourceEventId:
+        typeof params.urgencyConfirmation.sourceEventId === "string"
+          ? params.urgencyConfirmation.sourceEventId
+          : existing.sourceEventId,
+    };
+
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceUrgencyConfirmation: next,
     };
 
     return this.prisma.conversation.update({

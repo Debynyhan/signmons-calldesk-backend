@@ -11,13 +11,13 @@ export class AddressValidationService {
     private readonly loggingService: LoggingService,
   ) {}
 
-  async validateConfirmedAddress(params: {
+  validateConfirmedAddress(params: {
     tenantId: string;
     conversationId: string;
     address: string;
     callSid?: string;
     sourceEventId?: string | null;
-  }): Promise<string> {
+  }): string {
     if (this.config.addressValidationProvider !== "google") {
       return params.address;
     }
