@@ -1,8 +1,10 @@
-import OpenAI from "openai";
-import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
+import type {
+  AiCompletionResponse,
+  AiProviderCompletionRequest,
+} from "../types/ai-completion.types";
 
-export type CompletionRequest = ChatCompletionCreateParamsNonStreaming;
+export type CompletionRequest = AiProviderCompletionRequest;
 
 export interface IAiProviderClient {
-  createCompletion(params: CompletionRequest): Promise<OpenAI.ChatCompletion>;
+  createCompletion(params: CompletionRequest): Promise<AiCompletionResponse>;
 }

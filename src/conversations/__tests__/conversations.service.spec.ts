@@ -34,6 +34,40 @@ describe("ConversationsService", () => {
     );
   });
 
+  it("stores ai route intent in collectedData without overwriting existing fields", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: { sessionId: "sess-1", source: "WEBCHAT" },
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+
+    await service.setAiRouteIntent({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      intent: "BOOKING",
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "conv-1" },
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            sessionId: "sess-1",
+            source: "WEBCHAT",
+            aiRoute: expect.objectContaining({
+              intent: "BOOKING",
+              source: "AI_TOOL",
+              updatedAt: expect.any(String),
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("persists CallSid on voice consent conversation creation", async () => {
     prisma.conversation.findFirst.mockResolvedValue(null as never);
     prisma.customer.findFirst.mockResolvedValue(null as never);

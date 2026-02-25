@@ -1,26 +1,21 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import type OpenAI from "openai";
 import { WsAdapter } from "@nestjs/platform-ws";
 import { AppModule } from "../../app.module";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AI_PROVIDER } from "../ai.constants";
 import type { IAiProvider } from "../interfaces/ai-provider.interface";
+import type { AiCompletionResponse } from "../types/ai-completion.types";
 import { requestContextMiddleware } from "../../common/context/request-context";
 
 class FakeAiProvider implements IAiProvider {
-  createCompletion(): Promise<OpenAI.ChatCompletion> {
+  createCompletion(): Promise<AiCompletionResponse> {
     return Promise.resolve({
       id: "fake_response",
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
       model: "fake-model",
       choices: [
         {
-          index: 0,
-          finish_reason: "tool_calls",
-          logprobs: null,
           message: {
             role: "assistant",
             content: null,

@@ -6,6 +6,19 @@ export interface AppConfig {
   environment: NodeEnvironment;
   openAiApiKey: string;
   enablePreviewModel: boolean;
+  aiDefaultModel: string;
+  aiPreviewModel: string;
+  aiTextModel: string;
+  aiVoiceModel: string;
+  aiRouterModel: string;
+  aiBookingModel: string;
+  aiFaqModel: string;
+  aiExtractionModel: string;
+  aiRouterFlowEnabled: boolean;
+  aiRouterFlowSmsEnabled: boolean;
+  aiRouterFlowWebchatEnabled: boolean;
+  aiRouterFlowAllowlistOnly: boolean;
+  aiRouterFlowTenantAllowlist: string[];
   enabledTools: string[];
   aiMaxTokens: number;
   aiMaxToolCalls: number;
@@ -73,7 +86,31 @@ export default registerAs("app", (): AppConfig => {
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
     enablePreviewModel:
       (process.env.ENABLE_GPT5_1_CODEX ?? "false").toLowerCase() === "true",
-    enabledTools: (process.env.ENABLED_TOOLS ?? "create_job")
+    aiDefaultModel: process.env.AI_DEFAULT_MODEL ?? "gpt-4o-mini",
+    aiPreviewModel: process.env.AI_PREVIEW_MODEL ?? "gpt-5.1-codex",
+    aiTextModel: process.env.AI_TEXT_MODEL ?? "",
+    aiVoiceModel: process.env.AI_VOICE_MODEL ?? "",
+    aiRouterModel: process.env.AI_ROUTER_MODEL ?? "",
+    aiBookingModel: process.env.AI_BOOKING_MODEL ?? "",
+    aiFaqModel: process.env.AI_FAQ_MODEL ?? "",
+    aiExtractionModel: process.env.AI_EXTRACTION_MODEL ?? "",
+    aiRouterFlowEnabled:
+      (process.env.AI_ROUTER_FLOW_ENABLED ?? "true").toLowerCase() === "true",
+    aiRouterFlowSmsEnabled:
+      (process.env.AI_ROUTER_FLOW_SMS_ENABLED ?? "true").toLowerCase() ===
+      "true",
+    aiRouterFlowWebchatEnabled:
+      (process.env.AI_ROUTER_FLOW_WEBCHAT_ENABLED ?? "true").toLowerCase() ===
+      "true",
+    aiRouterFlowAllowlistOnly:
+      (process.env.AI_ROUTER_FLOW_ALLOWLIST_ONLY ?? "false").toLowerCase() ===
+      "true",
+    aiRouterFlowTenantAllowlist:
+      process.env.AI_ROUTER_FLOW_TENANT_ALLOWLIST?.split(",")
+        .map((tenantId) => tenantId.trim())
+        .filter(Boolean) ?? [],
+    enabledTools: (process.env.ENABLED_TOOLS ??
+      "route_conversation,create_job")
       .split(",")
       .map((tool) => tool.trim())
       .filter(Boolean),

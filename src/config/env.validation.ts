@@ -54,7 +54,28 @@ export const envValidationSchema = Joi.object({
   ENABLE_GPT5_1_CODEX: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("false"),
-  ENABLED_TOOLS: Joi.string().default("create_job"),
+  AI_DEFAULT_MODEL: Joi.string().min(1).default("gpt-4o-mini"),
+  AI_PREVIEW_MODEL: Joi.string().min(1).default("gpt-5.1-codex"),
+  AI_TEXT_MODEL: Joi.string().allow("").default(""),
+  AI_VOICE_MODEL: Joi.string().allow("").default(""),
+  AI_ROUTER_MODEL: Joi.string().allow("").default(""),
+  AI_BOOKING_MODEL: Joi.string().allow("").default(""),
+  AI_FAQ_MODEL: Joi.string().allow("").default(""),
+  AI_EXTRACTION_MODEL: Joi.string().allow("").default(""),
+  AI_ROUTER_FLOW_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("true"),
+  AI_ROUTER_FLOW_SMS_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("true"),
+  AI_ROUTER_FLOW_WEBCHAT_ENABLED: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("true"),
+  AI_ROUTER_FLOW_ALLOWLIST_ONLY: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
+  AI_ROUTER_FLOW_TENANT_ALLOWLIST: Joi.string().allow("").default(""),
+  ENABLED_TOOLS: Joi.string().default("route_conversation,create_job"),
   AI_MAX_TOKENS: Joi.number().min(1).max(8000).default(800),
   AI_MAX_TOOL_CALLS: Joi.number().min(0).max(5).default(1),
   AI_TIMEOUT_MS: Joi.number().min(1000).max(60000).default(15000),

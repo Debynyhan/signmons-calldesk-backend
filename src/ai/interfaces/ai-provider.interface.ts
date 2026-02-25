@@ -1,19 +1,12 @@
-import type OpenAI from "openai";
 import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
+  AiCompletionRequestOptions,
+  AiCompletionResponse,
+} from "../types/ai-completion.types";
 
-export interface CompletionRequestOptions {
-  messages: ChatCompletionMessageParam[];
-  tools?: ChatCompletionTool[];
-  toolChoice?: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
-  maxTokens?: number;
-  temperature?: number;
-}
+export type CompletionRequestOptions = AiCompletionRequestOptions;
 
 export interface IAiProvider {
   createCompletion(
     options: CompletionRequestOptions,
-  ): Promise<OpenAI.ChatCompletion>;
+  ): Promise<AiCompletionResponse>;
 }

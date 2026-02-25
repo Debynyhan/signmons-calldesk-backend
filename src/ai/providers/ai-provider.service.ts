@@ -1,6 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ConfigType } from "@nestjs/config";
-import type OpenAI from "openai";
 import appConfig from "../../config/app.config";
 import { AI_COMPLETION_PROVIDER } from "../ai.constants";
 import type { CompletionRequest, IAiProviderClient } from "./ai-provider.interface";
@@ -8,15 +7,13 @@ import type {
   CompletionRequestOptions,
   IAiProvider,
 } from "../interfaces/ai-provider.interface";
+import type { AiCompletionResponse } from "../types/ai-completion.types";
 import { AiErrorHandler } from "../ai-error.handler";
 import { LoggingService } from "../../logging/logging.service";
 import { getRequestContext } from "../../common/context/request-context";
 
 @Injectable()
 export class AiProviderService implements IAiProvider {
-  private readonly defaultModel = "gpt-4o-mini";
-  private readonly previewModel = "gpt-5.1-codex";
-
   constructor(
     @Inject(AI_COMPLETION_PROVIDER) private readonly client: IAiProviderClient,
     @Inject(appConfig.KEY)
@@ -27,33 +24,88 @@ export class AiProviderService implements IAiProvider {
 
   async createCompletion(
     options: CompletionRequestOptions,
-  ): Promise<OpenAI.ChatCompletion> {
-    const model = this.selectModel();
+  ): Promise<AiCompletionResponse> {
+    const model = this.selectModel(options);
     try {
       return await this.requestWithRetry(model, options);
     } catch (error) {
       const shouldFallback =
-        model === this.previewModel && this.isPreviewUnavailable(error);
+        model === this.getPreviewModel() && this.isPreviewUnavailable(error);
       if (shouldFallback) {
         this.logAiEvent("ai.preview_fallback", {
-          model: this.previewModel,
+          model: this.getPreviewModel(),
           reason: "preview_unavailable",
-          fallbackModel: this.defaultModel,
+          fallbackModel: this.getDefaultModel(),
         });
         try {
-          return await this.requestWithRetry(this.defaultModel, options);
+          return await this.requestWithRetry(this.getDefaultModel(), options);
         } catch (fallbackError) {
-          this.handleProviderError(fallbackError, options, this.defaultModel);
+          this.handleProviderError(fallbackError, options, this.getDefaultModel());
         }
       }
       this.handleProviderError(error, options, model);
     }
   }
 
-  private selectModel(): string {
+  private selectModel(options: CompletionRequestOptions): string {
+    const laneModel = this.selectLaneModel(options);
+    if (laneModel) {
+      return laneModel;
+    }
+
+    const channelModel = this.selectChannelModel(options);
+    if (channelModel) {
+      return channelModel;
+    }
+
     return this.config.enablePreviewModel
-      ? this.previewModel
-      : this.defaultModel;
+      ? this.getPreviewModel()
+      : this.getDefaultModel();
+  }
+
+  private selectLaneModel(options: CompletionRequestOptions): string | null {
+    switch (options.context?.lane) {
+      case "TRIAGE_ROUTER":
+        return this.normalizeConfiguredModel(this.config.aiRouterModel);
+      case "TRIAGE_BOOKING":
+        return this.normalizeConfiguredModel(this.config.aiBookingModel);
+      case "TRIAGE_FAQ":
+        return this.normalizeConfiguredModel(this.config.aiFaqModel);
+      case "EXTRACTION_NAME":
+      case "EXTRACTION_ADDRESS":
+        return this.normalizeConfiguredModel(this.config.aiExtractionModel);
+      default:
+        return null;
+    }
+  }
+
+  private selectChannelModel(options: CompletionRequestOptions): string | null {
+    switch (options.context?.channel) {
+      case "TEXT":
+        return this.normalizeConfiguredModel(this.config.aiTextModel);
+      case "VOICE":
+        return this.normalizeConfiguredModel(this.config.aiVoiceModel);
+      default:
+        return null;
+    }
+  }
+
+  private getDefaultModel(): string {
+    return this.normalizeConfiguredModel(this.config.aiDefaultModel) ?? "gpt-4o-mini";
+  }
+
+  private getPreviewModel(): string {
+    return (
+      this.normalizeConfiguredModel(this.config.aiPreviewModel) ?? "gpt-5.1-codex"
+    );
+  }
+
+  private normalizeConfiguredModel(value?: string | null): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private isPreviewUnavailable(error: unknown): boolean {
@@ -86,7 +138,7 @@ export class AiProviderService implements IAiProvider {
   private async requestWithRetry(
     model: string,
     options: CompletionRequestOptions,
-  ): Promise<OpenAI.ChatCompletion> {
+  ): Promise<AiCompletionResponse> {
     const maxRetries = Math.max(0, this.config.aiMaxRetries ?? 0);
     let attempt = 0;
     while (true) {
@@ -119,19 +171,18 @@ export class AiProviderService implements IAiProvider {
   private async requestWithTimeout(
     model: string,
     options: CompletionRequestOptions,
-  ): Promise<OpenAI.ChatCompletion> {
+  ): Promise<AiCompletionResponse> {
     const timeoutMs = Math.max(1000, this.config.aiTimeoutMs ?? 15000);
-    const requestPayload: CompletionRequest = {
-      model,
-      messages: options.messages,
-      max_tokens: options.maxTokens,
-    };
+    const requestPayload: CompletionRequest = { model, messages: options.messages };
+    if (typeof options.maxTokens === "number") {
+      requestPayload.maxTokens = options.maxTokens;
+    }
     if (typeof options.temperature === "number") {
       requestPayload.temperature = options.temperature;
     }
     if (options.tools && options.tools.length > 0) {
       requestPayload.tools = options.tools;
-      requestPayload.tool_choice = options.toolChoice ?? "auto";
+      requestPayload.toolChoice = options.toolChoice ?? "auto";
     }
     const request = this.client.createCompletion(requestPayload);
 

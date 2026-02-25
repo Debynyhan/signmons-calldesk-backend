@@ -5,13 +5,8 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import type { ConfigType } from "@nestjs/config";
-import OpenAI from "openai";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { AI_PROVIDER } from "./ai.constants";
 import type { IAiProvider } from "./interfaces/ai-provider.interface";
-import { JOB_REPOSITORY } from "../jobs/jobs.constants";
-import type { IJobRepository } from "../jobs/interfaces/job-repository.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { AiErrorHandler } from "./ai-error.handler";
@@ -23,42 +18,34 @@ import { ConversationsService } from "../conversations/conversations.service";
 import appConfig from "../config/app.config";
 import { getRequestContext } from "../common/context/request-context";
 import { CommunicationChannel } from "@prisma/client";
+import { AiPromptOrchestrationService } from "./prompts/prompt-orchestration.service";
+import {
+  isAiRouteIntent,
+  type AiRouteIntent,
+} from "./routing/ai-route-state";
+import { ToolExecutorRegistryService } from "./tools/tool-executor.registry";
+import type {
+  AiAssistantMessage,
+  AiChatMessageParam,
+  AiToolCall,
+} from "./types/ai-completion.types";
 
 @Injectable()
 export class AiService {
-  private readonly systemPrompt: string | null;
-
   constructor(
     @Inject(AI_PROVIDER) private readonly aiProviderService: IAiProvider,
     private readonly errorHandler: AiErrorHandler,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly toolSelector: ToolSelectorService,
-    @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
+    private readonly promptOrchestration: AiPromptOrchestrationService,
+    private readonly toolExecutorRegistry: ToolExecutorRegistryService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
     private readonly conversationsService: ConversationsService,
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
-  ) {
-    try {
-      const promptPath = join(
-        process.cwd(),
-        "src",
-        "ai",
-        "prompts",
-        "calldeskSystemPrompt.txt",
-      );
-      this.systemPrompt = readFileSync(promptPath, "utf8");
-    } catch (error) {
-      this.loggingService.error(
-        "Failed to load system prompt.",
-        error instanceof Error ? error : undefined,
-        AiService.name,
-      );
-      this.systemPrompt = null;
-    }
-  }
+  ) {}
 
   async triage(
     tenantId: string,
@@ -66,12 +53,6 @@ export class AiService {
     userMessage: string,
     options?: { conversationId?: string; channel?: CommunicationChannel },
   ) {
-    if (!this.systemPrompt) {
-      throw new InternalServerErrorException(
-        "AI is not configured on the server.",
-      );
-    }
-
     let safeTenantId: string | undefined;
     let safeSessionId: string | undefined;
     let openAIResponseId: string | undefined;
@@ -115,81 +96,173 @@ export class AiService {
         safeSessionId,
         10,
       );
-      const conversationHistory: OpenAI.ChatCompletionMessageParam[] =
+      const conversationHistory: AiChatMessageParam[] =
         recentMessages.map((entry) => ({
           role: entry.role,
           content: entry.content,
         }));
-      const messages: OpenAI.ChatCompletionMessageParam[] = [
-        { role: "system", content: this.systemPrompt },
-        { role: "system", content: tenantContextPrompt },
-        ...conversationHistory,
-        { role: "user", content: safeUserMessage },
-      ];
-
-      const tools = this.toolSelector.getEnabledToolsForTenant(safeTenantId);
-      const response = await this.aiProviderService.createCompletion({
-        messages,
-        tools: tools.length ? tools : undefined,
-        maxTokens: this.config.aiMaxTokens,
-        temperature:
-          options?.channel === CommunicationChannel.VOICE
-            ? this.config.aiVoiceReplyTemperature
-            : undefined,
-      });
-      openAIResponseId = response.id;
-      const choice = response.choices[0];
-      const { message } = choice;
-
-      const responseModel = response.model;
-      const validation = this.validateAssistantMessage(
-        message,
+      const enabledTools = this.toolSelector.getEnabledToolsForTenant(safeTenantId);
+      const routerFlowDecision = this.promptOrchestration.getTextRouterFlowDecision(
         safeTenantId,
-        responseModel,
+        options?.channel,
       );
+      if (
+        this.promptOrchestration.isTextChannel(options?.channel) &&
+        !routerFlowDecision.enabled
+      ) {
+        this.logAiTrace("log", safeTenantId, "ai.router_flow_disabled", {
+          channel: options?.channel ?? CommunicationChannel.WEBCHAT,
+          reason: routerFlowDecision.reason,
+        });
+      }
+      let routeIntent = this.promptOrchestration.getConversationRouteIntent(
+        conversation.collectedData,
+      );
+      let routeContinuationCount = 0;
+      let continuationNote: string | undefined;
 
-      if (validation.type === "tool") {
-        const toolCall = validation.toolCall;
-        if (this.isFunctionToolCall(toolCall) && toolCall.function?.name) {
-          return this.handleToolCall(
-            safeTenantId,
-            safeSessionId,
-            conversation.id,
-            toolCall.function.name,
-            toolCall.function.arguments ?? undefined,
-            responseModel,
-            options?.channel,
+      while (true) {
+        const effectiveRouteIntent = routerFlowDecision.enabled ? routeIntent : null;
+        const triageLane = this.promptOrchestration.selectTriageLane(
+          options?.channel,
+          effectiveRouteIntent,
+          { routerFlowEnabled: routerFlowDecision.enabled },
+        );
+        const systemPrompt = this.promptOrchestration.selectSystemPrompt(
+          options?.channel,
+          effectiveRouteIntent,
+          { routerFlowEnabled: routerFlowDecision.enabled },
+        );
+        if (!systemPrompt) {
+          throw new InternalServerErrorException(
+            "AI is not configured on the server.",
           );
         }
 
-        return {
-          status: "tool_called",
-          toolName: toolCall.type,
-          rawArgs: this.isFunctionToolCall(toolCall)
-            ? toolCall.function?.arguments ?? null
-            : null,
+        const tools = this.promptOrchestration.filterToolsForLane(
+          enabledTools,
+          options?.channel,
+          effectiveRouteIntent,
+          { routerFlowEnabled: routerFlowDecision.enabled },
+        );
+        const messages = this.promptOrchestration.buildTriageMessages({
+          systemPrompt,
+          tenantContextPrompt,
+          conversationHistory,
+          userMessage: safeUserMessage,
+          continuationNote,
+        });
+        this.logAiTrace("log", safeTenantId, "ai.triage_lane_selected", {
+          channel: options?.channel ?? CommunicationChannel.WEBCHAT,
+          lane: triageLane,
+          routerFlowEnabled: routerFlowDecision.enabled,
+          routerFlowReason: routerFlowDecision.reason,
+          routeIntent: effectiveRouteIntent,
+          routeContinuationCount,
+          toolNames: tools
+            .map((tool) =>
+              tool.type === "function" ? tool.function?.name ?? null : null,
+            )
+            .filter((name): name is string => Boolean(name)),
+        });
+
+        const response = await this.aiProviderService.createCompletion({
+          messages,
+          tools: tools.length ? tools : undefined,
+          maxTokens: this.config.aiMaxTokens,
+          temperature:
+            options?.channel === CommunicationChannel.VOICE
+              ? this.config.aiVoiceReplyTemperature
+              : undefined,
+          context: {
+            channel:
+              options?.channel === CommunicationChannel.VOICE ? "VOICE" : "TEXT",
+            lane: triageLane,
+          },
+        });
+        openAIResponseId = response.id;
+        const choice = response.choices[0];
+        const { message } = choice;
+
+        const responseModel = response.model;
+        const validation = this.validateAssistantMessage(
+          message,
+          safeTenantId,
+          responseModel,
+        );
+
+        if (validation.type === "tool") {
+          const toolCall = validation.toolCall;
+          if (this.isFunctionToolCall(toolCall) && toolCall.function?.name) {
+            const toolResult = await this.handleToolCall(
+              safeTenantId,
+              safeSessionId,
+              conversation.id,
+              toolCall.function.name,
+              toolCall.function.arguments ?? undefined,
+              responseModel,
+              options?.channel,
+              routeContinuationCount,
+              effectiveRouteIntent,
+            );
+
+            if (
+              toolResult &&
+              "status" in toolResult &&
+              toolResult.status === "continue" &&
+              "intent" in toolResult &&
+              this.promptOrchestration.isTextChannel(options?.channel)
+            ) {
+              if (!isAiRouteIntent(toolResult.intent)) {
+                throw new BadRequestException("Invalid route tool result.");
+              }
+              this.logAiTrace("log", safeTenantId, "ai.route_changed", {
+                channel: options?.channel ?? CommunicationChannel.WEBCHAT,
+                previousIntent: routeIntent,
+                nextIntent: toolResult.intent,
+                routeContinuationCount,
+              });
+              routeIntent = toolResult.intent;
+              routeContinuationCount += 1;
+              continuationNote =
+                `Conversation route is already set to ${routeIntent}. ` +
+                "Continue in this lane for the current user message. " +
+                "Do not call route_conversation again unless the user changes intent in a future turn.";
+              continue;
+            }
+
+            return toolResult;
+          }
+
+          return {
+            status: "tool_called",
+            toolName: toolCall.type,
+            rawArgs: this.isFunctionToolCall(toolCall)
+              ? toolCall.function?.arguments ?? null
+              : null,
+          };
+        }
+
+        const reply = {
+          status: "reply" as const,
+          reply: validation.reply,
         };
-      }
 
-      const reply = {
-        status: "reply" as const,
-        reply: validation.reply,
-      };
-
-      await this.callLogService.createLog({
-        tenantId: safeTenantId,
-        sessionId: safeSessionId,
-        conversationId: conversation.id,
-        transcript: userMessage,
-        aiResponse: validation.reply,
-        metadata: {
+        await this.callLogService.createLog({
+          tenantId: safeTenantId,
           sessionId: safeSessionId,
-          openAIResponseId,
-        },
-        channel: options?.channel,
-      });
+          conversationId: conversation.id,
+          transcript: userMessage,
+          aiResponse: validation.reply,
+          metadata: {
+            sessionId: safeSessionId,
+            openAIResponseId,
+          },
+          channel: options?.channel,
+        });
 
-      return reply;
+        return reply;
+      }
     } catch (error) {
       this.errorHandler.handle(error, {
         tenantId: safeTenantId ?? tenantId,
@@ -213,7 +286,7 @@ export class AiService {
       return null;
     }
 
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
+    const messages: AiChatMessageParam[] = [
       {
         role: "system",
         content:
@@ -228,8 +301,19 @@ export class AiService {
         toolChoice: "none",
         maxTokens: Math.min(this.config.aiMaxTokens ?? 800, 60),
         temperature: this.config.aiExtractionTemperature,
+        context: {
+          channel: "TEXT",
+          lane: "EXTRACTION_NAME",
+        },
       });
-      const content = response.choices[0]?.message?.content ?? "";
+      const rawContent = response.choices[0]?.message?.content ?? "";
+      const content = Array.isArray(rawContent)
+        ? rawContent
+            .map((part) =>
+              typeof part === "string" ? part : (part.text ?? ""),
+            )
+            .join(" ")
+        : rawContent;
       const parsed = this.parseNameJson(content);
       if (!parsed) {
         return null;
@@ -266,7 +350,7 @@ export class AiService {
       return null;
     }
 
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
+    const messages: AiChatMessageParam[] = [
       {
         role: "system",
         content:
@@ -281,8 +365,19 @@ export class AiService {
         toolChoice: "none",
         maxTokens: Math.min(this.config.aiMaxTokens ?? 800, 80),
         temperature: this.config.aiExtractionTemperature,
+        context: {
+          channel: "TEXT",
+          lane: "EXTRACTION_ADDRESS",
+        },
       });
-      const content = response.choices[0]?.message?.content ?? "";
+      const rawContent = response.choices[0]?.message?.content ?? "";
+      const content = Array.isArray(rawContent)
+        ? rawContent
+            .map((part) =>
+              typeof part === "string" ? part : (part.text ?? ""),
+            )
+            .join(" ")
+        : rawContent;
       const parsed = this.parseAddressJson(content);
       if (!parsed) {
         this.loggingService.warn(
@@ -336,11 +431,11 @@ export class AiService {
   }
 
   private isFunctionToolCall(
-    toolCall: OpenAI.ChatCompletionMessageToolCall,
-  ): toolCall is OpenAI.ChatCompletionMessageToolCall & {
+    toolCall: AiToolCall,
+  ): toolCall is AiToolCall & {
     function: { name: string; arguments?: string | null };
   } {
-    return toolCall.type === "function" && "function" in toolCall;
+    return toolCall.type === "function" && typeof toolCall.function === "object";
   }
 
   private parseNameJson(value: string): string | null {
@@ -432,78 +527,68 @@ export class AiService {
     rawArgs?: string,
     model?: string,
     channel?: CommunicationChannel,
+    routeContinuationCount?: number,
+    currentRouteIntent?: AiRouteIntent | null,
   ) {
-    if (name !== "create_job") {
-      return {
-        status: "unsupported_tool",
-        toolName: name,
-        rawArgs,
-      };
-    }
-
-    if (channel === CommunicationChannel.VOICE) {
-      const reply =
-        "Thanks — I’ll text you to confirm details and secure the appointment.";
-      const context = getRequestContext();
-      this.loggingService.warn(
-        {
-          event: "voice.tool_blocked",
-          tenantId,
-          callSid: context?.callSid,
-          conversationId,
-          toolName: name,
-        },
-        AiService.name,
-      );
-      await this.callLogService.createLog({
-        tenantId,
-        sessionId,
-        conversationId,
-        transcript: rawArgs ?? "",
-        aiResponse: reply,
-        metadata: { toolName: name, blocked: "voice_sms_canonical" },
-        channel,
-      });
-      return {
-        status: "reply",
-        reply,
-        outcome: "sms_handoff",
-        reason: "voice_tool_blocked",
-      };
-    }
-
     try {
-      const job = await this.jobsRepository.createJobFromToolCall({
-        tenantId,
-        sessionId,
-        rawArgs,
-      });
-      await this.conversationsService.linkJobToConversation({
-        tenantId,
-        conversationId,
-        jobId: job.id,
-      });
-      await this.callLogService.createLog({
-        tenantId,
-        sessionId,
-        jobId: job.id,
-        conversationId,
-        transcript: rawArgs ?? "",
-        aiResponse: JSON.stringify(job),
-        metadata: { toolName: name, sessionId },
+      this.logAiTrace("log", tenantId, "ai.tool_dispatch", {
+        toolName: name,
         channel,
+        model,
+        routeContinuationCount,
+        currentRouteIntent,
       });
-      await this.callLogService.clearSession(
+      const executor = this.toolExecutorRegistry.get(name);
+      if (!executor) {
+        this.logAiTrace("warn", tenantId, "ai.unsupported_tool_called", {
+          toolName: name,
+          channel,
+          model,
+        });
+        return {
+          status: "unsupported_tool",
+          toolName: name,
+          rawArgs,
+        };
+      }
+      const result = await executor.execute({
         tenantId,
         sessionId,
         conversationId,
-      );
-      return {
-        status: "job_created",
-        job,
-        message: "Job created successfully.",
-      };
+        rawArgs,
+        model,
+        channel,
+        routeContinuationCount,
+        currentRouteIntent,
+      });
+      this.logAiTrace("log", tenantId, "ai.tool_result", {
+        toolName: name,
+        channel,
+        model,
+        status: result.status,
+      });
+      return result;
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "";
+      if (
+        name === "route_conversation" &&
+        error instanceof BadRequestException &&
+        message.includes("Repeated route tool call")
+      ) {
+        this.logAiTrace("warn", tenantId, "ai.route_loop_guard_triggered", {
+          channel,
+          model,
+          routeContinuationCount,
+          currentRouteIntent,
+        });
+      }
+      this.logAiTrace("warn", tenantId, "ai.tool_error", {
+        toolName: name,
+        channel,
+        model,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
       if (error instanceof BadRequestException) {
         this.logAiEvent(tenantId, "ai.invalid_output", {
           model,
@@ -522,7 +607,7 @@ export class AiService {
   }
 
   private validateAssistantMessage(
-    message: OpenAI.ChatCompletionMessage,
+    message: AiAssistantMessage,
     tenantId: string,
     model?: string,
   ) {
@@ -618,5 +703,35 @@ export class AiService {
     }
 
     this.loggingService.warn(payload, AiService.name);
+  }
+
+  private logAiTrace(
+    level: "log" | "warn",
+    tenantId: string,
+    event: string,
+    details: Record<string, unknown>,
+  ) {
+    const context = getRequestContext();
+    const payload: Record<string, unknown> = {
+      event,
+      tenantId,
+      requestId: context?.requestId,
+      ...details,
+    };
+
+    if (context?.callSid) {
+      payload.callSid = context.callSid;
+    }
+
+    if (context?.conversationId) {
+      payload.conversationId = context.conversationId;
+    }
+
+    if (level === "warn") {
+      this.loggingService.warn(payload, AiService.name);
+      return;
+    }
+
+    this.loggingService.log(payload, AiService.name);
   }
 }

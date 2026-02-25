@@ -10,6 +10,10 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { LoggingService } from "../logging/logging.service";
+import {
+  buildAiRouteState,
+  type AiRouteIntent,
+} from "../ai/routing/ai-route-state";
 
 type VoiceNameStatus = "MISSING" | "CANDIDATE" | "CONFIRMED";
 type VoiceNameCandidate = {
@@ -379,6 +383,36 @@ export class ConversationsService {
         tenantId: params.tenantId,
         id: params.conversationId,
       },
+    });
+  }
+
+  async setAiRouteIntent(params: {
+    tenantId: string;
+    conversationId: string;
+    intent: AiRouteIntent;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      aiRoute: buildAiRouteState(params.intent),
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
     });
   }
 
