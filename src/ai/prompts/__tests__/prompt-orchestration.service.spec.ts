@@ -64,8 +64,11 @@ describe("AiPromptOrchestrationService", () => {
       if (value.includes("faqPrompt.txt")) {
         return "FAQ prompt";
       }
-      if (value.includes("calldeskSystemPrompt.txt")) {
-        return "Legacy prompt";
+      if (value.includes("voicePrompt.txt")) {
+        return "Voice prompt";
+      }
+      if (value.includes("textFallbackPrompt.txt")) {
+        return "Text fallback prompt";
       }
       throw new Error(`Unexpected path: ${value}`);
     });
@@ -180,7 +183,7 @@ describe("AiPromptOrchestrationService", () => {
     });
   });
 
-  it("selects prompt and triage lane by route intent, and falls back to legacy when router flow is disabled", () => {
+  it("selects prompt and triage lane by route intent, and falls back to text fallback when router flow is disabled", () => {
     const service = new AiPromptOrchestrationService(
       makeLoggingService(),
       makeConfig(),
@@ -196,13 +199,13 @@ describe("AiPromptOrchestrationService", () => {
       "FAQ prompt",
     );
     expect(service.selectSystemPrompt(CommunicationChannel.VOICE, "BOOKING")).toBe(
-      "Legacy prompt",
+      "Voice prompt",
     );
     expect(
       service.selectSystemPrompt(CommunicationChannel.SMS, "BOOKING", {
         routerFlowEnabled: false,
       }),
-    ).toBe("Legacy prompt");
+    ).toBe("Text fallback prompt");
 
     expect(service.selectTriageLane(CommunicationChannel.SMS, null)).toBe(
       "TRIAGE_ROUTER",
@@ -214,13 +217,13 @@ describe("AiPromptOrchestrationService", () => {
       "TRIAGE_FAQ",
     );
     expect(service.selectTriageLane(CommunicationChannel.VOICE, "FAQ")).toBe(
-      "TRIAGE_LEGACY",
+      "TRIAGE_VOICE",
     );
     expect(
       service.selectTriageLane(CommunicationChannel.SMS, "BOOKING", {
         routerFlowEnabled: false,
       }),
-    ).toBe("TRIAGE_LEGACY");
+    ).toBe("TRIAGE_TEXT_FALLBACK");
   });
 
   it("filters tools per lane and excludes route_conversation for voice/legacy fallback", () => {
@@ -303,7 +306,7 @@ describe("AiPromptOrchestrationService", () => {
     expect(service.getConversationRouteIntent(null)).toBeNull();
   });
 
-  it("logs prompt load errors and falls back to legacy when a specialized prompt is missing", () => {
+  it("logs prompt load errors and falls back to text fallback when a specialized prompt is missing", () => {
     const loggingService = makeLoggingService();
     readFileSyncMock.mockImplementation((path: unknown) => {
       const value = String(path);
@@ -313,11 +316,14 @@ describe("AiPromptOrchestrationService", () => {
       if (value.includes("faqPrompt.txt")) {
         return "FAQ prompt";
       }
+      if (value.includes("voicePrompt.txt")) {
+        return "Voice prompt";
+      }
       if (value.includes("routerPrompt.txt")) {
         return "Router prompt";
       }
-      if (value.includes("calldeskSystemPrompt.txt")) {
-        return "Legacy prompt";
+      if (value.includes("textFallbackPrompt.txt")) {
+        return "Text fallback prompt";
       }
       throw new Error(`Unexpected path: ${value}`);
     });
@@ -328,10 +334,47 @@ describe("AiPromptOrchestrationService", () => {
     );
 
     expect(service.selectSystemPrompt(CommunicationChannel.SMS, "BOOKING")).toBe(
-      "Legacy prompt",
+      "Text fallback prompt",
     );
     expect(loggingService.error).toHaveBeenCalledWith(
       "Failed to load prompt: bookingPrompt.txt",
+      expect.any(Error),
+      AiPromptOrchestrationService.name,
+    );
+  });
+
+  it("falls back to the text fallback prompt for voice if voicePrompt.txt fails to load", () => {
+    const loggingService = makeLoggingService();
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      const value = String(path);
+      if (value.includes("voicePrompt.txt")) {
+        throw new Error("missing voice prompt");
+      }
+      if (value.includes("faqPrompt.txt")) {
+        return "FAQ prompt";
+      }
+      if (value.includes("bookingPrompt.txt")) {
+        return "Booking prompt";
+      }
+      if (value.includes("routerPrompt.txt")) {
+        return "Router prompt";
+      }
+      if (value.includes("textFallbackPrompt.txt")) {
+        return "Text fallback prompt";
+      }
+      throw new Error(`Unexpected path: ${value}`);
+    });
+
+    const service = new AiPromptOrchestrationService(
+      loggingService,
+      makeConfig(),
+    );
+
+    expect(service.selectSystemPrompt(CommunicationChannel.VOICE)).toBe(
+      "Text fallback prompt",
+    );
+    expect(loggingService.error).toHaveBeenCalledWith(
+      "Failed to load prompt: voicePrompt.txt",
       expect.any(Error),
       AiPromptOrchestrationService.name,
     );

@@ -9,6 +9,7 @@ import { MarketingService } from "../marketing.service";
 describe("MarketingController", () => {
   beforeEach(() => {
     process.env.NODE_ENV = "test";
+    process.env.OPENAI_API_KEY = "test-key-1234567890";
   });
 
   it("accepts try-demo submissions and returns call metadata", async () => {

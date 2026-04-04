@@ -162,6 +162,14 @@ export class VoiceStreamGateway
       client.close();
       return;
     }
+    if (this.config.voiceSttProvider !== "google") {
+      this.loggingService.warn(
+        { event: "voice.stream.stt_provider_disabled" },
+        VoiceStreamGateway.name,
+      );
+      client.close();
+      return;
+    }
     if (!this.googleSpeechService.isEnabled()) {
       this.loggingService.warn(
         { event: "voice.stream.speech_disabled" },
@@ -359,9 +367,11 @@ export class VoiceStreamGateway
         return;
       }
       const sayText = messages.join(" ");
-      const playUrlResult = await this.googleTtsService.synthesizeToSignedUrl({
-        text: sayText,
-      });
+      const playUrlResult = this.shouldUseGoogleTts()
+        ? await this.googleTtsService.synthesizeToSignedUrl({
+            text: sayText,
+          })
+        : null;
       const hangup = hasHangup(twiml);
       const now = Date.now();
       if (!hangup) {
@@ -446,5 +456,9 @@ export class VoiceStreamGateway
     const destroyed =
       typeof destroyedValue === "boolean" ? destroyedValue : false;
     return writableOk && !writableEnded && !destroyed;
+  }
+
+  private shouldUseGoogleTts(): boolean {
+    return this.config.voiceTtsProvider === "google" && this.googleTtsService.isEnabled();
   }
 }

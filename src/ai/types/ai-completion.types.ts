@@ -13,7 +13,8 @@ export type AiCompletionLane =
   | "TRIAGE_ROUTER"
   | "TRIAGE_BOOKING"
   | "TRIAGE_FAQ"
-  | "TRIAGE_LEGACY"
+  | "TRIAGE_VOICE"
+  | "TRIAGE_TEXT_FALLBACK"
   | "EXTRACTION_NAME"
   | "EXTRACTION_ADDRESS";
 

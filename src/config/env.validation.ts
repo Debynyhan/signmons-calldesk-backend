@@ -104,6 +104,12 @@ export const envValidationSchema = Joi.object({
   VOICE_STREAMING_TRACK: Joi.string()
     .valid("inbound", "both")
     .default("inbound"),
+  VOICE_STT_PROVIDER: Joi.string()
+    .valid("twilio", "google", "TWILIO", "GOOGLE", "")
+    .default(""),
+  VOICE_TTS_PROVIDER: Joi.string()
+    .valid("twilio", "google", "TWILIO", "GOOGLE", "")
+    .default(""),
   ADDRESS_VALIDATION_PROVIDER: Joi.string()
     .valid("none", "google")
     .default("none"),
@@ -143,6 +149,22 @@ export const envValidationSchema = Joi.object({
     if (!values.GOOGLE_TTS_BUCKET) {
       return helpers.error("any.invalid", {
         message: "GOOGLE_TTS_ENABLED=true requires GOOGLE_TTS_BUCKET.",
+      });
+    }
+  }
+  if (String(values.VOICE_STT_PROVIDER).toLowerCase() === "google") {
+    if (String(values.GOOGLE_SPEECH_ENABLED).toLowerCase() !== "true") {
+      return helpers.error("any.invalid", {
+        message:
+          "VOICE_STT_PROVIDER=google requires GOOGLE_SPEECH_ENABLED=true.",
+      });
+    }
+  }
+  if (String(values.VOICE_TTS_PROVIDER).toLowerCase() === "google") {
+    if (String(values.GOOGLE_TTS_ENABLED).toLowerCase() !== "true") {
+      return helpers.error("any.invalid", {
+        message:
+          "VOICE_TTS_PROVIDER=google requires GOOGLE_TTS_ENABLED=true.",
       });
     }
   }

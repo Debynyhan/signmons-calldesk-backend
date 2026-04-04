@@ -19,6 +19,7 @@ import { LoggingService } from "../../logging/logging.service";
 import { AlertingService } from "../../logging/alerting.service";
 import { ToolSelectorService } from "../../ai/tools/tool-selector.service";
 import { AddressValidationService } from "../../address/address-validation.service";
+import { VoiceConsentAudioService } from "../voice-consent-audio.service";
 
 const validateRequestMock = jest.fn();
 
@@ -120,6 +121,18 @@ const buildSmsPhoneState = (value: string | null, confirmed = false) => ({
   lastPromptedAt: null,
 });
 
+const buildDefaultComfortRisk = () => ({
+  askedAt: null,
+  response: "NO",
+  sourceEventId: null,
+});
+
+const buildDefaultUrgencyConfirmation = () => ({
+  askedAt: null,
+  response: "NO",
+  sourceEventId: null,
+});
+
 const buildConversationsService = (overrides: Record<string, unknown> = {}) => ({
   ensureVoiceConsentConversation: jest.fn(),
   getVoiceConversationByCallSid: jest.fn(),
@@ -139,6 +152,12 @@ const buildConversationsService = (overrides: Record<string, unknown> = {}) => (
   clearVoiceSmsHandoff: jest.fn(),
   getVoiceAddressState: jest.fn().mockReturnValue(buildMissingAddressState()),
   updateVoiceAddressState: jest.fn(),
+  getVoiceComfortRisk: jest.fn().mockReturnValue(buildDefaultComfortRisk()),
+  updateVoiceComfortRisk: jest.fn(),
+  getVoiceUrgencyConfirmation: jest
+    .fn()
+    .mockReturnValue(buildDefaultUrgencyConfirmation()),
+  updateVoiceUrgencyConfirmation: jest.fn(),
   updateVoiceIssueCandidate: jest.fn(),
   incrementVoiceTurn: jest.fn().mockResolvedValue({
     conversation: { id: "conversation-1", collectedData: {} },
@@ -169,6 +188,13 @@ describe("VoiceController", () => {
     process.env.ADDRESS_VALIDATION_PROVIDER = "none";
     process.env.VOICE_MAX_TURNS = "6";
     process.env.VOICE_MAX_DURATION_SEC = "180";
+    process.env.VOICE_STREAMING_ENABLED = "false";
+    process.env.VOICE_STREAMING_KEEPALIVE_SEC = "60";
+    process.env.VOICE_STREAMING_TRACK = "inbound";
+    process.env.GOOGLE_SPEECH_ENABLED = "false";
+    process.env.GOOGLE_TTS_ENABLED = "false";
+    process.env.VOICE_STT_PROVIDER = "";
+    process.env.VOICE_TTS_PROVIDER = "";
   });
 
   it("rejects invalid signatures when enabled in production", async () => {
@@ -386,6 +412,120 @@ describe("VoiceController", () => {
     expect(response.text).toContain('method="POST"');
     expect(response.text).toContain('timeout="5"');
     expect(response.text).toContain('speechTimeout="auto"');
+
+    await app.close();
+  });
+
+  it("returns streaming TwiML on inbound when Google STT is enabled", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    process.env.VOICE_STREAMING_ENABLED = "true";
+    process.env.VOICE_STREAMING_KEEPALIVE_SEC = "30";
+    process.env.VOICE_STT_PROVIDER = "google";
+    process.env.GOOGLE_SPEECH_ENABLED = "true";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const ensureVoiceConsentConversation = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const voiceConsentAudioService = {
+      getCachedConsentUrl: jest.fn().mockResolvedValue(null),
+      warmConsentAudio: jest.fn(),
+    };
+    const loggingService = { warn: jest.fn(), error: jest.fn(), log: jest.fn() };
+    const aiService = buildAiService();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        ensureVoiceConsentConversation,
+        getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(VoiceConsentAudioService)
+      .useValue(voiceConsentAudioService)
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue(loggingService)
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = await createTestApp(moduleRef);
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/inbound")
+      .set("x-request-id", "req-123")
+      .send({ To: "12167448929", CallSid: "CA123", From: "2167448929" })
+      .expect(200);
+
+    expect(ensureVoiceConsentConversation).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      requestId: "req-123",
+      callerPhone: "2167448929",
+    });
+    expect(voiceConsentAudioService.getCachedConsentUrl).toHaveBeenCalledWith(
+      "tenant-1",
+      expect.any(String),
+    );
+    expect(voiceConsentAudioService.warmConsentAudio).toHaveBeenCalledWith(
+      "tenant-1",
+      expect.any(String),
+    );
+    expect(loggingService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.streaming_inbound_selected",
+        tenantId: "tenant-1",
+        callSid: "CA123",
+      }),
+      expect.any(String),
+    );
+    expect(response.text).toContain(
+      '<Start><Stream url="wss://example.ngrok.io/api/voice/stream"',
+    );
+    expect(response.text).toContain(
+      '<Parameter name="tenantId" value="tenant-1"/>',
+    );
+    expect(response.text).toContain("<Say>");
+    expect(response.text).toContain("<Pause length=\"30\"/>");
+    expect(response.text).not.toContain("<Gather");
 
     await app.close();
   });
@@ -701,7 +841,7 @@ describe("VoiceController", () => {
     expect(updateVoiceNameState).toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Ben.");
     expect(response.text).toContain("I heard your furnace is blowing cold air.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -805,7 +945,7 @@ describe("VoiceController", () => {
       }),
     );
     expect(response.text).toContain("Thanks, Training.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -1117,7 +1257,7 @@ describe("VoiceController", () => {
     );
     expect(aiService.triage).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
     expect(response.text).toContain("<Gather");
 
     await app.close();
@@ -1219,7 +1359,7 @@ describe("VoiceController", () => {
     );
     expect(updateVoiceNameState).toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -1312,11 +1452,10 @@ describe("VoiceController", () => {
       })
       .expect(200);
 
-    expect(createVoiceAssistantLog).toHaveBeenCalled();
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(aiService.extractNameCandidate).not.toHaveBeenCalled();
     expect(response.text).toContain("I&apos;m doing well, thanks for asking.");
-    expect(response.text).toContain("Would you like to book a visit?");
+    expect(response.text).toContain("What&apos;s your full name?");
 
     await app.close();
   });
@@ -1530,7 +1669,7 @@ describe("VoiceController", () => {
       }),
     );
     expect(response.text).toContain("Thanks, Deion.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -1622,7 +1761,7 @@ describe("VoiceController", () => {
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
     expect(response.text).toContain("<Gather");
 
     await app.close();
@@ -1715,7 +1854,7 @@ describe("VoiceController", () => {
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
     expect(response.text).toContain("<Gather");
 
     await app.close();
@@ -1807,7 +1946,7 @@ describe("VoiceController", () => {
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -1898,7 +2037,7 @@ describe("VoiceController", () => {
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -2002,7 +2141,7 @@ describe("VoiceController", () => {
       }),
     );
     expect(response.text).toContain("Thanks, Ben.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -2093,7 +2232,7 @@ describe("VoiceController", () => {
 
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -2841,7 +2980,7 @@ describe("VoiceController", () => {
         }),
       }),
     );
-    expect(response.text).toContain("Please say your full service address.");
+    expect(response.text).toContain("What&apos;s the service address?");
 
     await app.close();
   });
@@ -2990,6 +3129,12 @@ describe("VoiceController", () => {
           createdAt: new Date().toISOString(),
         },
         urgency: "EMERGENCY",
+        urgencyConfirmed: true,
+        voiceUrgencyConfirmation: {
+          askedAt: new Date().toISOString(),
+          response: "YES",
+          sourceEventId: "evt-1",
+        },
       },
     });
     const updateVoiceTranscript = jest.fn().mockResolvedValue({
@@ -3184,7 +3329,7 @@ describe("VoiceController", () => {
     expect(updateVoiceNameState).not.toHaveBeenCalled();
     expect(aiService.extractNameCandidate).not.toHaveBeenCalled();
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -3289,7 +3434,7 @@ describe("VoiceController", () => {
       .expect(200);
 
     expect(updateVoiceAddressState).not.toHaveBeenCalled();
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });
@@ -3379,7 +3524,7 @@ describe("VoiceController", () => {
 
     expect(response.text).not.toContain('bargeIn="true"');
     expect(response.text).toContain("Thanks, Dean.");
-    expect(response.text).toContain("Please say your full address.");
+    expect(response.text).toContain("Please say the service address.");
 
     await app.close();
   });

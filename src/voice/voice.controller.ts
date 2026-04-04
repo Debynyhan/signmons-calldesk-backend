@@ -83,7 +83,7 @@ export class VoiceController {
     });
     if (
       this.config.voiceStreamingEnabled &&
-      this.config.googleSpeechEnabled &&
+      this.useGoogleStreamingStt() &&
       this.config.twilioWebhookBaseUrl
     ) {
       this.loggingService.log(
@@ -187,7 +187,7 @@ export class VoiceController {
     const displayName = this.voiceTurnService.getTenantDisplayName(tenant);
     if (
       this.config.voiceStreamingEnabled &&
-      this.config.googleSpeechEnabled &&
+      this.useGoogleStreamingStt() &&
       this.config.twilioWebhookBaseUrl
     ) {
       const consentMessage =
@@ -326,6 +326,12 @@ export class VoiceController {
     return (
       this.config.environment === "production" &&
       this.config.twilioSignatureCheck
+    );
+  }
+
+  private useGoogleStreamingStt(): boolean {
+    return (
+      this.config.voiceSttProvider === "google" && this.config.googleSpeechEnabled
     );
   }
 

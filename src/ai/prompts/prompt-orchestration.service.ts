@@ -16,7 +16,8 @@ import type {
 } from "../types/ai-completion.types";
 
 type PromptCatalog = {
-  legacy: string | null;
+  voice: string | null;
+  textFallback: string | null;
   router: string | null;
   booking: string | null;
   faq: string | null;
@@ -50,7 +51,8 @@ export class AiPromptOrchestrationService {
     private readonly config: ConfigType<typeof appConfig>,
   ) {
     this.prompts = {
-      legacy: this.loadPrompt("calldeskSystemPrompt.txt"),
+      voice: this.loadPrompt("voicePrompt.txt"),
+      textFallback: this.loadPrompt("textFallbackPrompt.txt"),
       router: this.loadPrompt("routerPrompt.txt"),
       booking: this.loadPrompt("bookingPrompt.txt"),
       faq: this.loadPrompt("faqPrompt.txt"),
@@ -61,9 +63,7 @@ export class AiPromptOrchestrationService {
     return channel !== CommunicationChannel.VOICE;
   }
 
-  getConversationRouteIntent(
-    collectedData: unknown,
-  ): AiRouteIntent | null {
+  getConversationRouteIntent(collectedData: unknown): AiRouteIntent | null {
     return getAiRouteIntentFromCollectedData(collectedData);
   }
 
@@ -79,7 +79,10 @@ export class AiPromptOrchestrationService {
       return { enabled: false, reason: "global_disabled" };
     }
 
-    if (channel === CommunicationChannel.SMS && !this.config.aiRouterFlowSmsEnabled) {
+    if (
+      channel === CommunicationChannel.SMS &&
+      !this.config.aiRouterFlowSmsEnabled
+    ) {
       return { enabled: false, reason: "sms_disabled" };
     }
 
@@ -118,21 +121,21 @@ export class AiPromptOrchestrationService {
     options?: LaneSelectionOptions,
   ): string | null {
     if (channel === CommunicationChannel.VOICE) {
-      return this.prompts.legacy;
+      return this.prompts.voice ?? this.prompts.textFallback;
     }
     if (options?.routerFlowEnabled === false) {
-      return this.prompts.legacy;
+      return this.prompts.textFallback;
     }
 
     if (routeIntent === "BOOKING") {
-      return this.prompts.booking ?? this.prompts.legacy;
+      return this.prompts.booking ?? this.prompts.textFallback;
     }
 
     if (routeIntent === "FAQ") {
-      return this.prompts.faq ?? this.prompts.legacy;
+      return this.prompts.faq ?? this.prompts.textFallback;
     }
 
-    return this.prompts.router ?? this.prompts.legacy;
+    return this.prompts.router ?? this.prompts.textFallback;
   }
 
   selectTriageLane(
@@ -141,10 +144,10 @@ export class AiPromptOrchestrationService {
     options?: LaneSelectionOptions,
   ): AiCompletionLane {
     if (channel === CommunicationChannel.VOICE) {
-      return "TRIAGE_LEGACY";
+      return "TRIAGE_VOICE";
     }
     if (options?.routerFlowEnabled === false) {
-      return "TRIAGE_LEGACY";
+      return "TRIAGE_TEXT_FALLBACK";
     }
 
     if (routeIntent === "BOOKING") {

@@ -325,7 +325,7 @@ describe("AiService", () => {
     ]);
     expect(request.context).toEqual({
       channel: "TEXT",
-      lane: "TRIAGE_LEGACY",
+      lane: "TRIAGE_TEXT_FALLBACK",
     });
     expect(loggingService.log).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -369,7 +369,7 @@ describe("AiService", () => {
     ]);
     expect(request.context).toEqual({
       channel: "TEXT",
-      lane: "TRIAGE_LEGACY",
+      lane: "TRIAGE_TEXT_FALLBACK",
     });
     expect(loggingService.log).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -825,7 +825,7 @@ describe("AiService", () => {
     ]);
     expect(request.context).toEqual({
       channel: "VOICE",
-      lane: "TRIAGE_LEGACY",
+      lane: "TRIAGE_VOICE",
     });
   });
 
@@ -1457,7 +1457,7 @@ describe("AiProviderService", () => {
 
     await provider.createCompletion({
       messages: [],
-      context: { channel: "VOICE", lane: "TRIAGE_LEGACY" },
+      context: { channel: "VOICE", lane: "TRIAGE_VOICE" },
     });
 
     const payload = client.createCompletion.mock.calls[0]?.[0];

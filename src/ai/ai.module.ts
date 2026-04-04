@@ -23,9 +23,10 @@ import { AiPromptOrchestrationService } from "./prompts/prompt-orchestration.ser
 import { ToolExecutorRegistryService } from "./tools/tool-executor.registry";
 import { RouteConversationToolExecutor } from "./tools/route-conversation.executor";
 import { AiCreateJobToolExecutor } from "./tools/create-job.executor";
+import { ToolRegistryModule } from "./tools/tool-registry.module";
 
 @Module({
-  imports: [JobsModule, TenantsModule, AuthModule],
+  imports: [JobsModule, TenantsModule, AuthModule, ToolRegistryModule],
   controllers: [AiController],
   providers: [
     {

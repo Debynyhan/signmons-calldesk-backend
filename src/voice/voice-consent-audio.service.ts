@@ -28,7 +28,11 @@ export class VoiceConsentAudioService {
     tenantId: string,
     consentMessage: string,
   ): Promise<string | null> {
-    if (!this.config.googleTtsEnabled || !this.config.googleTtsBucket) {
+    if (
+      this.config.voiceTtsProvider !== "google" ||
+      !this.config.googleTtsEnabled ||
+      !this.config.googleTtsBucket
+    ) {
       return null;
     }
     const objectPath = this.buildObjectPath(tenantId, consentMessage);
@@ -50,7 +54,11 @@ export class VoiceConsentAudioService {
   }
 
   warmConsentAudio(tenantId: string, consentMessage: string): void {
-    if (!this.config.googleTtsEnabled || !this.config.googleTtsBucket) {
+    if (
+      this.config.voiceTtsProvider !== "google" ||
+      !this.config.googleTtsEnabled ||
+      !this.config.googleTtsBucket
+    ) {
       return;
     }
     const objectPath = this.buildObjectPath(tenantId, consentMessage);

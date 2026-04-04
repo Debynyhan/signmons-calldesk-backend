@@ -49,6 +49,8 @@ export interface AppConfig {
   voiceStreamingEnabled: boolean;
   voiceStreamingKeepAliveSec: number;
   voiceStreamingTrack: "inbound" | "both";
+  voiceSttProvider: "twilio" | "google";
+  voiceTtsProvider: "twilio" | "google";
   addressValidationProvider: "none" | "google";
   googlePlacesApiKey: string;
   googleSpeechEnabled: boolean;
@@ -80,6 +82,32 @@ export default registerAs("app", (): AppConfig => {
       .map((origin) => origin.trim())
       .filter(Boolean) ?? [];
   const corsOrigins = rawOrigins.length > 0 ? rawOrigins : DEFAULT_CORS_ORIGINS;
+  const googleSpeechEnabled =
+    (process.env.GOOGLE_SPEECH_ENABLED ?? "false").toLowerCase() === "true";
+  const googleTtsEnabled =
+    (process.env.GOOGLE_TTS_ENABLED ?? "false").toLowerCase() === "true";
+  const voiceSttProviderRaw = (
+    process.env.VOICE_STT_PROVIDER ?? ""
+  ).toLowerCase();
+  const voiceTtsProviderRaw = (
+    process.env.VOICE_TTS_PROVIDER ?? ""
+  ).toLowerCase();
+  const voiceSttProvider: AppConfig["voiceSttProvider"] =
+    voiceSttProviderRaw === "google"
+      ? "google"
+      : voiceSttProviderRaw === "twilio"
+        ? "twilio"
+        : googleSpeechEnabled
+          ? "google"
+          : "twilio";
+  const voiceTtsProvider: AppConfig["voiceTtsProvider"] =
+    voiceTtsProviderRaw === "google"
+      ? "google"
+      : voiceTtsProviderRaw === "twilio"
+        ? "twilio"
+        : googleTtsEnabled
+          ? "google"
+          : "twilio";
 
   return {
     environment: (process.env.NODE_ENV as NodeEnvironment) ?? "development",
@@ -167,14 +195,15 @@ export default registerAs("app", (): AppConfig => {
     ),
     voiceStreamingTrack: (process.env.VOICE_STREAMING_TRACK ??
       "inbound") as AppConfig["voiceStreamingTrack"],
+    voiceSttProvider,
+    voiceTtsProvider,
     addressValidationProvider:
       (process.env.ADDRESS_VALIDATION_PROVIDER ?? "none").toLowerCase() ===
       "google"
         ? "google"
         : "none",
     googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
-    googleSpeechEnabled:
-      (process.env.GOOGLE_SPEECH_ENABLED ?? "false").toLowerCase() === "true",
+    googleSpeechEnabled,
     googleSpeechLanguageCode: process.env.GOOGLE_SPEECH_LANGUAGE_CODE ?? "en-US",
     googleSpeechModel: process.env.GOOGLE_SPEECH_MODEL ?? "phone_call",
     googleSpeechUseEnhanced:
@@ -187,8 +216,7 @@ export default registerAs("app", (): AppConfig => {
     googleSpeechInterimResults:
       (process.env.GOOGLE_SPEECH_INTERIM_RESULTS ?? "true").toLowerCase() ===
       "true",
-    googleTtsEnabled:
-      (process.env.GOOGLE_TTS_ENABLED ?? "false").toLowerCase() === "true",
+    googleTtsEnabled,
     googleTtsLanguageCode: process.env.GOOGLE_TTS_LANGUAGE_CODE ?? "en-US",
     googleTtsVoiceName: process.env.GOOGLE_TTS_VOICE_NAME ?? "en-US-Studio-O",
     googleTtsAudioEncoding: (process.env.GOOGLE_TTS_AUDIO_ENCODING ??
