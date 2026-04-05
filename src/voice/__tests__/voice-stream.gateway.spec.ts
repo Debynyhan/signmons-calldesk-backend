@@ -292,6 +292,39 @@ describe("VoiceStreamGateway provider selection", () => {
     expect(voiceCallService.updateCallTwiml).toHaveBeenCalledTimes(2);
   });
 
+  it("swallows late stream errors after cleanup", () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+    const client = { close: jest.fn() } as unknown as WebSocket;
+    const stream = new PassThrough();
+    (gateway as any).sessions.set(client, {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: stream,
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    });
+    (gateway as any).callSessions.set("CA123", client);
+
+    (gateway as any).cleanupSession(client);
+
+    expect(() => stream.emit("error", new Error("late timeout"))).not.toThrow();
+  });
+
   it("uses <Say> when TTS provider is not Google", async () => {
     const gateway = new VoiceStreamGateway(
       buildConfig({

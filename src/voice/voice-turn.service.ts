@@ -1666,6 +1666,48 @@ export class VoiceTurnService {
       }
 
       if (addressState.candidate) {
+        const localityCorrection = this.extractAddressLocalityCorrection(
+          normalizedSpeech,
+        );
+        if (localityCorrection) {
+          const mergedParts = this.mergeAddressParts(
+            addressState,
+            localityCorrection,
+          );
+          const mergedCandidate =
+            this.buildAddressCandidateFromParts(mergedParts) ||
+            this.mergeAddressWithLocality(
+              addressState.candidate,
+              this.normalizeAddressCandidate(normalizedSpeech),
+            ) ||
+            addressState.candidate;
+          const nextAddressState: typeof addressState = {
+            ...addressState,
+            ...mergedParts,
+            candidate: mergedCandidate,
+            status: "CANDIDATE",
+            needsLocality: false,
+            sourceEventId: currentEventId,
+          };
+          await this.conversationsService.updateVoiceAddressState({
+            tenantId: tenant.id,
+            conversationId,
+            addressState: nextAddressState,
+          });
+          return this.replyWithListeningWindow({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            field: "confirmation",
+            targetField: "address",
+            sourceEventId: currentEventId,
+            twiml: this.buildAddressConfirmationTwiml(
+              mergedCandidate,
+              csrStrategy,
+            ),
+          });
+        }
+
         if (
           this.isSoftConfirmationEligible(
             "address",
@@ -4931,6 +4973,61 @@ export class VoiceTurnService {
     );
     const city = cityTokens.length ? cityTokens.join(" ") : null;
     return { city, state, zip };
+  }
+
+  private extractAddressLocalityCorrection(value: string): {
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+  } | null {
+    const normalized = this.normalizeAddressCandidate(value);
+    if (!normalized) {
+      return null;
+    }
+    const stripped = this.stripAddressLeadIn(normalized);
+    const lowered = stripped.toLowerCase();
+    const hasStreetSuffix =
+      /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
+        lowered,
+      );
+    const hasHouseAndTail = /^\d+\s+\S+/.test(stripped);
+    if (hasStreetSuffix || hasHouseAndTail) {
+      // Full address/correction candidates are handled by confirmation resolution.
+      return null;
+    }
+    if (
+      /^(yes|yeah|yep|correct|that's right|that is right|right|ok|okay|affirmative|no|nope|negative)$/i.test(
+        stripped,
+      )
+    ) {
+      return null;
+    }
+    const parsed = this.parseLocalityParts(stripped);
+    const confirmationWords = new Set([
+      "yes",
+      "yeah",
+      "yep",
+      "correct",
+      "right",
+      "ok",
+      "okay",
+      "affirmative",
+      "no",
+      "nope",
+      "negative",
+    ]);
+    const cityToken = parsed.city?.trim().toLowerCase() ?? "";
+    const city =
+      cityToken && !confirmationWords.has(cityToken) ? parsed.city : null;
+    const hasSignal = Boolean(parsed.zip || parsed.state || (city && parsed.state));
+    if (!hasSignal) {
+      return null;
+    }
+    return {
+      ...(city ? { city } : {}),
+      ...(parsed.state ? { state: parsed.state } : {}),
+      ...(parsed.zip ? { zip: parsed.zip } : {}),
+    };
   }
 
   private normalizeStateToken(token: string): string {

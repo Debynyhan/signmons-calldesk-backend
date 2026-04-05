@@ -291,14 +291,24 @@ export class VoiceStreamGateway
       );
     });
     speechStream.on("error", (error) => {
+      if (session.closed) {
+        return;
+      }
       this.loggingService.warn(
         {
           event: "voice.stream.speech_error",
           callSid,
+          streamSid,
           reason: error instanceof Error ? error.message : String(error),
         },
         VoiceStreamGateway.name,
       );
+      this.cleanupSession(client);
+      try {
+        client.close();
+      } catch {
+        // Best effort socket close.
+      }
     });
   }
 
@@ -586,8 +596,16 @@ export class VoiceStreamGateway
     const session = this.sessions.get(client);
     if (session) {
       session.closed = true;
-      session.speechStream.removeAllListeners();
-      session.speechStream.end();
+      session.speechStream.removeAllListeners("data");
+      if (session.speechStream.listenerCount("error") === 0) {
+        // Keep a terminal error handler so late stream errors cannot crash Node.
+        session.speechStream.on("error", () => undefined);
+      }
+      try {
+        session.speechStream.end();
+      } catch {
+        // Stream may already be ended/destroyed.
+      }
       if (this.callSessions.get(session.callSid) === client) {
         this.callSessions.delete(session.callSid);
       }
