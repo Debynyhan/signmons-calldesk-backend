@@ -110,6 +110,7 @@ export const envValidationSchema = Joi.object({
   VOICE_TTS_PROVIDER: Joi.string()
     .valid("twilio", "google", "TWILIO", "GOOGLE", "")
     .default(""),
+  VOICE_TTS_SHORT_SAY_MAX_CHARS: Joi.number().min(0).max(400).default(0),
   ADDRESS_VALIDATION_PROVIDER: Joi.string()
     .valid("none", "google")
     .default("none"),

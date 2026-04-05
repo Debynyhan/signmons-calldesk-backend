@@ -11,6 +11,7 @@ const buildConfig = (
     voiceStreamingEnabled: true,
     voiceSttProvider: "google",
     voiceTtsProvider: "google",
+    voiceTtsShortSayMaxChars: 0,
     twilioWebhookBaseUrl: "https://example.ngrok.io",
     voiceStreamingKeepAliveSec: 45,
     voiceStreamingTrack: "inbound",
@@ -123,6 +124,7 @@ describe("VoiceStreamGateway provider selection", () => {
     const gateway = new VoiceStreamGateway(
       buildConfig({
         voiceTtsProvider: "google",
+        voiceTtsShortSayMaxChars: 80,
       }),
       tenantsService as never,
       conversationsService as never,
@@ -166,6 +168,7 @@ describe("VoiceStreamGateway provider selection", () => {
     const gateway = new VoiceStreamGateway(
       buildConfig({
         voiceTtsProvider: "google",
+        voiceTtsShortSayMaxChars: 80,
       }),
       tenantsService as never,
       conversationsService as never,

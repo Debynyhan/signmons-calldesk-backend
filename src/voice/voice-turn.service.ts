@@ -822,6 +822,13 @@ export class VoiceTurnService {
         twiml: this.buildComfortRiskTwiml(csrStrategy),
       });
     }
+    if (
+      !nameReady &&
+      !expectedField &&
+      this.isLikelyAddressInputForName(normalizedSpeech)
+    ) {
+      expectedField = "address";
+    }
     // Name flow map (current):
     // - Yes/no prompts: buildNameConfirmationTwiml/buildNameSoftConfirmationTwiml/buildYesNoRepromptTwiml.
     // - Confirmation parsing: resolveConfirmation + extractReplacementCandidate.
@@ -3794,7 +3801,8 @@ export class VoiceTurnService {
       | "comfort_risk"
       | "urgency_confirm";
   }) {
-    const timeoutSec = params.timeoutSec ?? 8;
+    const timeoutSec =
+      params.timeoutSec ?? (params.field === "address" ? 16 : 8);
     const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
     await this.conversationsService.updateVoiceListeningWindow?.({
       tenantId: params.tenantId,
@@ -4611,13 +4619,20 @@ export class VoiceTurnService {
     if (!transcript) {
       return false;
     }
-    const normalized = transcript.toLowerCase();
-    if (/\d/.test(normalized)) {
+    const normalized = this.normalizeAddressCandidate(transcript);
+    const lowered = normalized.toLowerCase();
+    if (!lowered) {
+      return false;
+    }
+    if (
+      /^(?:my\s+address\s+is|the\s+address\s+is|address\s+is|service\s+address\s+is)\b/.test(
+        lowered,
+      )
+    ) {
       return true;
     }
-    return /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
-      normalized,
-    );
+    const stripped = this.stripAddressLeadIn(normalized);
+    return this.isLikelyAddressCandidate(stripped);
   }
 
   private isLikelyAddressCandidate(candidate: string): boolean {

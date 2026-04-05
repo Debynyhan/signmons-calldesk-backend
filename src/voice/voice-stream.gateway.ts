@@ -85,7 +85,6 @@ type VoiceStreamSession = {
 export class VoiceStreamGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
-  private static readonly SHORT_RESPONSE_TTS_CHAR_LIMIT = 80;
   private static readonly TTS_SIGNED_URL_SKEW_MS = 5_000;
   private static readonly TTS_SIGNED_URL_CACHE_MAX = 200;
 
@@ -623,9 +622,14 @@ export class VoiceStreamGateway
     if (!normalized) {
       return false;
     }
-    return (
-      normalized.length > VoiceStreamGateway.SHORT_RESPONSE_TTS_CHAR_LIMIT
+    const shortSayLimit = Math.max(
+      0,
+      Math.floor(this.config.voiceTtsShortSayMaxChars ?? 0),
     );
+    if (shortSayLimit > 0 && normalized.length <= shortSayLimit) {
+      return false;
+    }
+    return true;
   }
 
   private normalizeTtsCacheText(text: string): string {

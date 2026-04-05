@@ -51,6 +51,7 @@ export interface AppConfig {
   voiceStreamingTrack: "inbound" | "both";
   voiceSttProvider: "twilio" | "google";
   voiceTtsProvider: "twilio" | "google";
+  voiceTtsShortSayMaxChars: number;
   addressValidationProvider: "none" | "google";
   googlePlacesApiKey: string;
   googleSpeechEnabled: boolean;
@@ -197,6 +198,9 @@ export default registerAs("app", (): AppConfig => {
       "inbound") as AppConfig["voiceStreamingTrack"],
     voiceSttProvider,
     voiceTtsProvider,
+    voiceTtsShortSayMaxChars: Number(
+      process.env.VOICE_TTS_SHORT_SAY_MAX_CHARS ?? 0,
+    ),
     addressValidationProvider:
       (process.env.ADDRESS_VALIDATION_PROVIDER ?? "none").toLowerCase() ===
       "google"
