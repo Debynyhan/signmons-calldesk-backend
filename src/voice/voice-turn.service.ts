@@ -516,25 +516,23 @@ export class VoiceTurnService {
             twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
           });
         }
-        const followUp = await this.replyWithSideQuestionAndContinue({
+        return this.continueAfterSideQuestionWithIssueRouting({
           res,
           tenantId: tenant.id,
           conversationId,
+          callSid,
+          displayName,
           sideQuestionReply: "Got it.",
           expectedField: null,
           nameReady,
           addressReady,
+          nameState,
           addressState,
+          collectedData,
           currentEventId,
           strategy: csrStrategy,
+          timingCollector,
         });
-        if (followUp) {
-          return followUp;
-        }
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml("How can I help?"),
-        );
       }
       return this.replyWithListeningWindow({
         res,
@@ -567,25 +565,23 @@ export class VoiceTurnService {
         const preface = isYes
           ? "Thanks. We'll treat this as urgent."
           : "Okay, we'll keep it standard.";
-        const followUp = await this.replyWithSideQuestionAndContinue({
+        return this.continueAfterSideQuestionWithIssueRouting({
           res,
           tenantId: tenant.id,
           conversationId,
+          callSid,
+          displayName,
           sideQuestionReply: preface,
           expectedField: null,
           nameReady,
           addressReady,
+          nameState,
           addressState,
+          collectedData,
           currentEventId,
           strategy: csrStrategy,
+          timingCollector,
         });
-        if (followUp) {
-          return followUp;
-        }
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml("How can I help?"),
-        );
       }
       return this.replyWithListeningWindow({
         res,
@@ -714,25 +710,23 @@ export class VoiceTurnService {
       const preface = isYes
         ? "Thanks. We'll treat this as urgent."
         : "Okay, we'll keep it standard.";
-      const followUp = await this.replyWithSideQuestionAndContinue({
+      return this.continueAfterSideQuestionWithIssueRouting({
         res,
         tenantId: tenant.id,
         conversationId,
+        callSid,
+        displayName,
         sideQuestionReply: preface,
         expectedField: null,
         nameReady,
         addressReady,
+        nameState,
         addressState,
+        collectedData,
         currentEventId,
         strategy: csrStrategy,
+        timingCollector,
       });
-      if (followUp) {
-        return followUp;
-      }
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml("How can I help?"),
-      );
     }
 
     if (shouldHandleLateComfortRisk) {
@@ -770,25 +764,23 @@ export class VoiceTurnService {
           twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
         });
       }
-      const followUp = await this.replyWithSideQuestionAndContinue({
+      return this.continueAfterSideQuestionWithIssueRouting({
         res,
         tenantId: tenant.id,
         conversationId,
+        callSid,
+        displayName,
         sideQuestionReply: "Got it.",
         expectedField: null,
         nameReady,
         addressReady,
+        nameState,
         addressState,
+        collectedData,
         currentEventId,
         strategy: csrStrategy,
+        timingCollector,
       });
-      if (followUp) {
-        return followUp;
-      }
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml("How can I help?"),
-      );
     }
 
     if (this.isHangupRequest(normalizedSpeech)) {
@@ -1706,13 +1698,10 @@ export class VoiceTurnService {
         const normalizedLocality =
           this.normalizeAddressCandidate(normalizedSpeech);
         const localityParts = this.parseLocalityParts(normalizedLocality);
-        const hasDigits = /\d/.test(normalizedLocality);
-        const mergedCandidate = hasDigits
-          ? normalizedLocality
-          : this.mergeAddressWithLocality(
-              addressState.candidate,
-              normalizedLocality,
-            );
+        const mergedCandidate = this.mergeAddressWithLocality(
+          addressState.candidate,
+          normalizedLocality,
+        );
         const mergedParts = this.mergeAddressParts(addressState, localityParts);
         const mergedCandidateFromParts =
           this.buildAddressCandidateFromParts(mergedParts);
@@ -4414,6 +4403,73 @@ export class VoiceTurnService {
     }
 
     return null;
+  }
+
+  private async continueAfterSideQuestionWithIssueRouting(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    displayName: string;
+    sideQuestionReply: string;
+    expectedField: VoiceListeningField | null;
+    nameReady: boolean;
+    addressReady: boolean;
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    collectedData: unknown;
+    currentEventId: string | null;
+    strategy?: CsrStrategy;
+    timingCollector?: VoiceTurnTimingCollector;
+  }): Promise<string> {
+    const followUp = await this.replyWithSideQuestionAndContinue({
+      res: params.res,
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      sideQuestionReply: params.sideQuestionReply,
+      expectedField: params.expectedField,
+      nameReady: params.nameReady,
+      addressReady: params.addressReady,
+      addressState: params.addressState,
+      currentEventId: params.currentEventId,
+      strategy: params.strategy,
+    });
+    if (followUp) {
+      return followUp;
+    }
+
+    if (params.nameReady && params.addressReady) {
+      const issueCandidate = this.getVoiceIssueCandidate(params.collectedData);
+      if (issueCandidate?.value) {
+        const includeFees = this.shouldDiscloseFees({
+          nameState: params.nameState,
+          addressState: params.addressState,
+          collectedData: params.collectedData,
+        });
+        return this.handleVoiceIssueCandidate({
+          res: params.res,
+          tenantId: params.tenantId,
+          callSid: params.callSid,
+          conversationId: params.conversationId,
+          issueCandidate: issueCandidate.value,
+          currentEventId: params.currentEventId,
+          displayName: params.displayName,
+          includeFees,
+          isEmergency: this.isUrgencyEmergency(params.collectedData),
+          timingCollector: params.timingCollector,
+        });
+      }
+      const prompt = this.applyCsrStrategy(
+        params.strategy,
+        "In a few words, what's the main issue, like no heat or leaking water?",
+      );
+      return this.replyWithTwiml(params.res, this.buildSayGatherTwiml(prompt));
+    }
+
+    return this.replyWithTwiml(
+      params.res,
+      this.buildSayGatherTwiml("How can I help?"),
+    );
   }
 
   private async replyWithBookingOffer(params: {

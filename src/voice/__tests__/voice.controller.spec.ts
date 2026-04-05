@@ -3418,7 +3418,7 @@ describe("VoiceController", () => {
     await app.close();
   });
 
-  it("handles late urgency yes without falling back to AI triage", async () => {
+  it("routes late urgency yes into issue handoff when issue is already captured", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -3468,6 +3468,12 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
     const aiService = buildAiService();
+    aiService.triage.mockResolvedValue({
+      status: "reply",
+      outcome: "sms_handoff",
+      reply:
+        "Perfect. To make sure everything's accurate, I'll send you a quick text to confirm your name and details. Once that's done, we'll move forward.",
+    });
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -3537,8 +3543,17 @@ describe("VoiceController", () => {
         }),
       }),
     );
-    expect(aiService.triage).not.toHaveBeenCalled();
-    expect(response.text).toContain("How can I help?");
+    expect(aiService.triage).toHaveBeenCalledWith(
+      "tenant-1",
+      "CA123",
+      "The furnace is blowing cold air",
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        channel: "VOICE",
+      }),
+    );
+    expect(response.text).toContain("best number to text updates");
+    expect(response.text).not.toContain("How can I help?");
     expect(response.text).not.toContain("confirm your name");
 
     await app.close();
