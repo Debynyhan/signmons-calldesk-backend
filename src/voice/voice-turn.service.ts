@@ -2055,35 +2055,16 @@ export class VoiceTurnService {
         }
       }
 
-      const extracted = await this.trackAiCall(timingCollector, () =>
-        this.aiService.extractAddressCandidate(tenant.id, normalizedSpeech),
-      );
-      const normalizedAddress = this.normalizeAddressCandidate(
-        extracted?.address ?? "",
-      );
-      const fallbackCandidate = !normalizedAddress
-        ? this.normalizeAddressCandidate(normalizedSpeech)
-        : "";
+      const normalizedAddressInput =
+        this.normalizeAddressCandidate(normalizedSpeech);
+      const fallbackCandidate = this.stripAddressLeadIn(normalizedAddressInput);
       const usableFallbackCandidate =
         fallbackCandidate && this.isLikelyAddressCandidate(fallbackCandidate)
           ? fallbackCandidate
           : "";
-      const seedCandidate =
-        normalizedAddress ||
-        usableFallbackCandidate ||
-        addressState.candidate ||
-        null;
-      const extractedParts = {
-        houseNumber: this.normalizeAddressComponent(
-          extracted?.houseNumber ?? null,
-        ),
-        street: this.normalizeAddressComponent(extracted?.street ?? null),
-        city: this.normalizeAddressComponent(extracted?.city ?? null),
-        state: this.normalizeAddressComponent(extracted?.state ?? null),
-        zip: this.normalizeAddressComponent(extracted?.zip ?? null),
-      };
-      const normalizedAddressInput =
-        this.normalizeAddressCandidate(normalizedSpeech);
+      const fallbackDerivedParts = usableFallbackCandidate
+        ? this.extractAddressPartsFromCandidate(usableFallbackCandidate)
+        : {};
       const directParts: {
         houseNumber?: string | null;
         street?: string | null;
@@ -2102,6 +2083,47 @@ export class VoiceTurnService {
       ) {
         directParts.street = normalizedAddressInput;
       }
+      const hasDeterministicLineSignal = Boolean(
+        fallbackDerivedParts.houseNumber && fallbackDerivedParts.street,
+      );
+      const hasDeterministicSignal = Boolean(
+        hasDeterministicLineSignal ||
+          directParts.houseNumber ||
+          directParts.street,
+      );
+      let extracted: Awaited<
+        ReturnType<AiService["extractAddressCandidate"]>
+      > | null = null;
+      if (!hasDeterministicSignal) {
+        extracted = await this.trackAiCall(timingCollector, () =>
+          this.aiService.extractAddressCandidate(tenant.id, normalizedSpeech),
+        );
+      }
+      const normalizedAddress = this.normalizeAddressCandidate(
+        extracted?.address ?? "",
+      );
+      const seedCandidate =
+        normalizedAddress ||
+        usableFallbackCandidate ||
+        addressState.candidate ||
+        null;
+      const extractedParts = {
+        houseNumber:
+          this.normalizeAddressComponent(extracted?.houseNumber ?? undefined) ??
+          undefined,
+        street:
+          this.normalizeAddressComponent(extracted?.street ?? undefined) ??
+          undefined,
+        city:
+          this.normalizeAddressComponent(extracted?.city ?? undefined) ??
+          undefined,
+        state:
+          this.normalizeAddressComponent(extracted?.state ?? undefined) ??
+          undefined,
+        zip:
+          this.normalizeAddressComponent(extracted?.zip ?? undefined) ??
+          undefined,
+      };
       const derivedParts = seedCandidate
         ? this.extractAddressPartsFromCandidate(seedCandidate)
         : {};
@@ -2110,9 +2132,10 @@ export class VoiceTurnService {
         ...extractedParts,
         ...directParts,
       });
+      const structuredCandidate = this.buildAddressCandidateFromParts(mergedParts);
       const candidateAddress =
+        structuredCandidate ||
         normalizedAddress ||
-        this.buildAddressCandidateFromParts(mergedParts) ||
         usableFallbackCandidate ||
         addressState.candidate ||
         null;
@@ -2124,7 +2147,7 @@ export class VoiceTurnService {
       const meetsConfidence =
         typeof extractedConfidence === "number"
           ? extractedConfidence >= minConfidence
-          : Boolean(usableFallbackCandidate);
+          : hasDeterministicSignal || Boolean(usableFallbackCandidate);
       const baseAddressState: typeof addressState = {
         ...addressState,
         ...mergedParts,
@@ -4644,6 +4667,18 @@ export class VoiceTurnService {
   private normalizeAddressCandidate(value: string): string {
     const cleaned = this.sanitizationService.sanitizeText(value);
     return this.sanitizationService.normalizeWhitespace(cleaned);
+  }
+
+  private stripAddressLeadIn(value: string): string {
+    if (!value) {
+      return "";
+    }
+    const trimmed = this.sanitizationService.normalizeWhitespace(value);
+    const withoutAddressPrefix = trimmed.replace(
+      /^(?:my\s+address\s+is|the\s+address\s+is|address\s+is|service\s+address\s+is)\s+/i,
+      "",
+    );
+    return withoutAddressPrefix.replace(/^(?:it is|it's)\s+/i, "").trim();
   }
 
   private isEquivalentAddressCandidate(

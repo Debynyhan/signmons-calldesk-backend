@@ -2337,7 +2337,7 @@ describe("VoiceController", () => {
     await app.close();
   });
 
-  it("prompts for address confirmation after extracting a candidate", async () => {
+  it("prompts for address confirmation after deterministic address capture", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -2428,10 +2428,7 @@ describe("VoiceController", () => {
       })
       .expect(200);
 
-    expect(aiService.extractAddressCandidate).toHaveBeenCalledWith(
-      "tenant-1",
-      "My address is 123 Main St",
-    );
+    expect(aiService.extractAddressCandidate).not.toHaveBeenCalled();
     expect(updateVoiceAddressState).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
@@ -2545,6 +2542,10 @@ describe("VoiceController", () => {
       })
       .expect(200);
 
+    expect(aiService.extractAddressCandidate).toHaveBeenCalledWith(
+      "tenant-1",
+      "my address is 20991 reach your a",
+    );
     expect(updateVoiceAddressState).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",

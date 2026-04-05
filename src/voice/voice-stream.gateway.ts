@@ -4,6 +4,7 @@ import {
   OnGatewayDisconnect,
   WebSocketGateway,
 } from "@nestjs/websockets";
+import { createHash } from "crypto";
 import { protos } from "@google-cloud/speech";
 import type { RawData, WebSocket } from "ws";
 import appConfig, { type AppConfig } from "../config/app.config";
@@ -54,6 +55,13 @@ type TwilioStreamMessage =
   | TwilioStreamMedia
   | TwilioStreamStop;
 
+type VoicePendingTranscript = {
+  transcript: string;
+  confidence?: number;
+  sttFinalMs?: number;
+  queuedAtMs: number;
+};
+
 type VoiceStreamSession = {
   callSid: string;
   streamSid: string;
@@ -65,6 +73,7 @@ type VoiceStreamSession = {
   processing: boolean;
   startedAtMs: number;
   lastMediaAtMs?: number;
+  pendingTranscript?: VoicePendingTranscript;
   lastTranscript?: string;
   lastTranscriptAt?: number;
   lastResponseText?: string;
@@ -76,11 +85,19 @@ type VoiceStreamSession = {
 export class VoiceStreamGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
+  private static readonly SHORT_RESPONSE_TTS_CHAR_LIMIT = 80;
+  private static readonly TTS_SIGNED_URL_SKEW_MS = 5_000;
+  private static readonly TTS_SIGNED_URL_CACHE_MAX = 200;
+
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
   private readonly callSessions = new Map<string, WebSocket>();
   private readonly lastResponseByCall = new Map<
     string,
     { text: string; at: number }
+  >();
+  private readonly googleTtsSignedUrlCache = new Map<
+    string,
+    { url: string; objectPath: string; expiresAtMs: number }
   >();
 
   constructor(
@@ -357,11 +374,22 @@ export class VoiceStreamGateway
     transcript: string,
     confidence?: number,
     sttFinalMs?: number,
+    queuedAtMs?: number,
   ) {
     if (session.processing) {
+      session.pendingTranscript = {
+        transcript,
+        confidence,
+        sttFinalMs,
+        queuedAtMs: Date.now(),
+      };
       return;
     }
     session.processing = true;
+    const queueDelayMs =
+      typeof queuedAtMs === "number"
+        ? Math.max(0, Date.now() - queuedAtMs)
+        : null;
     const timingCollector = { aiMs: 0, aiCalls: 0 };
     const turnStartedAt = Date.now();
     let turnLogicMs = 0;
@@ -371,6 +399,8 @@ export class VoiceStreamGateway
       reason: string;
       twilioUpdated: boolean;
       usedGoogleTts?: boolean;
+      ttsCacheHit?: boolean;
+      ttsPolicy?: "google_play" | "twilio_say";
       hangup?: boolean;
     }) => {
       this.loggingService.log(
@@ -386,9 +416,12 @@ export class VoiceStreamGateway
           ttsMs,
           twilioUpdateMs,
           transcriptChars: transcript.length,
+          queueDelayMs,
           reason: params.reason,
           twilioUpdated: params.twilioUpdated,
           usedGoogleTts: params.usedGoogleTts ?? false,
+          ttsCacheHit: params.ttsCacheHit ?? false,
+          ttsPolicy: params.ttsPolicy ?? "twilio_say",
           hangup: params.hangup ?? false,
         },
         VoiceStreamGateway.name,
@@ -419,16 +452,19 @@ export class VoiceStreamGateway
         logTurnTiming({
           reason: "no_say_messages",
           twilioUpdated: false,
+          ttsPolicy: "twilio_say",
         });
         return;
       }
       const sayText = messages.join(" ");
+      const useGoogleTts = this.shouldUseGoogleTtsForText(sayText);
+      let ttsCacheHit = false;
       let playUrlResult: { url: string; objectPath: string } | null = null;
-      if (this.shouldUseGoogleTts()) {
+      if (useGoogleTts) {
         const ttsStartedAt = Date.now();
-        playUrlResult = await this.googleTtsService.synthesizeToSignedUrl({
-          text: sayText,
-        });
+        const ttsResult = await this.getGoogleTtsPlayback(sayText);
+        playUrlResult = ttsResult?.playback ?? null;
+        ttsCacheHit = ttsResult?.cacheHit ?? false;
         ttsMs = Math.max(0, Date.now() - ttsStartedAt);
       }
       const hangup = hasHangup(twiml);
@@ -444,6 +480,8 @@ export class VoiceStreamGateway
             reason: "duplicate_response_suppressed",
             twilioUpdated: false,
             usedGoogleTts: Boolean(playUrlResult?.url),
+            ttsCacheHit,
+            ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
             hangup,
           });
           return;
@@ -457,6 +495,8 @@ export class VoiceStreamGateway
             reason: "duplicate_response_suppressed",
             twilioUpdated: false,
             usedGoogleTts: Boolean(playUrlResult?.url),
+            ttsCacheHit,
+            ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
             hangup,
           });
           return;
@@ -488,6 +528,8 @@ export class VoiceStreamGateway
         reason: twilioUpdated ? "twiml_updated" : "twiml_update_failed",
         twilioUpdated,
         usedGoogleTts: Boolean(playUrlResult?.url),
+        ttsCacheHit,
+        ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
         hangup,
       });
     } catch (error) {
@@ -499,6 +541,7 @@ export class VoiceStreamGateway
           callSid: session.callSid,
           streamSid: session.streamSid,
           sttFinalMs: sttFinalMs ?? null,
+          queueDelayMs,
           turnLogicMs,
           aiMs: timingCollector.aiMs,
           aiCalls: timingCollector.aiCalls,
@@ -510,6 +553,17 @@ export class VoiceStreamGateway
       );
     } finally {
       session.processing = false;
+      const pending = session.pendingTranscript;
+      session.pendingTranscript = undefined;
+      if (pending && !session.closed) {
+        void this.handleFinalTranscript(
+          session,
+          pending.transcript,
+          pending.confidence,
+          pending.sttFinalMs,
+          pending.queuedAtMs,
+        );
+      }
     }
   }
 
@@ -556,6 +610,96 @@ export class VoiceStreamGateway
   }
 
   private shouldUseGoogleTts(): boolean {
-    return this.config.voiceTtsProvider === "google" && this.googleTtsService.isEnabled();
+    return (
+      this.config.voiceTtsProvider === "google" && this.googleTtsService.isEnabled()
+    );
+  }
+
+  private shouldUseGoogleTtsForText(text: string): boolean {
+    if (!this.shouldUseGoogleTts()) {
+      return false;
+    }
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return false;
+    }
+    return (
+      normalized.length > VoiceStreamGateway.SHORT_RESPONSE_TTS_CHAR_LIMIT
+    );
+  }
+
+  private normalizeTtsCacheText(text: string): string {
+    return text.replace(/\s+/g, " ").trim();
+  }
+
+  private buildTtsTextHash(text: string): string {
+    return createHash("sha256").update(text).digest("hex");
+  }
+
+  private pruneGoogleTtsSignedUrlCache(nowMs = Date.now()): void {
+    for (const [key, entry] of this.googleTtsSignedUrlCache.entries()) {
+      if (entry.expiresAtMs <= nowMs + VoiceStreamGateway.TTS_SIGNED_URL_SKEW_MS) {
+        this.googleTtsSignedUrlCache.delete(key);
+      }
+    }
+    while (
+      this.googleTtsSignedUrlCache.size > VoiceStreamGateway.TTS_SIGNED_URL_CACHE_MAX
+    ) {
+      const oldestKey = this.googleTtsSignedUrlCache.keys().next().value as
+        | string
+        | undefined;
+      if (!oldestKey) {
+        break;
+      }
+      this.googleTtsSignedUrlCache.delete(oldestKey);
+    }
+  }
+
+  private async getGoogleTtsPlayback(text: string): Promise<{
+    playback: { url: string; objectPath: string };
+    cacheHit: boolean;
+  } | null> {
+    const normalizedText = this.normalizeTtsCacheText(text);
+    if (!normalizedText) {
+      return null;
+    }
+    const nowMs = Date.now();
+    this.pruneGoogleTtsSignedUrlCache(nowMs);
+    const hash = this.buildTtsTextHash(normalizedText);
+    const cached = this.googleTtsSignedUrlCache.get(hash);
+    if (cached && cached.expiresAtMs > nowMs + VoiceStreamGateway.TTS_SIGNED_URL_SKEW_MS) {
+      return {
+        playback: { url: cached.url, objectPath: cached.objectPath },
+        cacheHit: true,
+      };
+    }
+
+    const objectPath = `tts/cache/${hash}.${this.googleTtsService.getAudioExtension()}`;
+    const synthesized = await this.googleTtsService.synthesizeToObjectPath({
+      text: normalizedText,
+      objectPath,
+    });
+    if (!synthesized) {
+      return null;
+    }
+    const signedUrl = await this.googleTtsService.getSignedUrlIfExists(objectPath);
+    if (!signedUrl) {
+      return null;
+    }
+
+    const configuredTtlSec = this.config.googleTtsSignedUrlTtlSec;
+    const ttlSec =
+      Number.isFinite(configuredTtlSec) && configuredTtlSec > 0
+        ? configuredTtlSec
+        : 900;
+    this.googleTtsSignedUrlCache.set(hash, {
+      url: signedUrl,
+      objectPath,
+      expiresAtMs: nowMs + ttlSec * 1000,
+    });
+    return {
+      playback: { url: signedUrl, objectPath },
+      cacheHit: false,
+    };
   }
 }
