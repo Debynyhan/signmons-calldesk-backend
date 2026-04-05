@@ -403,10 +403,11 @@ export class VoiceTurnService {
       expectedField = null;
     }
     if (expectedField === "booking") {
+      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
       const isYes =
-        this.isAffirmativeUtterance(normalizedSpeech) ||
+        binaryIntent === "YES" ||
         this.isBookingIntent(normalizedSpeech);
-      const isNo = this.isNegativeUtterance(normalizedSpeech);
+      const isNo = binaryIntent === "NO";
       if (isYes) {
         await this.clearVoiceListeningWindow({
           tenantId: tenant.id,
@@ -437,8 +438,9 @@ export class VoiceTurnService {
       }
     }
     if (expectedField === "callback") {
-      const isYes = this.isAffirmativeUtterance(normalizedSpeech);
-      const isNo = this.isNegativeUtterance(normalizedSpeech);
+      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
+      const isYes = binaryIntent === "YES";
+      const isNo = binaryIntent === "NO";
       if (isYes) {
         await this.clearVoiceListeningWindow({
           tenantId: tenant.id,
@@ -477,8 +479,9 @@ export class VoiceTurnService {
       });
     }
     if (expectedField === "comfort_risk") {
-      const isYes = this.isAffirmativeUtterance(normalizedSpeech);
-      const isNo = this.isNegativeUtterance(normalizedSpeech);
+      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
+      const isYes = binaryIntent === "YES";
+      const isNo = binaryIntent === "NO";
       if (isYes || isNo) {
         await this.conversationsService.updateVoiceComfortRisk({
           tenantId: tenant.id,
@@ -544,8 +547,9 @@ export class VoiceTurnService {
       });
     }
     if (expectedField === "urgency_confirm") {
-      const isYes = this.isAffirmativeUtterance(normalizedSpeech);
-      const isNo = this.isNegativeUtterance(normalizedSpeech);
+      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
+      const isYes = binaryIntent === "YES";
+      const isNo = binaryIntent === "NO";
       if (isYes || isNo) {
         await this.conversationsService.updateVoiceUrgencyConfirmation({
           tenantId: tenant.id,
@@ -644,6 +648,24 @@ export class VoiceTurnService {
         },
       });
     }
+    if (
+      !nameReady &&
+      !expectedField &&
+      this.isLikelyAddressInputForName(normalizedSpeech)
+    ) {
+      expectedField = "address";
+    }
+    const yesNoIntent = this.resolveBinaryUtterance(normalizedSpeech);
+    if (
+      !expectedField &&
+      !addressReady &&
+      Boolean(addressState.candidate) &&
+      (Boolean(yesNoIntent) ||
+        /\d/.test(normalizedSpeech) ||
+        Boolean(this.extractAddressLocalityCorrection(normalizedSpeech)))
+    ) {
+      expectedField = "address";
+    }
     const comfortRisk =
       this.conversationsService.getVoiceComfortRisk(collectedData);
     const urgencyConfirmation =
@@ -662,6 +684,112 @@ export class VoiceTurnService {
       !urgencyConfirmation.response &&
       !urgencyConfirmation.askedAt &&
       !expectedField;
+    const isYesNoUtterance = Boolean(yesNoIntent);
+    const shouldHandleLateUrgencyConfirmation =
+      !expectedField &&
+      isYesNoUtterance &&
+      !urgencyConfirmation.response &&
+      Boolean(urgencyConfirmation.askedAt);
+    const shouldHandleLateComfortRisk =
+      !expectedField &&
+      isYesNoUtterance &&
+      !comfortRisk.response &&
+      Boolean(comfortRisk.askedAt);
+
+    if (shouldHandleLateUrgencyConfirmation) {
+      const isYes = yesNoIntent === "YES";
+      await this.conversationsService.updateVoiceUrgencyConfirmation({
+        tenantId: tenant.id,
+        conversationId,
+        urgencyConfirmation: {
+          askedAt: new Date().toISOString(),
+          response: isYes ? "YES" : "NO",
+          sourceEventId: currentEventId ?? null,
+        },
+      });
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      const preface = isYes
+        ? "Thanks. We'll treat this as urgent."
+        : "Okay, we'll keep it standard.";
+      const followUp = await this.replyWithSideQuestionAndContinue({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        sideQuestionReply: preface,
+        expectedField: null,
+        nameReady,
+        addressReady,
+        addressState,
+        currentEventId,
+        strategy: csrStrategy,
+      });
+      if (followUp) {
+        return followUp;
+      }
+      return this.replyWithTwiml(
+        res,
+        this.buildSayGatherTwiml("How can I help?"),
+      );
+    }
+
+    if (shouldHandleLateComfortRisk) {
+      const isYes = yesNoIntent === "YES";
+      await this.conversationsService.updateVoiceComfortRisk({
+        tenantId: tenant.id,
+        conversationId,
+        comfortRisk: {
+          askedAt: new Date().toISOString(),
+          response: isYes ? "YES" : "NO",
+          sourceEventId: currentEventId ?? null,
+        },
+      });
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      if (isYes) {
+        await this.conversationsService.updateVoiceUrgencyConfirmation({
+          tenantId: tenant.id,
+          conversationId,
+          urgencyConfirmation: {
+            askedAt: new Date().toISOString(),
+            response: null,
+            sourceEventId: currentEventId ?? null,
+          },
+        });
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "confirmation",
+          targetField: "urgency_confirm",
+          sourceEventId: currentEventId,
+          twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
+        });
+      }
+      const followUp = await this.replyWithSideQuestionAndContinue({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        sideQuestionReply: "Got it.",
+        expectedField: null,
+        nameReady,
+        addressReady,
+        addressState,
+        currentEventId,
+        strategy: csrStrategy,
+      });
+      if (followUp) {
+        return followUp;
+      }
+      return this.replyWithTwiml(
+        res,
+        this.buildSayGatherTwiml("How can I help?"),
+      );
+    }
 
     if (this.isHangupRequest(normalizedSpeech)) {
       return this.replyWithTwiml(
@@ -699,6 +827,15 @@ export class VoiceTurnService {
       });
       if (apologyReply) {
         return apologyReply;
+      }
+      const issueForFrustration = this.getVoiceIssueCandidate(collectedData);
+      if (!issueForFrustration?.value && nameReady && addressReady) {
+        return this.replyWithTwiml(
+          res,
+          this.buildSayGatherTwiml(
+            "I hear you, and I'm sorry for the repeat. In a few words, what's the main issue, like no heat or leaking water?",
+          ),
+        );
       }
       return this.replyWithListeningWindow({
         res,
@@ -822,13 +959,6 @@ export class VoiceTurnService {
         twiml: this.buildComfortRiskTwiml(csrStrategy),
       });
     }
-    if (
-      !nameReady &&
-      !expectedField &&
-      this.isLikelyAddressInputForName(normalizedSpeech)
-    ) {
-      expectedField = "address";
-    }
     // Name flow map (current):
     // - Yes/no prompts: buildNameConfirmationTwiml/buildNameSoftConfirmationTwiml/buildYesNoRepromptTwiml.
     // - Confirmation parsing: resolveConfirmation + extractReplacementCandidate.
@@ -855,8 +985,35 @@ export class VoiceTurnService {
         }
         return this.applyCsrStrategy(csrStrategy, base);
       };
-      const replyWithAddressPrompt = async (preface?: string) =>
-        this.replyWithListeningWindow({
+      let workingNameState: typeof nameState = nameState;
+      const lockNameForAddressProgression = async () => {
+        if (workingNameState.locked) {
+          return;
+        }
+        const fallbackTimestamp = new Date().toISOString();
+        const nextNameState: typeof nameState = {
+          ...workingNameState,
+          status: workingNameState.candidate.value ? "CANDIDATE" : "MISSING",
+          locked: true,
+          attemptCount: Math.max(1, workingNameState.attemptCount),
+          candidate: {
+            value: workingNameState.candidate.value,
+            sourceEventId:
+              workingNameState.candidate.sourceEventId ?? currentEventId,
+            createdAt:
+              workingNameState.candidate.createdAt ?? fallbackTimestamp,
+          },
+        };
+        await this.conversationsService.updateVoiceNameState({
+          tenantId: tenant.id,
+          conversationId,
+          nameState: nextNameState,
+        });
+        workingNameState = nextNameState;
+      };
+      const replyWithAddressPrompt = async (preface?: string) => {
+        await lockNameForAddressProgression();
+        return this.replyWithListeningWindow({
           res,
           tenantId: tenant.id,
           conversationId,
@@ -867,12 +1024,13 @@ export class VoiceTurnService {
             timeout: 8,
           }),
         });
+      };
       const recordNameAttemptIfNeeded = async () => {
-        if (nameState.attemptCount > 0) {
+        if (workingNameState.attemptCount > 0) {
           return;
         }
         const nextNameState: typeof nameState = {
-          ...nameState,
+          ...workingNameState,
           attemptCount: 1,
         };
         await this.conversationsService.updateVoiceNameState({
@@ -880,6 +1038,7 @@ export class VoiceTurnService {
           conversationId,
           nameState: nextNameState,
         });
+        workingNameState = nextNameState;
       };
       const replyWithNameTwiml = async (twiml: string) => {
         await recordNameAttemptIfNeeded();
@@ -904,45 +1063,47 @@ export class VoiceTurnService {
           spellPromptCount?: number;
         },
       ) => {
+        const baseNameState = workingNameState;
         const nextNameState: typeof nameState = {
-          ...nameState,
+          ...baseNameState,
           candidate: {
             value: candidate,
             sourceEventId: currentEventId,
             createdAt: new Date().toISOString(),
           },
           status: "CANDIDATE",
-          attemptCount: Math.max(1, nameState.attemptCount),
+          attemptCount: Math.max(1, baseNameState.attemptCount),
           corrections:
             typeof options?.corrections === "number"
               ? options.corrections
-              : (nameState.corrections ?? 0),
+              : (baseNameState.corrections ?? 0),
           lastConfidence:
             typeof options?.lastConfidence === "number"
               ? options.lastConfidence
-              : (nameState.lastConfidence ?? null),
+              : (baseNameState.lastConfidence ?? null),
           firstNameSpelled:
             typeof options?.firstNameSpelled === "string"
               ? options.firstNameSpelled
-              : (nameState.firstNameSpelled ?? null),
+              : (baseNameState.firstNameSpelled ?? null),
           spellPromptedAt:
             options && "spellPromptedAt" in options
               ? (options.spellPromptedAt ?? null)
-              : (nameState.spellPromptedAt ?? null),
+              : (baseNameState.spellPromptedAt ?? null),
           spellPromptedTurnIndex:
             options && "spellPromptedTurnIndex" in options
               ? (options.spellPromptedTurnIndex ?? null)
-              : (nameState.spellPromptedTurnIndex ?? null),
+              : (baseNameState.spellPromptedTurnIndex ?? null),
           spellPromptCount:
             typeof options?.spellPromptCount === "number"
               ? options.spellPromptCount
-              : (nameState.spellPromptCount ?? 0),
+              : (baseNameState.spellPromptCount ?? 0),
         };
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
           nameState: nextNameState,
         });
+        workingNameState = nextNameState;
         return nextNameState;
       };
       const buildNameFollowUp = (issueSummary?: string | null) => {
@@ -966,6 +1127,7 @@ export class VoiceTurnService {
           conversationId,
           nameState: promptState,
         });
+        workingNameState = promptState;
         this.loggingService.log(
           {
             event: "nameCapture.spellPrompted",
@@ -1006,9 +1168,9 @@ export class VoiceTurnService {
       const spellingResponseCandidate =
         this.normalizeNameCandidate(normalizedSpeech);
       const shouldHandleSpellingResponse =
-        Boolean(nameState.spellPromptedAt) &&
-        (typeof nameState.spellPromptedTurnIndex !== "number" ||
-          turnIndex > nameState.spellPromptedTurnIndex ||
+        Boolean(workingNameState.spellPromptedAt) &&
+        (typeof workingNameState.spellPromptedTurnIndex !== "number" ||
+          turnIndex > workingNameState.spellPromptedTurnIndex ||
           (spellingResponseCandidate &&
             this.isValidNameCandidate(spellingResponseCandidate) &&
             this.isLikelyNameCandidate(spellingResponseCandidate)));
@@ -2081,14 +2243,6 @@ export class VoiceTurnService {
           normalizedSpeech,
         );
         if (addressQuestionReply) {
-          await this.callLogService.createVoiceAssistantLog({
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            message: addressQuestionReply,
-            occurredAt: new Date(),
-            sourceEventId: currentEventId,
-          });
           return this.replyWithListeningWindow({
             res,
             tenantId: tenant.id,
@@ -2328,6 +2482,30 @@ export class VoiceTurnService {
       );
     }
 
+    const persistedIssueCandidate = this.getVoiceIssueCandidate(collectedData);
+    if (!persistedIssueCandidate?.value && nameReady && addressReady) {
+      const issueFromTurn = this.normalizeIssueCandidate(normalizedSpeech);
+      if (this.isLikelyIssueCandidate(issueFromTurn)) {
+        await this.conversationsService.updateVoiceIssueCandidate({
+          tenantId: tenant.id,
+          conversationId,
+          issue: {
+            value: issueFromTurn,
+            sourceEventId: currentEventId ?? "",
+            createdAt: new Date().toISOString(),
+          },
+        });
+      } else if (!this.isLikelyQuestion(normalizedSpeech)) {
+        const prompt = this.isIssueRepeatComplaint(normalizedSpeech)
+          ? "I hear you, and I'm sorry for the repeat. In a few words, what's the main issue, like no heat or leaking water?"
+          : "In a few words, what's the main issue, like no heat or leaking water?";
+        return this.replyWithTwiml(
+          res,
+          this.buildSayGatherTwiml(this.applyCsrStrategy(csrStrategy, prompt)),
+        );
+      }
+    }
+
     try {
       const aiResult = await this.trackAiCall(timingCollector, () =>
         this.aiService.triage(tenant.id, callSid, normalizedSpeech, {
@@ -2337,14 +2515,6 @@ export class VoiceTurnService {
       );
       if (aiResult.status === "reply" && "reply" in aiResult) {
         const safeReply = this.capAiReply(aiResult.reply ?? "");
-        await this.callLogService.createVoiceAssistantLog({
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          message: safeReply,
-          occurredAt: new Date(),
-          sourceEventId: currentEventId,
-        });
         if (
           (aiResult as { outcome?: string }).outcome === "sms_handoff" ||
           safeReply === this.buildSmsHandoffMessage()
@@ -2414,14 +2584,6 @@ export class VoiceTurnService {
         const message = this.capAiReply(
           aiResult.message ?? "Your request has been booked.",
         );
-        await this.callLogService.createVoiceAssistantLog({
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          message,
-          occurredAt: new Date(),
-          sourceEventId: currentEventId,
-        });
         this.logVoiceOutcome({
           outcome: "no_handoff",
           tenantId: tenant.id,
@@ -3172,7 +3334,22 @@ export class VoiceTurnService {
     if (normalized.length < 6) {
       return false;
     }
-    return /(furnace|heat|heating|cold|ac|air conditioning|cooling|no heat|no hot|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working|went out|went down|blizzard|acting up|issue|problem)/.test(
+    if (
+      /\b(furnace|heat|heating|cold|air conditioning|cooling|no heat|no hot|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working|went out|went down|blizzard|acting up|issue|problem|hvac|no ac)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    return /\bac\b/.test(normalized);
+  }
+
+  private isIssueRepeatComplaint(value: string): boolean {
+    if (!value) {
+      return false;
+    }
+    const normalized = value.toLowerCase();
+    return /(i told you|already told you|i already said|you asked (me )?already|you keep asking|stop asking|asked that already)/.test(
       normalized,
     );
   }
@@ -3235,14 +3412,6 @@ export class VoiceTurnService {
       );
       if (aiResult.status === "reply" && "reply" in aiResult) {
         const safeReply = this.capAiReply(aiResult.reply ?? "");
-        await this.callLogService.createVoiceAssistantLog({
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          message: safeReply,
-          occurredAt: new Date(),
-          sourceEventId: params.currentEventId ?? undefined,
-        });
         if (this.shouldGatherMore(safeReply)) {
           return this.replyWithTwiml(
             params.res,
@@ -3844,7 +4013,8 @@ export class VoiceTurnService {
       | "urgency_confirm";
   }) {
     const timeoutSec =
-      params.timeoutSec ?? (params.field === "address" ? 16 : 8);
+      params.timeoutSec ??
+      (params.field === "address" || params.targetField === "address" ? 24 : 8);
     const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
     await this.conversationsService.updateVoiceListeningWindow?.({
       tenantId: params.tenantId,
@@ -4258,14 +4428,6 @@ export class VoiceTurnService {
     const bookingMessage = `${params.message} Would you like to book a visit?`
       .replace(/\s+/g, " ")
       .trim();
-    await this.callLogService.createVoiceAssistantLog({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      message: bookingMessage,
-      occurredAt: new Date(),
-      sourceEventId: params.sourceEventId ?? undefined,
-    });
     return this.replyWithListeningWindow({
       res: params.res,
       tenantId: params.tenantId,
@@ -4371,6 +4533,44 @@ export class VoiceTurnService {
     ].includes(normalized);
   }
 
+  private resolveBinaryUtterance(transcript: string): "YES" | "NO" | null {
+    if (this.isAffirmativeUtterance(transcript)) {
+      return "YES";
+    }
+    if (this.isNegativeUtterance(transcript)) {
+      return "NO";
+    }
+    const normalized = this.normalizeConfirmationUtterance(transcript);
+    if (!normalized) {
+      return null;
+    }
+    if (
+      /\b(not an emergency|not emergency|non emergency|this is not an emergency)\b/.test(
+        normalized,
+      )
+    ) {
+      return "NO";
+    }
+    if (
+      /^(yes|yeah|yep|correct|right|affirmative|sure|ok|okay)\b/.test(
+        normalized,
+      )
+    ) {
+      return "YES";
+    }
+    if (/^(no|nope|negative)\b/.test(normalized)) {
+      if (
+        /\b(no heat|no ac|no air|no cooling|no water|no power|not working|won't turn on)\b/.test(
+          normalized,
+        )
+      ) {
+        return null;
+      }
+      return "NO";
+    }
+    return null;
+  }
+
   private isNegativeUtterance(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
     return [
@@ -4405,13 +4605,27 @@ export class VoiceTurnService {
     if (Number.isNaN(lastTime)) {
       return false;
     }
-    const withinWindow = now.getTime() - lastTime <= 2000;
+    const withinWindow = now.getTime() - lastTime <= 4000;
     if (!withinWindow) {
       return false;
     }
-    return (
-      lastTranscript.trim().toLowerCase() === transcript.trim().toLowerCase()
-    );
+    const normalizedCurrent =
+      this.normalizeTranscriptForDuplicateCheck(transcript);
+    const normalizedLast =
+      this.normalizeTranscriptForDuplicateCheck(lastTranscript);
+    if (!normalizedCurrent || !normalizedLast) {
+      return false;
+    }
+    return normalizedLast === normalizedCurrent;
+  }
+
+  private normalizeTranscriptForDuplicateCheck(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   private normalizeNameCandidate(value: string): string {

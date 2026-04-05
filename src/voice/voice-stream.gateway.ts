@@ -78,6 +78,9 @@ type VoiceStreamSession = {
   lastTranscriptAt?: number;
   lastResponseText?: string;
   lastResponseAt?: number;
+  speechRestartCount: number;
+  lastSpeechRestartAtMs?: number;
+  restartingSpeechStream?: boolean;
   closed: boolean;
 };
 
@@ -87,6 +90,8 @@ export class VoiceStreamGateway
 {
   private static readonly TTS_SIGNED_URL_SKEW_MS = 5_000;
   private static readonly TTS_SIGNED_URL_CACHE_MAX = 200;
+  private static readonly SPEECH_STREAM_RESTART_MAX = 3;
+  private static readonly SPEECH_STREAM_RESTART_WINDOW_MS = 60_000;
 
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
   private readonly callSessions = new Map<string, WebSocket>();
@@ -269,6 +274,7 @@ export class VoiceStreamGateway
       speechStream,
       processing: false,
       startedAtMs: Date.now(),
+      speechRestartCount: 0,
       closed: false,
     };
     this.sessions.set(client, session);
@@ -284,32 +290,7 @@ export class VoiceStreamGateway
       VoiceStreamGateway.name,
     );
 
-    speechStream.on("data", (data) => {
-      this.handleSpeechData(
-        session,
-        data as protos.google.cloud.speech.v1.IStreamingRecognizeResponse,
-      );
-    });
-    speechStream.on("error", (error) => {
-      if (session.closed) {
-        return;
-      }
-      this.loggingService.warn(
-        {
-          event: "voice.stream.speech_error",
-          callSid,
-          streamSid,
-          reason: error instanceof Error ? error.message : String(error),
-        },
-        VoiceStreamGateway.name,
-      );
-      this.cleanupSession(client);
-      try {
-        client.close();
-      } catch {
-        // Best effort socket close.
-      }
-    });
+    this.attachSpeechStreamHandlers(client, session, speechStream);
   }
 
   private handleMedia(client: WebSocket, message: TwilioStreamMedia) {
@@ -345,6 +326,143 @@ export class VoiceStreamGateway
     this.cleanupSession(client);
   }
 
+  private attachSpeechStreamHandlers(
+    client: WebSocket,
+    session: VoiceStreamSession,
+    speechStream: NodeJS.ReadWriteStream,
+  ) {
+    speechStream.on("data", (data) => {
+      this.handleSpeechData(
+        session,
+        data as protos.google.cloud.speech.v1.IStreamingRecognizeResponse,
+      );
+    });
+    speechStream.on("error", (error) => {
+      void this.handleSpeechStreamError(client, session, error);
+    });
+  }
+
+  private async handleSpeechStreamError(
+    client: WebSocket,
+    session: VoiceStreamSession,
+    error: unknown,
+  ): Promise<void> {
+    if (session.closed) {
+      return;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    if (this.isRecoverableSpeechStreamError(error)) {
+      const restarted = this.tryRestartSpeechStream(client, session, reason);
+      if (restarted) {
+        return;
+      }
+    }
+    this.loggingService.warn(
+      {
+        event: "voice.stream.speech_error",
+        callSid: session.callSid,
+        streamSid: session.streamSid,
+        reason,
+      },
+      VoiceStreamGateway.name,
+    );
+    this.cleanupSession(client);
+    try {
+      client.close();
+    } catch {
+      // Best effort socket close.
+    }
+  }
+
+  private isRecoverableSpeechStreamError(error: unknown): boolean {
+    const codeValue = (error as { code?: unknown })?.code;
+    const code = typeof codeValue === "number" ? codeValue : null;
+    const detailsValue = (error as { details?: unknown })?.details;
+    const details = typeof detailsValue === "string" ? detailsValue : "";
+    const message = error instanceof Error ? error.message : String(error);
+    const combined = `${details} ${message}`.toLowerCase();
+    if (code === 4 || code === 14) {
+      return true;
+    }
+    if (combined.includes("408:request timeout")) {
+      return true;
+    }
+    if (code === 2 && (combined.includes("408") || combined.includes("timeout"))) {
+      return true;
+    }
+    return false;
+  }
+
+  private tryRestartSpeechStream(
+    client: WebSocket,
+    session: VoiceStreamSession,
+    reason: string,
+  ): boolean {
+    if (session.closed) {
+      return false;
+    }
+    if (session.restartingSpeechStream) {
+      return true;
+    }
+    const nowMs = Date.now();
+    if (
+      !session.lastSpeechRestartAtMs ||
+      nowMs - session.lastSpeechRestartAtMs >
+        VoiceStreamGateway.SPEECH_STREAM_RESTART_WINDOW_MS
+    ) {
+      session.speechRestartCount = 0;
+    }
+    if (session.speechRestartCount >= VoiceStreamGateway.SPEECH_STREAM_RESTART_MAX) {
+      this.loggingService.warn(
+        {
+          event: "voice.stream.speech_restart_exhausted",
+          callSid: session.callSid,
+          streamSid: session.streamSid,
+          restartCount: session.speechRestartCount,
+          reason,
+        },
+        VoiceStreamGateway.name,
+      );
+      return false;
+    }
+
+    session.restartingSpeechStream = true;
+    try {
+      const nextSpeechStream =
+        this.googleSpeechService.createStreamingRecognizeStream();
+      if (!nextSpeechStream) {
+        this.loggingService.warn(
+          {
+            event: "voice.stream.speech_restart_failed",
+            callSid: session.callSid,
+            streamSid: session.streamSid,
+            reason,
+          },
+          VoiceStreamGateway.name,
+        );
+        return false;
+      }
+      this.closeSpeechStream(session.speechStream);
+      session.speechStream = nextSpeechStream;
+      session.speechRestartCount += 1;
+      session.lastSpeechRestartAtMs = nowMs;
+      this.attachSpeechStreamHandlers(client, session, nextSpeechStream);
+      this.loggingService.log(
+        {
+          event: "voice.stream.speech_restarted",
+          callSid: session.callSid,
+          streamSid: session.streamSid,
+          restartCount: session.speechRestartCount,
+          reason,
+        },
+        VoiceStreamGateway.name,
+      );
+      return true;
+    } finally {
+      session.restartingSpeechStream = false;
+    }
+  }
+
   private handleSpeechData(
     session: VoiceStreamSession,
     data: protos.google.cloud.speech.v1.IStreamingRecognizeResponse,
@@ -361,15 +479,18 @@ export class VoiceStreamGateway
     if (this.isFillerTranscript(transcript)) {
       return;
     }
+    const normalizedTranscript =
+      this.normalizeTranscriptForDeduplication(transcript);
     const now = Date.now();
     if (
-      session.lastTranscript === transcript &&
+      normalizedTranscript &&
+      session.lastTranscript === normalizedTranscript &&
       session.lastTranscriptAt &&
-      now - session.lastTranscriptAt < 1500
+      now - session.lastTranscriptAt < 3000
     ) {
       return;
     }
-    session.lastTranscript = transcript;
+    session.lastTranscript = normalizedTranscript || transcript;
     session.lastTranscriptAt = now;
     const confidence = alternative?.confidence ?? undefined;
     const sttFinalMs = session.lastMediaAtMs
@@ -592,24 +713,36 @@ export class VoiceStreamGateway
     );
   }
 
+  private normalizeTranscriptForDeduplication(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   private cleanupSession(client: WebSocket) {
     const session = this.sessions.get(client);
     if (session) {
       session.closed = true;
-      session.speechStream.removeAllListeners("data");
-      if (session.speechStream.listenerCount("error") === 0) {
-        // Keep a terminal error handler so late stream errors cannot crash Node.
-        session.speechStream.on("error", () => undefined);
-      }
-      try {
-        session.speechStream.end();
-      } catch {
-        // Stream may already be ended/destroyed.
-      }
+      this.closeSpeechStream(session.speechStream);
       if (this.callSessions.get(session.callSid) === client) {
         this.callSessions.delete(session.callSid);
       }
       this.sessions.delete(client);
+    }
+  }
+
+  private closeSpeechStream(stream: NodeJS.ReadWriteStream) {
+    stream.removeAllListeners("data");
+    stream.removeAllListeners("error");
+    // Keep a terminal error handler so late stream errors cannot crash Node.
+    stream.on("error", () => undefined);
+    try {
+      stream.end();
+    } catch {
+      // Stream may already be ended/destroyed.
     }
   }
 

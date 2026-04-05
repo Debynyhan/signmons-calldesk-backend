@@ -247,13 +247,15 @@ export class AiService {
           status: "reply" as const,
           reply: validation.reply,
         };
+        const shouldPersistVoiceOutbound =
+          options?.channel !== CommunicationChannel.VOICE;
 
         await this.callLogService.createLog({
           tenantId: safeTenantId,
           sessionId: safeSessionId,
           conversationId: conversation.id,
           transcript: userMessage,
-          aiResponse: validation.reply,
+          aiResponse: shouldPersistVoiceOutbound ? validation.reply : undefined,
           metadata: {
             sessionId: safeSessionId,
             openAIResponseId,

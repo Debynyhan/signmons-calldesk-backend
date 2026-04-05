@@ -325,6 +325,127 @@ describe("VoiceStreamGateway provider selection", () => {
     expect(() => stream.emit("error", new Error("late timeout"))).not.toThrow();
   });
 
+  it("restarts Google STT stream after recoverable 408 timeout", async () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+
+    const client = {
+      close: jest.fn(),
+    } as unknown as WebSocket;
+    const firstStream = new PassThrough();
+    const secondStream = new PassThrough();
+    tenantsService.getTenantById.mockResolvedValue({ id: "tenant-1" });
+    conversationsService.ensureVoiceConsentConversation.mockResolvedValue({
+      id: "conversation-1",
+    });
+    googleSpeechService.createStreamingRecognizeStream
+      .mockReturnValueOnce(firstStream)
+      .mockReturnValueOnce(secondStream);
+
+    await (gateway as any).handleStart(client, {
+      event: "start",
+      start: {
+        callSid: "CA123",
+        streamSid: "MZ123",
+        customParameters: { tenantId: "tenant-1" },
+      },
+    });
+
+    const timeoutError = Object.assign(
+      new Error("2 UNKNOWN: 408:Request Timeout"),
+      {
+        code: 2,
+        details: "408:Request Timeout",
+      },
+    );
+    firstStream.emit("error", timeoutError);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const activeSession = (gateway as any).sessions.get(client);
+    expect(activeSession?.speechStream).toBe(secondStream);
+    expect(client.close).not.toHaveBeenCalled();
+    expect(googleSpeechService.createStreamingRecognizeStream).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(loggingService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.stream.speech_restarted",
+        callSid: "CA123",
+        streamSid: "MZ123",
+        restartCount: 1,
+      }),
+      VoiceStreamGateway.name,
+    );
+    expect(() => firstStream.emit("error", new Error("late timeout"))).not.toThrow();
+  });
+
+  it("closes the socket when recoverable speech timeout cannot be restarted", async () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+
+    const client = {
+      close: jest.fn(),
+    } as unknown as WebSocket;
+    const firstStream = new PassThrough();
+    tenantsService.getTenantById.mockResolvedValue({ id: "tenant-1" });
+    conversationsService.ensureVoiceConsentConversation.mockResolvedValue({
+      id: "conversation-1",
+    });
+    googleSpeechService.createStreamingRecognizeStream
+      .mockReturnValueOnce(firstStream)
+      .mockReturnValueOnce(null);
+
+    await (gateway as any).handleStart(client, {
+      event: "start",
+      start: {
+        callSid: "CA123",
+        streamSid: "MZ123",
+        customParameters: { tenantId: "tenant-1" },
+      },
+    });
+
+    const timeoutError = Object.assign(
+      new Error("2 UNKNOWN: 408:Request Timeout"),
+      {
+        code: 2,
+        details: "408:Request Timeout",
+      },
+    );
+    firstStream.emit("error", timeoutError);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect((gateway as any).sessions.get(client)).toBeUndefined();
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.stream.speech_restart_failed",
+        callSid: "CA123",
+        streamSid: "MZ123",
+      }),
+      VoiceStreamGateway.name,
+    );
+  });
+
   it("uses <Say> when TTS provider is not Google", async () => {
     const gateway = new VoiceStreamGateway(
       buildConfig({
