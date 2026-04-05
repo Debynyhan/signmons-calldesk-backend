@@ -63,6 +63,8 @@ type VoiceStreamSession = {
   streamUrl: string;
   speechStream: NodeJS.ReadWriteStream;
   processing: boolean;
+  startedAtMs: number;
+  lastMediaAtMs?: number;
   lastTranscript?: string;
   lastTranscriptAt?: number;
   lastResponseText?: string;
@@ -250,10 +252,21 @@ export class VoiceStreamGateway
       streamUrl,
       speechStream,
       processing: false,
+      startedAtMs: Date.now(),
       closed: false,
     };
     this.sessions.set(client, session);
     this.callSessions.set(callSid, client);
+    this.loggingService.log(
+      {
+        event: "voice.stream.started",
+        callSid,
+        streamSid,
+        tenantId: tenant.id,
+        streamUrl,
+      },
+      VoiceStreamGateway.name,
+    );
 
     speechStream.on("data", (data) => {
       this.handleSpeechData(
@@ -285,6 +298,7 @@ export class VoiceStreamGateway
     if (!payload) {
       return;
     }
+    session.lastMediaAtMs = Date.now();
     const chunk = Buffer.from(payload, "base64");
     session.speechStream.write(chunk);
   }
@@ -332,18 +346,54 @@ export class VoiceStreamGateway
     session.lastTranscript = transcript;
     session.lastTranscriptAt = now;
     const confidence = alternative?.confidence ?? undefined;
-    void this.handleFinalTranscript(session, transcript, confidence);
+    const sttFinalMs = session.lastMediaAtMs
+      ? Math.max(0, now - session.lastMediaAtMs)
+      : Math.max(0, now - session.startedAtMs);
+    void this.handleFinalTranscript(session, transcript, confidence, sttFinalMs);
   }
 
   private async handleFinalTranscript(
     session: VoiceStreamSession,
     transcript: string,
     confidence?: number,
+    sttFinalMs?: number,
   ) {
     if (session.processing) {
       return;
     }
     session.processing = true;
+    const timingCollector = { aiMs: 0, aiCalls: 0 };
+    const turnStartedAt = Date.now();
+    let turnLogicMs = 0;
+    let ttsMs = 0;
+    let twilioUpdateMs = 0;
+    const logTurnTiming = (params: {
+      reason: string;
+      twilioUpdated: boolean;
+      usedGoogleTts?: boolean;
+      hangup?: boolean;
+    }) => {
+      this.loggingService.log(
+        {
+          event: "voice.stream.turn_timing",
+          tenantId: session.tenantId,
+          callSid: session.callSid,
+          streamSid: session.streamSid,
+          sttFinalMs: sttFinalMs ?? null,
+          turnLogicMs,
+          aiMs: timingCollector.aiMs,
+          aiCalls: timingCollector.aiCalls,
+          ttsMs,
+          twilioUpdateMs,
+          transcriptChars: transcript.length,
+          reason: params.reason,
+          twilioUpdated: params.twilioUpdated,
+          usedGoogleTts: params.usedGoogleTts ?? false,
+          hangup: params.hangup ?? false,
+        },
+        VoiceStreamGateway.name,
+      );
+    };
     try {
       const twiml = await runWithRequestContext(
         {
@@ -359,19 +409,28 @@ export class VoiceStreamGateway
             speechResult: transcript,
             confidence,
             requestId: session.leadId,
+            timingCollector,
           }),
       );
+      turnLogicMs = Math.max(0, Date.now() - turnStartedAt);
 
       const messages = extractSayMessages(twiml);
       if (!messages.length) {
+        logTurnTiming({
+          reason: "no_say_messages",
+          twilioUpdated: false,
+        });
         return;
       }
       const sayText = messages.join(" ");
-      const playUrlResult = this.shouldUseGoogleTts()
-        ? await this.googleTtsService.synthesizeToSignedUrl({
-            text: sayText,
-          })
-        : null;
+      let playUrlResult: { url: string; objectPath: string } | null = null;
+      if (this.shouldUseGoogleTts()) {
+        const ttsStartedAt = Date.now();
+        playUrlResult = await this.googleTtsService.synthesizeToSignedUrl({
+          text: sayText,
+        });
+        ttsMs = Math.max(0, Date.now() - ttsStartedAt);
+      }
       const hangup = hasHangup(twiml);
       const now = Date.now();
       if (!hangup) {
@@ -381,6 +440,12 @@ export class VoiceStreamGateway
           lastResponse.text === sayText &&
           now - lastResponse.at < 2000
         ) {
+          logTurnTiming({
+            reason: "duplicate_response_suppressed",
+            twilioUpdated: false,
+            usedGoogleTts: Boolean(playUrlResult?.url),
+            hangup,
+          });
           return;
         }
         if (
@@ -388,6 +453,12 @@ export class VoiceStreamGateway
           session.lastResponseAt &&
           now - session.lastResponseAt < 2000
         ) {
+          logTurnTiming({
+            reason: "duplicate_response_suppressed",
+            twilioUpdated: false,
+            usedGoogleTts: Boolean(playUrlResult?.url),
+            hangup,
+          });
           return;
         }
       }
@@ -404,13 +475,39 @@ export class VoiceStreamGateway
         track: this.config.voiceStreamingTrack,
       });
 
-      await this.voiceCallService.updateCallTwiml(
+      const twilioUpdateStartedAt = Date.now();
+      const twilioUpdated = await this.voiceCallService.updateCallTwiml(
         session.callSid,
         responseTwiml,
       );
+      twilioUpdateMs = Math.max(0, Date.now() - twilioUpdateStartedAt);
       session.lastResponseText = sayText;
       session.lastResponseAt = now;
       this.lastResponseByCall.set(session.callSid, { text: sayText, at: now });
+      logTurnTiming({
+        reason: twilioUpdated ? "twiml_updated" : "twiml_update_failed",
+        twilioUpdated,
+        usedGoogleTts: Boolean(playUrlResult?.url),
+        hangup,
+      });
+    } catch (error) {
+      turnLogicMs = turnLogicMs || Math.max(0, Date.now() - turnStartedAt);
+      this.loggingService.warn(
+        {
+          event: "voice.stream.turn_failed",
+          tenantId: session.tenantId,
+          callSid: session.callSid,
+          streamSid: session.streamSid,
+          sttFinalMs: sttFinalMs ?? null,
+          turnLogicMs,
+          aiMs: timingCollector.aiMs,
+          aiCalls: timingCollector.aiCalls,
+          ttsMs,
+          twilioUpdateMs,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+        VoiceStreamGateway.name,
+      );
     } finally {
       session.processing = false;
     }
