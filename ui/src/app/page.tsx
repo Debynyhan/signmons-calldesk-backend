@@ -17,27 +17,44 @@ type ConversationEntry = {
   timestamp: string;
 };
 
+type ReplyResponse = Extract<TriageResponse, { status: "reply" }>;
+type JobCreatedResponse = Extract<TriageResponse, { status: "job_created" }>;
+
+const isReplyResponse = (payload: TriageResponse): payload is ReplyResponse =>
+  typeof payload === "object" &&
+  payload !== null &&
+  "status" in payload &&
+  payload.status === "reply" &&
+  "reply" in payload;
+
+const isJobCreatedResponse = (
+  payload: TriageResponse,
+): payload is JobCreatedResponse =>
+  typeof payload === "object" &&
+  payload !== null &&
+  "status" in payload &&
+  payload.status === "job_created" &&
+  "job" in payload;
+
 const defaultInstructions =
   "Greet callers with a warm \"Thanks for calling Demo HVAC, this is your dispatcher\" intro. Collect contact info, classify the issue, and reassure them we handle everything. Be transparent about our $99 diagnostic/service fee and let callers know it is credited toward repairs if they approve work within 24 hours. Always look for tasteful upsell moments (maintenance plans, priority booking) after understanding their problem. Close with a concise summary of what will happen next.";
 
 const formatAssistantResponse = (payload: TriageResponse): string => {
-  if (payload && typeof payload === "object" && "status" in payload) {
-    if (payload.status === "reply") {
-      return payload.reply ?? "";
-    }
+  if (isReplyResponse(payload)) {
+    return payload.reply ?? "";
+  }
 
-    if (payload.status === "job_created") {
-      const job = payload.job;
-      return [
-        payload.message ?? "Job created successfully.",
-        job.customerName ? `Customer: ${job.customerName}` : null,
-        job.issueCategory ? `Category: ${job.issueCategory}` : null,
-        job.urgency ? `Urgency: ${job.urgency}` : null,
-        job.id ? `Job ID: ${job.id}` : null,
-      ]
-        .filter(Boolean)
-        .join(" • ");
-    }
+  if (isJobCreatedResponse(payload)) {
+    const job = payload.job;
+    return [
+      payload.message ?? "Job created successfully.",
+      job.customerName ? `Customer: ${job.customerName}` : null,
+      job.issueCategory ? `Category: ${job.issueCategory}` : null,
+      job.urgency ? `Urgency: ${job.urgency}` : null,
+      job.id ? `Job ID: ${job.id}` : null,
+    ]
+      .filter(Boolean)
+      .join(" • ");
   }
 
   return JSON.stringify(payload);
@@ -67,12 +84,7 @@ export default function Home() {
   const [lastResponse, setLastResponse] = useState<TriageResponse | null>(null);
 
   const lastJob = useMemo(() => {
-    if (
-      lastResponse &&
-      typeof lastResponse === "object" &&
-      "status" in lastResponse &&
-      lastResponse.status === "job_created"
-    ) {
+    if (lastResponse && isJobCreatedResponse(lastResponse)) {
       return lastResponse.job;
     }
     return null;

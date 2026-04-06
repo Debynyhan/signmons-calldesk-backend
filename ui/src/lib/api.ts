@@ -60,7 +60,7 @@ export class ApiError extends Error {
 
 async function postJson<T>(
   path: string,
-  body: JsonRecord,
+  body: unknown,
   headers: Record<string, string> = {},
 ): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
