@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
+import type { ConfigType } from "@nestjs/config";
 import appConfig from "../../config/app.config";
 import { ToolRegistryService } from "./tool.provider";
 import type { ChatCompletionTool } from "openai/resources/chat/completions/completions";

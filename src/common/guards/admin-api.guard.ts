@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Request } from "express";
-import { ConfigType } from "@nestjs/config";
+import type { ConfigType } from "@nestjs/config";
 import appConfig from "../../config/app.config";
 
 @Injectable()

@@ -5,7 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
-import { ConfigType } from "@nestjs/config";
+import type { ConfigType } from "@nestjs/config";
 import { PrismaClient } from "@prisma/client";
 import appConfig from "../config/app.config";
 
