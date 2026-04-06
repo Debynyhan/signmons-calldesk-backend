@@ -4446,17 +4446,22 @@ export class VoiceTurnService {
           addressState: params.addressState,
           collectedData: params.collectedData,
         });
-        return this.handleVoiceIssueCandidate({
-          res: params.res,
-          tenantId: params.tenantId,
-          callSid: params.callSid,
-          conversationId: params.conversationId,
-          issueCandidate: issueCandidate.value,
-          currentEventId: params.currentEventId,
-          displayName: params.displayName,
+        const feePolicy = includeFees
+          ? await this.getTenantFeePolicySafe(params.tenantId)
+          : null;
+        const smsMessage = this.buildSmsHandoffMessageForContext({
+          feePolicy,
           includeFees,
           isEmergency: this.isUrgencyEmergency(params.collectedData),
-          timingCollector: params.timingCollector,
+        });
+        return this.replyWithSmsHandoff({
+          res: params.res,
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          displayName: params.displayName,
+          reason: "post_side_question_sms_handoff",
+          messageOverride: smsMessage,
         });
       }
       const prompt = this.applyCsrStrategy(
