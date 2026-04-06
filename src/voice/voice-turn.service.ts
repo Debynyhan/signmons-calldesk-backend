@@ -1958,21 +1958,26 @@ export class VoiceTurnService {
           });
           const issueCandidate = this.getVoiceIssueCandidate(collectedData);
           if (issueCandidate?.value) {
-            const includeFees = this.shouldDiscloseFees({
-              nameState,
-              addressState,
-              collectedData,
-            });
-            return this.handleVoiceIssueCandidate({
+            return this.continueAfterSideQuestionWithIssueRouting({
               res,
               tenantId: tenant.id,
-              callSid,
               conversationId,
-              issueCandidate: issueCandidate.value,
-              currentEventId,
+              callSid,
               displayName,
-              includeFees,
-              isEmergency: this.isUrgencyEmergency(collectedData),
+              sideQuestionReply: "Perfect, thanks for confirming that.",
+              expectedField: null,
+              nameReady,
+              addressReady: true,
+              nameState,
+              addressState: {
+                ...addressState,
+                locked: true,
+                status: "CANDIDATE",
+                sourceEventId: currentEventId,
+              },
+              collectedData,
+              currentEventId,
+              strategy: csrStrategy,
               timingCollector,
             });
           }
@@ -2108,21 +2113,26 @@ export class VoiceTurnService {
             });
             const issueCandidate = this.getVoiceIssueCandidate(collectedData);
             if (issueCandidate?.value) {
-              const includeFees = this.shouldDiscloseFees({
-                nameState,
-                addressState,
-                collectedData,
-              });
-              return this.handleVoiceIssueCandidate({
+              return this.continueAfterSideQuestionWithIssueRouting({
                 res,
                 tenantId: tenant.id,
-                callSid,
                 conversationId,
-                issueCandidate: issueCandidate.value,
-                currentEventId,
+                callSid,
                 displayName,
-                includeFees,
-                isEmergency: this.isUrgencyEmergency(collectedData),
+                sideQuestionReply: "Perfect, thanks for confirming that.",
+                expectedField: null,
+                nameReady,
+                addressReady: true,
+                nameState,
+                addressState: {
+                  ...addressState,
+                  locked: true,
+                  status: "CANDIDATE",
+                  sourceEventId: currentEventId,
+                },
+                collectedData,
+                currentEventId,
+                strategy: csrStrategy,
                 timingCollector,
               });
             }
@@ -2445,21 +2455,26 @@ export class VoiceTurnService {
       });
       const issueCandidate = this.getVoiceIssueCandidate(collectedData);
       if (issueCandidate?.value) {
-        const includeFees = this.shouldDiscloseFees({
-          nameState,
-          addressState,
-          collectedData,
-        });
-        return this.handleVoiceIssueCandidate({
+        return this.continueAfterSideQuestionWithIssueRouting({
           res,
           tenantId: tenant.id,
-          callSid,
           conversationId,
-          issueCandidate: issueCandidate.value,
-          currentEventId,
+          callSid,
           displayName,
-          includeFees,
-          isEmergency: this.isUrgencyEmergency(collectedData),
+          sideQuestionReply: "Perfect, thanks for confirming that.",
+          expectedField: null,
+          nameReady,
+          addressReady: true,
+          nameState,
+          addressState: {
+            ...addressState,
+            locked: true,
+            status: "CANDIDATE",
+            sourceEventId: currentEventId,
+          },
+          collectedData,
+          currentEventId,
+          strategy: csrStrategy,
           timingCollector,
         });
       }
@@ -2767,7 +2782,7 @@ export class VoiceTurnService {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const core = `Thanks. I heard ${candidate}. I just need the service address to send the right tech. If that's right, say 'yes'. Otherwise, say the service address.`;
+    const core = `Thanks. I heard ${candidate}. If that's right, say 'yes'. If not, say what needs to be corrected.`;
     const message = this.applyCsrStrategy(
       strategy,
       this.withPrefix("Got it. ", core),
@@ -2779,7 +2794,7 @@ export class VoiceTurnService {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const core = `Thanks. I heard ${candidate}. I just need the service address to send the right tech. If that's right, say 'yes'. Otherwise, say the service address.`;
+    const core = `Thanks. I heard ${candidate}. If that's right, say 'yes'. If not, say what needs to be corrected.`;
     const message = this.applyCsrStrategy(
       strategy,
       this.withPrefix("Got it. ", core),
@@ -4003,7 +4018,11 @@ export class VoiceTurnService {
   }) {
     const timeoutSec =
       params.timeoutSec ??
-      (params.field === "address" || params.targetField === "address" ? 24 : 8);
+      (params.field === "address" || params.targetField === "address"
+        ? 24
+        : params.field === "sms_phone"
+          ? 20
+          : 8);
     const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
     await this.conversationsService.updateVoiceListeningWindow?.({
       tenantId: params.tenantId,
@@ -4591,6 +4610,9 @@ export class VoiceTurnService {
       "sure",
       "please",
       "go ahead",
+      "perfect",
+      "that's perfect",
+      "that is perfect",
     ].includes(normalized);
   }
 
