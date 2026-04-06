@@ -38,6 +38,7 @@ describe("VoiceStreamGateway provider selection", () => {
   };
   let voiceCallService: {
     updateCallTwiml: jest.Mock;
+    completeCall: jest.Mock;
   };
   let voiceTurnService: {
     handleStreamingTurn: jest.Mock;
@@ -68,6 +69,7 @@ describe("VoiceStreamGateway provider selection", () => {
     };
     voiceCallService = {
       updateCallTwiml: jest.fn().mockResolvedValue(true),
+      completeCall: jest.fn().mockResolvedValue(true),
     };
     voiceTurnService = {
       handleStreamingTurn: jest.fn().mockResolvedValue(
@@ -197,6 +199,93 @@ describe("VoiceStreamGateway provider selection", () => {
     const twiml = voiceCallService.updateCallTwiml.mock.calls[0]?.[1] as string;
     expect(twiml).toContain("<Say>Thanks for calling.</Say>");
     expect(twiml).not.toContain("<Play>");
+  });
+
+  it("keeps Google TTS playback for hangup turns when provider is selected", async () => {
+    const closingReply =
+      "Thanks for calling. Acme HVAC. Perfect. I'm texting you now to confirm your details so we can move forward. Goodbye.";
+    voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${closingReply}</Say><Hangup/></Response>`,
+    );
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "google",
+        voiceTtsShortSayMaxChars: 80,
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+    const session = {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      leadId: "lead-1",
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: new PassThrough(),
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    };
+
+    await (gateway as any).handleFinalTranscript(session, "done", 0.95);
+
+    expect(googleTtsService.synthesizeToObjectPath).toHaveBeenCalledTimes(1);
+    const twiml = voiceCallService.updateCallTwiml.mock.calls[0]?.[1] as string;
+    expect(twiml).toContain("<Play>");
+    expect(twiml).toContain("<Hangup/>");
+    expect(twiml).not.toContain("<Start><Stream");
+    expect(twiml).not.toContain("<Say>");
+  });
+
+  it("forces call completion when a hangup turn does not end immediately", async () => {
+    jest.useFakeTimers();
+    try {
+      voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
+        '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Closing now.</Say><Hangup/></Response>',
+      );
+      const gateway = new VoiceStreamGateway(
+        buildConfig({
+          voiceTtsProvider: "twilio",
+        }),
+        tenantsService as never,
+        conversationsService as never,
+        googleSpeechService as never,
+        googleTtsService as never,
+        voiceCallService as never,
+        voiceTurnService as never,
+        loggingService as never,
+      );
+      const session = {
+        callSid: "CA123",
+        streamSid: "MZ123",
+        tenantId: "tenant-1",
+        tenant: { id: "tenant-1" },
+        leadId: "lead-1",
+        streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+        speechStream: new PassThrough(),
+        processing: false,
+        startedAtMs: Date.now(),
+        closed: false,
+      };
+
+      await (gateway as any).handleFinalTranscript(session, "done", 0.95);
+      jest.advanceTimersByTime(11_999);
+      await Promise.resolve();
+      expect(voiceCallService.completeCall).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1);
+      await Promise.resolve();
+
+      expect(voiceCallService.completeCall).toHaveBeenCalledWith("CA123");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("reuses cached Google TTS URLs for identical text", async () => {

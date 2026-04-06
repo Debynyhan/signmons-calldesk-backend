@@ -55,9 +55,11 @@ export function buildStreamingTwiml(options: StreamingTwimlOptions): string {
         )}"/>`,
     )
     .join("");
-  const streamTag = `<Start><Stream url="${escapeXml(
-    options.streamUrl,
-  )}" track="${track}">${parameterTags}</Stream></Start>`;
+  const streamTag = options.hangup
+    ? ""
+    : `<Start><Stream url="${escapeXml(
+        options.streamUrl,
+      )}" track="${track}">${parameterTags}</Stream></Start>`;
   const playTag = options.playUrl
     ? `<Play>${escapeXml(options.playUrl)}</Play>`
     : options.sayText

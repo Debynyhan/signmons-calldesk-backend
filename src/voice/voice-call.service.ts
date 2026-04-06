@@ -36,6 +36,29 @@ export class VoiceCallService {
     }
   }
 
+  async completeCall(callSid: string): Promise<boolean> {
+    const client = this.getTwilioClient();
+    if (!client) {
+      this.loggingService.warn(
+        { event: "voice.call_complete_skipped", callSid },
+        VoiceCallService.name,
+      );
+      return false;
+    }
+
+    try {
+      await client.calls(callSid).update({ status: "completed" });
+      return true;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.loggingService.warn(
+        { event: "voice.call_complete_failed", callSid, reason },
+        VoiceCallService.name,
+      );
+      return false;
+    }
+  }
+
   private getTwilioClient(): Twilio | null {
     if (!this.config.twilioAccountSid || !this.config.twilioAuthToken) {
       return null;

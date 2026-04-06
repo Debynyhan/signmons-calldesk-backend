@@ -5,7 +5,7 @@ import type { PrismaService } from "../../prisma/prisma.service";
 describe("CallLogService", () => {
   let prisma: {
     communicationEvent: { create: jest.Mock };
-    communicationContent: { findMany: jest.Mock };
+    communicationContent: { findMany: jest.Mock; findFirst: jest.Mock };
   };
   let service: CallLogService;
 
@@ -16,6 +16,7 @@ describe("CallLogService", () => {
       },
       communicationContent: {
         findMany: jest.fn(),
+        findFirst: jest.fn(),
       },
     };
     service = new CallLogService(
@@ -85,5 +86,62 @@ describe("CallLogService", () => {
     });
     expect(payload).not.toHaveProperty("RecordingUrl");
     expect(payload).not.toHaveProperty("recordingUrl");
+  });
+
+  it("queries recent messages by session id or voice call sid", async () => {
+    prisma.communicationContent.findFirst.mockResolvedValue(null);
+    prisma.communicationContent.findMany.mockResolvedValue([]);
+
+    await service.getRecentMessages("tenant-1", "CA123", 10);
+
+    expect(prisma.communicationContent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: "tenant-1",
+          OR: expect.arrayContaining([
+            expect.objectContaining({
+              payload: {
+                path: ["sessionId"],
+                equals: "CA123",
+              },
+            }),
+            expect.objectContaining({
+              communicationEvent: {
+                channel: "VOICE",
+              },
+              payload: {
+                path: ["callSid"],
+                equals: "CA123",
+              },
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("stores voice assistant messages with session id for continuity", async () => {
+    prisma.communicationContent.findFirst.mockResolvedValue(null);
+    prisma.communicationEvent.create.mockResolvedValue({} as never);
+
+    await service.createVoiceAssistantLog({
+      tenantId: "tenant-1",
+      conversationId: "conv-1",
+      callSid: "CA123",
+      message: "Thanks. We'll text you next steps.",
+      sourceEventId: "evt-1",
+    });
+
+    const payload =
+      prisma.communicationEvent.create.mock.calls[0][0].data.content.create
+        .payload;
+    expect(payload).toMatchObject({
+      type: "message",
+      sessionId: "CA123",
+      callSid: "CA123",
+      message: "Thanks. We'll text you next steps.",
+      sourceEventId: "evt-1",
+      role: "assistant",
+    });
   });
 });

@@ -83,10 +83,23 @@ export class CallLogService {
       where: {
         tenantId,
         createdAt: lastClosedAt ? { gt: lastClosedAt } : undefined,
-        payload: {
-          path: ["sessionId"],
-          equals: sessionId,
-        },
+        OR: [
+          {
+            payload: {
+              path: ["sessionId"],
+              equals: sessionId,
+            },
+          },
+          {
+            communicationEvent: {
+              channel: CommunicationChannel.VOICE,
+            },
+            payload: {
+              path: ["callSid"],
+              equals: sessionId,
+            },
+          },
+        ],
         AND: [
           {
             payload: {
@@ -204,6 +217,7 @@ export class CallLogService {
 
     const payload: Prisma.InputJsonValue = {
       type: "message",
+      sessionId: input.callSid,
       callSid: input.callSid,
       message: sanitizedMessage,
       sourceEventId: input.sourceEventId ?? null,

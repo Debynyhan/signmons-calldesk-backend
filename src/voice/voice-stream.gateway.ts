@@ -81,6 +81,9 @@ type VoiceStreamSession = {
   speechRestartCount: number;
   lastSpeechRestartAtMs?: number;
   restartingSpeechStream?: boolean;
+  hangupRequestedAtMs?: number;
+  forceHangupScheduled?: boolean;
+  forceHangupDelayMs?: number;
   closed: boolean;
 };
 
@@ -92,6 +95,9 @@ export class VoiceStreamGateway
   private static readonly TTS_SIGNED_URL_CACHE_MAX = 200;
   private static readonly SPEECH_STREAM_RESTART_MAX = 3;
   private static readonly SPEECH_STREAM_RESTART_WINDOW_MS = 60_000;
+  private static readonly HANGUP_FORCE_CLOSE_MIN_DELAY_MS = 12_000;
+  private static readonly HANGUP_FORCE_CLOSE_MAX_DELAY_MS = 30_000;
+  private static readonly HANGUP_FORCE_CLOSE_BUFFER_MS = 3_000;
 
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
   private readonly callSessions = new Map<string, WebSocket>();
@@ -124,6 +130,28 @@ export class VoiceStreamGateway
   }
 
   handleDisconnect(client: WebSocket) {
+    const session = this.sessions.get(client);
+    if (session) {
+      const callEndedAt = new Date().toISOString();
+      const hangupRequestedAt = session.hangupRequestedAtMs
+        ? new Date(session.hangupRequestedAtMs).toISOString()
+        : null;
+      const hangupToEndMs = session.hangupRequestedAtMs
+        ? Math.max(0, Date.now() - session.hangupRequestedAtMs)
+        : null;
+      this.loggingService.log(
+        {
+          event: "voice.stream.call_ended",
+          callSid: session.callSid,
+          streamSid: session.streamSid,
+          call_ended_at: callEndedAt,
+          hangup_requested_at: hangupRequestedAt,
+          hangup_to_end_ms: hangupToEndMs,
+          source: "disconnect",
+        },
+        VoiceStreamGateway.name,
+      );
+    }
     this.cleanupSession(client);
   }
 
@@ -315,11 +343,22 @@ export class VoiceStreamGateway
     if (!session) {
       return;
     }
+    const callEndedAt = new Date().toISOString();
+    const hangupRequestedAt = session.hangupRequestedAtMs
+      ? new Date(session.hangupRequestedAtMs).toISOString()
+      : null;
+    const hangupToEndMs = session.hangupRequestedAtMs
+      ? Math.max(0, Date.now() - session.hangupRequestedAtMs)
+      : null;
     this.loggingService.log(
       {
-        event: "voice.stream.stopped",
+        event: "voice.stream.call_ended",
         callSid: message.stop.callSid ?? session.callSid,
         streamSid: message.stop.streamSid ?? session.streamSid,
+        call_ended_at: callEndedAt,
+        hangup_requested_at: hangupRequestedAt,
+        hangup_to_end_ms: hangupToEndMs,
+        source: "stop",
       },
       VoiceStreamGateway.name,
     );
@@ -587,6 +626,22 @@ export class VoiceStreamGateway
         return;
       }
       const sayText = messages.join(" ");
+      const hangup = hasHangup(twiml);
+      if (hangup) {
+        session.hangupRequestedAtMs = Date.now();
+        this.loggingService.log(
+          {
+            event: "voice.stream.hangup_requested",
+            tenantId: session.tenantId,
+            callSid: session.callSid,
+            streamSid: session.streamSid,
+            hangup_requested_at: new Date(
+              session.hangupRequestedAtMs,
+            ).toISOString(),
+          },
+          VoiceStreamGateway.name,
+        );
+      }
       const useGoogleTts = this.shouldUseGoogleTtsForText(sayText);
       let ttsCacheHit = false;
       let playUrlResult: { url: string; objectPath: string } | null = null;
@@ -597,41 +652,7 @@ export class VoiceStreamGateway
         ttsCacheHit = ttsResult?.cacheHit ?? false;
         ttsMs = Math.max(0, Date.now() - ttsStartedAt);
       }
-      const hangup = hasHangup(twiml);
       const now = Date.now();
-      if (!hangup) {
-        const lastResponse = this.lastResponseByCall.get(session.callSid);
-        if (
-          lastResponse &&
-          lastResponse.text === sayText &&
-          now - lastResponse.at < 2000
-        ) {
-          logTurnTiming({
-            reason: "duplicate_response_suppressed",
-            twilioUpdated: false,
-            usedGoogleTts: Boolean(playUrlResult?.url),
-            ttsCacheHit,
-            ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
-            hangup,
-          });
-          return;
-        }
-        if (
-          session.lastResponseText === sayText &&
-          session.lastResponseAt &&
-          now - session.lastResponseAt < 2000
-        ) {
-          logTurnTiming({
-            reason: "duplicate_response_suppressed",
-            twilioUpdated: false,
-            usedGoogleTts: Boolean(playUrlResult?.url),
-            ttsCacheHit,
-            ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
-            hangup,
-          });
-          return;
-        }
-      }
       const responseTwiml = buildStreamingTwiml({
         streamUrl: session.streamUrl,
         streamParams: {
@@ -654,6 +675,9 @@ export class VoiceStreamGateway
       session.lastResponseText = sayText;
       session.lastResponseAt = now;
       this.lastResponseByCall.set(session.callSid, { text: sayText, at: now });
+      if (hangup) {
+        this.scheduleForcedHangupIfNeeded(session, sayText);
+      }
       logTurnTiming({
         reason: twilioUpdated ? "twiml_updated" : "twiml_update_failed",
         twilioUpdated,
@@ -708,6 +732,13 @@ export class VoiceStreamGateway
     if (normalized.length <= 2) {
       return true;
     }
+    if (
+      /^(i just|just|i was|because|and|but|so|well|uh|um|hmm)$/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
     return /\b(hold on|hang on|one sec|one second|just a sec|give me a sec|wait|um|uh|hmm|thank you for calling|this call may be recorded|this call may be transcribed)\b/.test(
       normalized,
     );
@@ -743,6 +774,92 @@ export class VoiceStreamGateway
       stream.end();
     } catch {
       // Stream may already be ended/destroyed.
+    }
+  }
+
+  private estimateHangupForceDelayMs(text: string): number {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return VoiceStreamGateway.HANGUP_FORCE_CLOSE_MIN_DELAY_MS;
+    }
+    const wordCount = normalized.split(" ").filter(Boolean).length;
+    const speechMs = Math.round((wordCount / 2.4) * 1000);
+    const withBuffer = speechMs + VoiceStreamGateway.HANGUP_FORCE_CLOSE_BUFFER_MS;
+    return Math.min(
+      VoiceStreamGateway.HANGUP_FORCE_CLOSE_MAX_DELAY_MS,
+      Math.max(VoiceStreamGateway.HANGUP_FORCE_CLOSE_MIN_DELAY_MS, withBuffer),
+    );
+  }
+
+  private scheduleForcedHangupIfNeeded(
+    session: VoiceStreamSession,
+    closingText: string,
+  ): void {
+    if (session.closed || session.forceHangupScheduled) {
+      return;
+    }
+    session.forceHangupScheduled = true;
+    const delayMs = this.estimateHangupForceDelayMs(closingText);
+    session.forceHangupDelayMs = delayMs;
+    this.loggingService.log(
+      {
+        event: "voice.stream.hangup_force_scheduled",
+        callSid: session.callSid,
+        streamSid: session.streamSid,
+        hangup_requested_at: session.hangupRequestedAtMs
+          ? new Date(session.hangupRequestedAtMs).toISOString()
+          : null,
+        force_delay_ms: delayMs,
+      },
+      VoiceStreamGateway.name,
+    );
+    const timer = setTimeout(() => {
+      if (session.closed) {
+        return;
+      }
+      const now = Date.now();
+      const hangupRequestedAt = session.hangupRequestedAtMs ?? now;
+      const elapsedMs = Math.max(0, now - hangupRequestedAt);
+      void this.voiceCallService
+        .completeCall(session.callSid)
+        .then((completed) => {
+          this.loggingService.log(
+            {
+              event: "voice.stream.hangup_force_result",
+              callSid: session.callSid,
+              streamSid: session.streamSid,
+              completed,
+              hangup_requested_at: new Date(hangupRequestedAt).toISOString(),
+              force_attempted_at: new Date(now).toISOString(),
+              hangup_to_force_attempt_ms: elapsedMs,
+              force_delay_ms: delayMs,
+            },
+            VoiceStreamGateway.name,
+          );
+        })
+        .catch((error: unknown) => {
+          this.loggingService.warn(
+            {
+              event: "voice.stream.hangup_force_result",
+              callSid: session.callSid,
+              streamSid: session.streamSid,
+              completed: false,
+              reason: error instanceof Error ? error.message : String(error),
+              hangup_requested_at: new Date(hangupRequestedAt).toISOString(),
+              force_attempted_at: new Date(now).toISOString(),
+              hangup_to_force_attempt_ms: elapsedMs,
+              force_delay_ms: delayMs,
+            },
+            VoiceStreamGateway.name,
+          );
+        })
+        .finally(() => {
+          session.forceHangupScheduled = false;
+          session.forceHangupDelayMs = undefined;
+        });
+    }, delayMs);
+    if (typeof (timer as NodeJS.Timeout).unref === "function") {
+      (timer as NodeJS.Timeout).unref();
     }
   }
 

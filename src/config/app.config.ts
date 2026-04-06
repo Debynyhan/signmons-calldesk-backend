@@ -199,7 +199,7 @@ export default registerAs("app", (): AppConfig => {
     voiceSttProvider,
     voiceTtsProvider,
     voiceTtsShortSayMaxChars: Number(
-      process.env.VOICE_TTS_SHORT_SAY_MAX_CHARS ?? 0,
+      process.env.VOICE_TTS_SHORT_SAY_MAX_CHARS ?? 140,
     ),
     addressValidationProvider:
       (process.env.ADDRESS_VALIDATION_PROVIDER ?? "none").toLowerCase() ===
