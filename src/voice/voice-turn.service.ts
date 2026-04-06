@@ -15,6 +15,11 @@ import { AiService } from "../ai/ai.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
 import {
+  buildIssueSlotPrompt,
+  ISSUE_SLOT_SMS_DEFER_MESSAGE,
+} from "./intake/issue-slot.policy";
+import { reduceIssueSlot } from "./intake/voice-intake.reducer";
+import {
   getRequestContext,
   setRequestContextData,
 } from "../common/context/request-context";
@@ -86,6 +91,7 @@ export class VoiceTurnService {
     string,
     { twiml: string; at: number }
   >();
+  private readonly issuePromptAttemptsByCall = new Map<string, number>();
 
   constructor(
     @Inject(appConfig.KEY)
@@ -633,6 +639,9 @@ export class VoiceTurnService {
     const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
     const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
     const hasIssueCandidate = this.isLikelyIssueCandidate(issueCandidate);
+    if (existingIssueCandidate?.value || hasIssueCandidate) {
+      this.clearIssuePromptAttempts(callSid);
+    }
     const comfortRiskSnapshot =
       this.conversationsService.getVoiceComfortRisk(collectedData);
     if (hasIssueCandidate && !existingIssueCandidate?.value) {
@@ -845,6 +854,7 @@ export class VoiceTurnService {
     }
 
     if (this.isHangupRequest(normalizedSpeech)) {
+      this.clearIssuePromptAttempts(callSid);
       return this.replyWithTwiml(
         res,
         this.buildTwiml(
@@ -862,6 +872,36 @@ export class VoiceTurnService {
         targetField: "callback",
         sourceEventId: currentEventId,
         twiml: this.buildCallbackOfferTwiml(csrStrategy),
+      });
+    }
+    if (this.isSmsDifferentNumberRequest(normalizedSpeech)) {
+      await this.conversationsService.updateVoiceSmsHandoff({
+        tenantId: tenant.id,
+        conversationId,
+        handoff: {
+          reason: "sms_number_change_requested",
+          messageOverride: null,
+          createdAt: new Date().toISOString(),
+        },
+      });
+      await this.conversationsService.updateVoiceSmsPhoneState({
+        tenantId: tenant.id,
+        conversationId,
+        phoneState: {
+          ...phoneState,
+          confirmed: false,
+          confirmedAt: null,
+          attemptCount: 0,
+          lastPromptedAt: new Date().toISOString(),
+        },
+      });
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "sms_phone",
+        sourceEventId: currentEventId,
+        twiml: this.buildAskSmsNumberTwiml(csrStrategy),
       });
     }
 
@@ -882,22 +922,71 @@ export class VoiceTurnService {
         return apologyReply;
       }
       const issueForFrustration = this.getVoiceIssueCandidate(collectedData);
-      if (!issueForFrustration?.value && nameReady && addressReady) {
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml(
-            "I hear you, and I'm sorry for the repeat. In a few words, what's the main issue, like no heat or leaking water?",
-          ),
+      if (!nameReady) {
+        const baseTwiml = this.buildAskNameTwiml(csrStrategy);
+        const twiml = this.prependPrefaceToGatherTwiml(
+          "Sorry about that.",
+          baseTwiml,
         );
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "name",
+          sourceEventId: currentEventId,
+          twiml,
+        });
       }
-      return this.replyWithListeningWindow({
+      if (!addressReady) {
+        const baseTwiml = this.buildAddressPromptForState(
+          addressState,
+          csrStrategy,
+        );
+        const twiml = this.prependPrefaceToGatherTwiml(
+          "Sorry about that.",
+          baseTwiml,
+        );
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "address",
+          sourceEventId: currentEventId,
+          twiml,
+        });
+      }
+      if (!issueForFrustration?.value && nameReady && addressReady) {
+        return this.replyWithIssueCaptureRecovery({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          displayName,
+          nameState,
+          addressState,
+          collectedData,
+          strategy: csrStrategy,
+          reason: "frustration_missing_issue",
+          promptPrefix: "I hear you, and I'm sorry for the repeat.",
+          transcript: normalizedSpeech,
+        });
+      }
+      return this.continueAfterSideQuestionWithIssueRouting({
         res,
         tenantId: tenant.id,
         conversationId,
-        field: "confirmation",
-        targetField: "callback",
-        sourceEventId: currentEventId,
-        twiml: this.buildCallbackOfferTwiml(csrStrategy),
+        callSid,
+        displayName,
+        sideQuestionReply: "I hear you.",
+        expectedField: null,
+        nameReady,
+        addressReady,
+        nameState,
+        addressState,
+        collectedData,
+        currentEventId,
+        strategy: csrStrategy,
+        timingCollector,
       });
     }
 
@@ -1333,6 +1422,16 @@ export class VoiceTurnService {
       }
 
       if (isOpeningTurn) {
+        if (this.isOpeningGreetingOnly(normalizedSpeech)) {
+          return replyWithNameTwiml(
+            this.buildSayGatherTwiml(
+              this.applyCsrStrategy(
+                csrStrategy,
+                "I'm here to help. Please say your full name and briefly what's going on with the system.",
+              ),
+            ),
+          );
+        }
         const openingCandidate =
           this.extractNameCandidateDeterministic(normalizedSpeech);
         const hasOpeningName =
@@ -1342,6 +1441,7 @@ export class VoiceTurnService {
         const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
         const hasIssue = this.isLikelyIssueCandidate(issueCandidate);
         if (hasIssue) {
+          this.clearIssuePromptAttempts(callSid);
           await this.conversationsService.updateVoiceIssueCandidate({
             tenantId: tenant.id,
             conversationId,
@@ -2554,9 +2654,14 @@ export class VoiceTurnService {
     }
 
     const persistedIssueCandidate = this.getVoiceIssueCandidate(collectedData);
-    if (!persistedIssueCandidate?.value && nameReady && addressReady) {
+    let effectiveIssueCandidate = persistedIssueCandidate?.value ?? null;
+    if (effectiveIssueCandidate) {
+      this.clearIssuePromptAttempts(callSid);
+    }
+    if (!effectiveIssueCandidate && nameReady && addressReady) {
       const issueFromTurn = this.normalizeIssueCandidate(normalizedSpeech);
       if (this.isLikelyIssueCandidate(issueFromTurn)) {
+        this.clearIssuePromptAttempts(callSid);
         await this.conversationsService.updateVoiceIssueCandidate({
           tenantId: tenant.id,
           conversationId,
@@ -2566,14 +2671,24 @@ export class VoiceTurnService {
             createdAt: new Date().toISOString(),
           },
         });
+        effectiveIssueCandidate = issueFromTurn;
       } else if (!this.isLikelyQuestion(normalizedSpeech)) {
-        const prompt = this.isIssueRepeatComplaint(normalizedSpeech)
-          ? "I hear you, and I'm sorry for the repeat. In a few words, what's the main issue, like no heat or leaking water?"
-          : "In a few words, what's the main issue, like no heat or leaking water?";
-        return this.replyWithTwiml(
+        return this.replyWithIssueCaptureRecovery({
           res,
-          this.buildSayGatherTwiml(this.applyCsrStrategy(csrStrategy, prompt)),
-        );
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          displayName,
+          nameState,
+          addressState,
+          collectedData,
+          strategy: csrStrategy,
+          reason: "missing_issue_after_address",
+          promptPrefix: this.isIssueRepeatComplaint(normalizedSpeech)
+            ? "I hear you, and I'm sorry for the repeat."
+            : undefined,
+          transcript: normalizedSpeech,
+        });
       }
     }
 
@@ -2615,25 +2730,34 @@ export class VoiceTurnService {
           });
         }
         if (
-          persistedIssueCandidate?.value &&
-          this.isIssueCollectionPrompt(safeReply)
+          nameReady &&
+          addressReady &&
+          effectiveIssueCandidate &&
+          (this.isIssueCollectionPrompt(safeReply) ||
+            this.isIssueReconfirmationPrompt(safeReply))
         ) {
-          return this.continueAfterSideQuestionWithIssueRouting({
+          const includeFees = this.shouldDiscloseFees({
+            nameState,
+            addressState,
+            collectedData,
+            currentSpeech: effectiveIssueCandidate,
+          });
+          const feePolicy = includeFees
+            ? await this.getTenantFeePolicySafe(tenant.id)
+            : null;
+          const smsMessage = this.buildSmsHandoffMessageForContext({
+            feePolicy,
+            includeFees,
+            isEmergency: this.isUrgencyEmergency(collectedData),
+          });
+          return this.replyWithSmsHandoff({
             res,
             tenantId: tenant.id,
             conversationId,
             callSid,
             displayName,
-            sideQuestionReply: "Got it.",
-            expectedField: null,
-            nameReady,
-            addressReady,
-            nameState,
-            addressState,
-            collectedData,
-            currentEventId,
-            strategy: csrStrategy,
-            timingCollector,
+            reason: "ai_issue_reconfirm_guard",
+            messageOverride: smsMessage,
           });
         }
         if (this.shouldGatherMore(safeReply)) {
@@ -2966,7 +3090,7 @@ export class VoiceTurnService {
   }
 
   private buildSmsHandoffMessage(): string {
-    return "Perfect. To make sure everything's accurate, I'll send you a quick text to confirm your name and details. Once that's done, we'll move forward.";
+    return "Perfect. I'm texting you now to confirm your details so we can move forward. Goodbye.";
   }
 
   private buildSmsHandoffMessageWithFees(params: {
@@ -2991,7 +3115,7 @@ export class VoiceTurnService {
         : "Because this is urgent, an additional emergency fee applies. The emergency fee is not credited."
       : "";
     const approvalTarget = params.isEmergency ? "the fees" : "the service fee";
-    const smsLine = `I'll text you to confirm your details and approve ${approvalTarget} so we can move forward.`;
+    const smsLine = `I'm texting you now to confirm your details and approve ${approvalTarget} so we can move forward. Goodbye.`;
     return `Perfect. ${serviceLine}${emergencyLine ? ` ${emergencyLine}` : ""} ${smsLine}`.trim();
   }
 
@@ -3007,6 +3131,28 @@ export class VoiceTurnService {
       feePolicy: params.feePolicy,
       isEmergency: params.isEmergency,
     });
+  }
+
+  private async resolveSmsHandoffClosingMessage(params: {
+    tenantId: string;
+    collectedData: unknown;
+    messageOverride?: string;
+  }): Promise<string> {
+    const feePolicy = await this.getTenantFeePolicySafe(params.tenantId);
+    const fallbackMessage = this.buildSmsHandoffMessageWithFees({
+      feePolicy,
+      isEmergency: this.isUrgencyEmergency(params.collectedData),
+    });
+    const override = params.messageOverride?.trim();
+    if (!override) {
+      return fallbackMessage;
+    }
+    const hasFeeLanguage =
+      /\b(service fee|emergency fee|credited toward repairs|fee applies|approve (?:the )?fees|approve (?:the )?service fee)\b/i.test(
+        override,
+      );
+    const hasTextLanguage = /\btext(?:ing)? you\b/i.test(override);
+    return hasFeeLanguage && hasTextLanguage ? override : fallbackMessage;
   }
 
   private buildClosingTwiml(displayName: string, message: string): string {
@@ -3053,6 +3199,7 @@ export class VoiceTurnService {
     reason: string;
     messageOverride?: string;
   }) {
+    this.clearIssuePromptAttempts(params.callSid);
     const conversation = await this.conversationsService.getConversationById({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
@@ -3062,11 +3209,44 @@ export class VoiceTurnService {
         conversation.collectedData,
       );
       if (!phoneState.confirmed) {
-        await this.conversationsService.updateVoiceSmsHandoff({
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          handoff: {
-            reason: params.reason,
+        const callerPhone = this.getCallerPhoneFromCollectedData(
+          conversation.collectedData,
+        );
+        const fallbackPhone = phoneState.value ?? callerPhone;
+        if (fallbackPhone) {
+          await this.conversationsService.updateVoiceSmsPhoneState({
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            phoneState: {
+              ...phoneState,
+              value: fallbackPhone,
+              source: phoneState.source ?? "twilio_ani",
+              confirmed: true,
+              confirmedAt: new Date().toISOString(),
+              attemptCount: 0,
+              lastPromptedAt: phoneState.lastPromptedAt ?? null,
+            },
+          });
+          await this.conversationsService.clearVoiceSmsHandoff({
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+          });
+          this.loggingService.log(
+            {
+              event: "voice.sms_phone_auto_confirmed",
+              tenantId: params.tenantId,
+              conversationId: params.conversationId,
+              callSid: params.callSid,
+              source: phoneState.source ?? "twilio_ani",
+            },
+            VoiceTurnService.name,
+          );
+        } else {
+          await this.conversationsService.updateVoiceSmsHandoff({
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            handoff: {
+              reason: params.reason,
             messageOverride: params.messageOverride ?? null,
             createdAt: new Date().toISOString(),
           },
@@ -3097,9 +3277,25 @@ export class VoiceTurnService {
           sourceEventId,
           twiml: this.buildAskSmsNumberTwiml(),
         });
+        }
       }
     }
 
+    await this.conversationsService.clearVoiceSmsHandoff({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+    });
+    const smsHandoffStartedAt = new Date().toISOString();
+    this.loggingService.log(
+      {
+        event: "voice.sms_handoff_started",
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        sms_handoff_started_at: smsHandoffStartedAt,
+      },
+      VoiceTurnService.name,
+    );
     this.logVoiceOutcome({
       outcome: "sms_handoff",
       tenantId: params.tenantId,
@@ -3107,11 +3303,16 @@ export class VoiceTurnService {
       callSid: params.callSid,
       reason: params.reason,
     });
+    const closingMessage = await this.resolveSmsHandoffClosingMessage({
+      tenantId: params.tenantId,
+      collectedData: conversation?.collectedData,
+      messageOverride: params.messageOverride,
+    });
     return this.replyWithTwiml(
       params.res,
       this.buildClosingTwiml(
         params.displayName,
-        params.messageOverride ?? this.buildSmsHandoffMessage(),
+        closingMessage,
       ),
     );
   }
@@ -3132,6 +3333,7 @@ export class VoiceTurnService {
       callSid: params.callSid,
       reason: params.reason,
     });
+    this.clearIssuePromptAttempts(params.callSid);
     const message = params.messageOverride ?? "We'll follow up shortly.";
     return this.replyWithTwiml(
       params.res,
@@ -3154,6 +3356,7 @@ export class VoiceTurnService {
       callSid: params.callSid,
       reason: params.reason,
     });
+    this.clearIssuePromptAttempts(params.callSid);
     return this.replyWithTwiml(
       params.res,
       params.twimlOverride ?? this.unroutableTwiml(),
@@ -3264,17 +3467,22 @@ export class VoiceTurnService {
         addressState: nextAddressState,
         collectedData: params.collectedData,
       });
-      return this.handleVoiceIssueCandidate({
-        res: params.res,
-        tenantId: params.tenantId,
-        callSid: params.callSid,
-        conversationId: params.conversationId,
-        issueCandidate: issueCandidate.value,
-        currentEventId: params.currentEventId,
-        displayName: params.displayName,
+      const feePolicy = includeFees
+        ? await this.getTenantFeePolicySafe(params.tenantId)
+        : null;
+      const smsMessage = this.buildSmsHandoffMessageForContext({
+        feePolicy,
         includeFees,
         isEmergency: this.isUrgencyEmergency(params.collectedData),
-        timingCollector: params.timingCollector,
+      });
+      return this.replyWithSmsHandoff({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        displayName: params.displayName,
+        reason: "address_deferred_sms_handoff",
+        messageOverride: smsMessage,
       });
     }
 
@@ -3364,7 +3572,7 @@ export class VoiceTurnService {
       return false;
     }
     const normalized = value.toLowerCase();
-    return /\b(furnace|heat|heating|no heat|ac|air conditioning|cooling|no ac|hvac)\b/.test(
+    return /\b(furnace|heat|heating|no heat|cold air|blowing cold|no cool(?:ing)?|no ac|ac|air conditioning|cooling|hvac)\b/.test(
       normalized,
     );
   }
@@ -3460,6 +3668,30 @@ export class VoiceTurnService {
     ) {
       return true;
     }
+    if (
+      /\b(need|send|dispatch|book|schedule|someone|technician|tech)\b.*\b(come|come out|check|look|repair|fix|service|help)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    if (
+      /\b(won'?t (?:turn on|start)|not (?:coming on|turning on|working)|blowing (?:cold|hot) air|no airflow|making (?:a )?(?:loud )?noise|water (?:on|around) (?:the )?(?:unit|furnace|system|floor)|smell(?:ing)? gas)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    if (
+      /\b(thermostat|pilot|compressor|blower|fan|hot water|frozen|ice)\b/.test(
+        normalized,
+      ) &&
+      /\b(no|not|won'?t|stopped|broken|issue|problem|acting up)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
     return /\bac\b/.test(normalized);
   }
 
@@ -3468,7 +3700,7 @@ export class VoiceTurnService {
       return false;
     }
     const normalized = value.toLowerCase();
-    return /(i told you|already told you|i already said|you asked (me )?already|you keep asking|stop asking|asked that already)/.test(
+    return /(i told you|already told you|i already said|you asked (me )?already|you keep asking|you keep repeating|stop asking|asked that already|you asked this already|you already asked)/.test(
       normalized,
     );
   }
@@ -3490,7 +3722,8 @@ export class VoiceTurnService {
       this.isVoiceFieldReady(
         params.addressState.locked,
         params.addressState.confirmed,
-      );
+      ) ||
+      Boolean(params.addressState.smsConfirmNeeded);
     if (!nameReady || !addressReady) {
       return false;
     }
@@ -3531,6 +3764,28 @@ export class VoiceTurnService {
       );
       if (aiResult.status === "reply" && "reply" in aiResult) {
         const safeReply = this.capAiReply(aiResult.reply ?? "");
+        if (
+          this.isIssueCollectionPrompt(safeReply) ||
+          this.isIssueReconfirmationPrompt(safeReply)
+        ) {
+          const feePolicy = params.includeFees
+            ? await this.getTenantFeePolicySafe(params.tenantId)
+            : null;
+          const smsMessage = this.buildSmsHandoffMessageForContext({
+            feePolicy,
+            includeFees: params.includeFees,
+            isEmergency: params.isEmergency,
+          });
+          return this.replyWithSmsHandoff({
+            res: params.res,
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            callSid: params.callSid,
+            displayName: params.displayName,
+            reason: "issue_candidate_reconfirm_guard",
+            messageOverride: smsMessage,
+          });
+        }
         if (this.shouldGatherMore(safeReply)) {
           return this.replyWithTwiml(
             params.res,
@@ -3620,6 +3875,25 @@ export class VoiceTurnService {
       return false;
     }
     return /\b(main issue|brief description|short summary|describe (?:the )?issue|what(?:'s| is) (?:the )?issue|what(?:'s| is) (?:been )?going on with (?:the )?(?:system|unit)|what seems to be the issue)\b/.test(
+      normalized,
+    );
+  }
+
+  private isIssueReconfirmationPrompt(reply: string): boolean {
+    const normalized = this.normalizeConfirmationUtterance(reply);
+    if (!normalized) {
+      return false;
+    }
+    const hasIssuePhrase =
+      /\b(issue|problem|heating|cooling|furnace|ac|air conditioning|no heat|no ac|cold air|leak|electrical|plumbing)\b/.test(
+        normalized,
+      ) && /\b(sound|seem|dealing with|experiencing|having|might be)\b/.test(
+        normalized,
+      );
+    if (!hasIssuePhrase) {
+      return false;
+    }
+    return /\b(is that correct|is this correct|can you confirm|does that sound right|is that right|right\?)\b/.test(
       normalized,
     );
   }
@@ -3979,6 +4253,7 @@ export class VoiceTurnService {
       this.isSlowDownRequest(normalized) ||
       this.isFrustrationRequest(normalized) ||
       this.isHumanTransferRequest(normalized) ||
+      this.isSmsDifferentNumberRequest(normalized) ||
       this.isHangupRequest(normalized)
     ) {
       return false;
@@ -4585,6 +4860,7 @@ export class VoiceTurnService {
     if (params.nameReady && params.addressReady) {
       const issueCandidate = this.getVoiceIssueCandidate(params.collectedData);
       if (issueCandidate?.value) {
+        this.clearIssuePromptAttempts(params.callSid);
         const includeFees = this.shouldDiscloseFees({
           nameState: params.nameState,
           addressState: params.addressState,
@@ -4608,16 +4884,142 @@ export class VoiceTurnService {
           messageOverride: smsMessage,
         });
       }
-      const prompt = this.applyCsrStrategy(
-        params.strategy,
-        "In a few words, what's the main issue, like no heat or leaking water?",
-      );
-      return this.replyWithTwiml(params.res, this.buildSayGatherTwiml(prompt));
+      return this.replyWithIssueCaptureRecovery({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        displayName: params.displayName,
+        nameState: params.nameState,
+        addressState: params.addressState,
+        collectedData: params.collectedData,
+        strategy: params.strategy,
+        reason: "missing_issue_post_side_question",
+      });
     }
 
     return this.replyWithTwiml(
       params.res,
       this.buildSayGatherTwiml("How can I help?"),
+    );
+  }
+
+  private clearIssuePromptAttempts(callSid: string | undefined): void {
+    if (!callSid) {
+      return;
+    }
+    this.issuePromptAttemptsByCall.delete(callSid);
+  }
+
+  private async replyWithIssueCaptureRecovery(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    displayName: string;
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    collectedData: unknown;
+    strategy?: CsrStrategy;
+    reason: string;
+    promptPrefix?: string;
+    transcript?: string;
+  }): Promise<string> {
+    const existingIssueCandidate =
+      this.getVoiceIssueCandidate(params.collectedData)?.value ?? null;
+    const existingIssue = existingIssueCandidate
+      ? this.normalizeIssueCandidate(existingIssueCandidate)
+      : null;
+    const detectedIssueCandidate = this.normalizeIssueCandidate(
+      params.transcript ?? "",
+    );
+    const detectedIssue = this.isLikelyIssueCandidate(detectedIssueCandidate)
+      ? detectedIssueCandidate
+      : null;
+    const askCount = this.issuePromptAttemptsByCall.get(params.callSid) ?? 0;
+    const decision = reduceIssueSlot(
+      {
+        status: existingIssue ? "CAPTURED" : "MISSING",
+        value: existingIssue,
+        askCount,
+      },
+      {
+        existingIssue,
+        detectedIssue,
+        isQuestion: this.isLikelyQuestion(params.transcript ?? ""),
+      },
+    );
+    this.issuePromptAttemptsByCall.set(params.callSid, decision.nextState.askCount);
+
+    if (
+      decision.action.type === "ALREADY_CAPTURED" ||
+      decision.action.type === "CAPTURE_ISSUE"
+    ) {
+      if (decision.action.type === "CAPTURE_ISSUE") {
+        const sourceEventId = getRequestContext()?.sourceEventId ?? "";
+        await this.conversationsService.updateVoiceIssueCandidate({
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          issue: {
+            value: decision.action.value,
+            sourceEventId,
+            createdAt: new Date().toISOString(),
+          },
+        });
+      }
+      this.clearIssuePromptAttempts(params.callSid);
+      const includeFees = this.shouldDiscloseFees({
+        nameState: params.nameState,
+        addressState: params.addressState,
+        collectedData: params.collectedData,
+        currentSpeech: params.transcript,
+      });
+      const feePolicy = includeFees
+        ? await this.getTenantFeePolicySafe(params.tenantId)
+        : null;
+      const smsMessage = this.buildSmsHandoffMessageForContext({
+        feePolicy,
+        includeFees,
+        isEmergency: this.isUrgencyEmergency(params.collectedData),
+      });
+      return this.replyWithSmsHandoff({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        displayName: params.displayName,
+        reason: `${params.reason}_captured`,
+        messageOverride: smsMessage,
+      });
+    }
+
+    if (decision.action.type === "DEFER_TO_SMS") {
+      this.loggingService.log(
+        {
+          event: "voice.issue_capture_deferred_to_sms",
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          attempt: decision.nextState.askCount,
+          reason: params.reason,
+        },
+        VoiceTurnService.name,
+      );
+      return this.replyWithSmsHandoff({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        displayName: params.displayName,
+        reason: `${params.reason}_deferred_to_sms`,
+        messageOverride: ISSUE_SLOT_SMS_DEFER_MESSAGE,
+      });
+    }
+
+    const prompt = buildIssueSlotPrompt({ prefix: params.promptPrefix });
+    return this.replyWithTwiml(
+      params.res,
+      this.buildSayGatherTwiml(this.applyCsrStrategy(params.strategy, prompt)),
     );
   }
 
@@ -4700,14 +5102,31 @@ export class VoiceTurnService {
     if (this.isSlowDownRequest(normalized)) {
       return false;
     }
-    return /\b(human|agent|representative|supervisor|manager|person|talk to|speak to|operator|buggy|repeating|not listening|ridiculous|frustrated|annoying|robotic|already told|told you already|said that already)\b/.test(
+    return /\b(human|agent|representative|supervisor|manager|person|operator|buggy|repeating|not listening|ridiculous|frustrated|annoying|robotic|already told|told you already|said that already)\b/.test(
       normalized,
     );
   }
 
   private isHumanTransferRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    return /\b(human|agent|representative|supervisor|manager|person|talk to|speak to|operator)\b/.test(
+    if (
+      /\b(human|agent|representative|supervisor|manager|operator)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    return /\b(?:talk|speak)\s+to\s+(?:a|an|the)?\s*(?:human|agent|representative|supervisor|manager|person|someone|operator)\b/.test(
+      normalized,
+    );
+  }
+
+  private isSmsDifferentNumberRequest(transcript: string): boolean {
+    const normalized = this.normalizeConfirmationUtterance(transcript);
+    if (!normalized) {
+      return false;
+    }
+    return /\b(different number|another number|use another number|new number|text (?:me )?at another number|text a different number)\b/.test(
       normalized,
     );
   }
@@ -4715,6 +5134,22 @@ export class VoiceTurnService {
   private isHangupRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
     return /\b(bye|goodbye|hang up|hangup|stop calling|no thanks|no thank you|cancel|never mind|nevermind|that'?s all)\b/.test(
+      normalized,
+    );
+  }
+
+  private isOpeningGreetingOnly(transcript: string): boolean {
+    const normalized = this.normalizeConfirmationUtterance(transcript);
+    if (!normalized) {
+      return false;
+    }
+    if (this.extractNameCandidateDeterministic(transcript)) {
+      return false;
+    }
+    if (this.isLikelyIssueCandidate(this.normalizeIssueCandidate(normalized))) {
+      return false;
+    }
+    return /^(?:hi|hello|hey|good (?:morning|afternoon|evening)|are you there|can you hear me|you there|testing|did you get that)[\s,.!?]*$/.test(
       normalized,
     );
   }
@@ -5831,6 +6266,24 @@ export class VoiceTurnService {
         }
       }
     }
+    const trailingCourtesyTokens = new Set([
+      "thanks",
+      "thank",
+      "you",
+      "please",
+      "sir",
+      "maam",
+      "mam",
+    ]);
+    let tokens = result.split(/\s+/).filter(Boolean);
+    while (tokens.length > 1) {
+      const tail = tokens[tokens.length - 1];
+      if (!trailingCourtesyTokens.has(tail)) {
+        break;
+      }
+      tokens = tokens.slice(0, -1);
+    }
+    result = tokens.join(" ");
     return result;
   }
 
