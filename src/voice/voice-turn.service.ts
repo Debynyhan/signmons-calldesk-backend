@@ -300,7 +300,7 @@ export class VoiceTurnService {
 
     const collectedData =
       updatedConversation?.collectedData ?? conversation.collectedData;
-    const nameState =
+    let nameState =
       this.conversationsService.getVoiceNameState(collectedData);
     const phoneState =
       this.conversationsService.getVoiceSmsPhoneState(collectedData);
@@ -376,7 +376,7 @@ export class VoiceTurnService {
       eventId: currentEventId,
     });
     let expectedField = this.getExpectedListeningField(listeningWindow);
-    const nameReady =
+    let nameReady =
       Boolean(nameState.confirmed.value) ||
       this.isVoiceFieldReady(nameState.locked, nameState.confirmed.value);
     const addressDeferred = Boolean(addressState.smsConfirmNeeded);
@@ -633,6 +633,8 @@ export class VoiceTurnService {
     const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
     const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
     const hasIssueCandidate = this.isLikelyIssueCandidate(issueCandidate);
+    const comfortRiskSnapshot =
+      this.conversationsService.getVoiceComfortRisk(collectedData);
     if (hasIssueCandidate && !existingIssueCandidate?.value) {
       await this.conversationsService.updateVoiceIssueCandidate({
         tenantId: tenant.id,
@@ -643,6 +645,64 @@ export class VoiceTurnService {
           createdAt: new Date().toISOString(),
         },
       });
+    }
+    const shouldCaptureOpeningNameFromMultiSlot =
+      !expectedField &&
+      !nameReady &&
+      hasIssueCandidate &&
+      nameState.status === "MISSING" &&
+      nameState.attemptCount === 0 &&
+      !nameState.candidate.value &&
+      !comfortRiskSnapshot.response &&
+      !comfortRiskSnapshot.askedAt;
+    if (shouldCaptureOpeningNameFromMultiSlot) {
+      const deterministicNameCandidate =
+        this.extractNameCandidateDeterministic(normalizedSpeech);
+      const hasDeterministicName =
+        deterministicNameCandidate &&
+        this.isValidNameCandidate(deterministicNameCandidate) &&
+        this.isLikelyNameCandidate(deterministicNameCandidate);
+      if (hasDeterministicName && deterministicNameCandidate) {
+        const currentName = nameState.candidate.value?.trim().toLowerCase() ?? "";
+        const incomingName = deterministicNameCandidate.trim().toLowerCase();
+        if (currentName !== incomingName || !nameState.locked) {
+          const nextNameState: typeof nameState = {
+            ...nameState,
+            candidate: {
+              value: deterministicNameCandidate,
+              sourceEventId: currentEventId ?? null,
+              createdAt: new Date().toISOString(),
+            },
+            status: "CANDIDATE",
+            locked: true,
+            attemptCount: Math.max(1, nameState.attemptCount),
+            lastConfidence:
+              typeof confidence === "number"
+                ? confidence
+                : (nameState.lastConfidence ?? null),
+            spellPromptedAt: null,
+            spellPromptedTurnIndex: null,
+          };
+          await this.conversationsService.updateVoiceNameState({
+            tenantId: tenant.id,
+            conversationId,
+            nameState: nextNameState,
+          });
+          this.loggingService.log(
+            {
+              event: "voice.name_multislot_captured",
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              candidate: deterministicNameCandidate,
+              sourceEventId: currentEventId,
+            },
+            VoiceTurnService.name,
+          );
+          nameState = nextNameState;
+        }
+        nameReady = true;
+      }
     }
     if (
       !nameReady &&
@@ -662,10 +722,11 @@ export class VoiceTurnService {
     ) {
       expectedField = "address";
     }
-    const comfortRisk =
-      this.conversationsService.getVoiceComfortRisk(collectedData);
+    const comfortRisk = comfortRiskSnapshot;
     const urgencyConfirmation =
       this.conversationsService.getVoiceUrgencyConfirmation(collectedData);
+    const comfortRiskIssue =
+      existingIssueCandidate?.value ?? (hasIssueCandidate ? issueCandidate : "");
     const comfortRiskRelevant = this.isComfortRiskRelevant(
       existingIssueCandidate?.value ??
         (hasIssueCandidate ? issueCandidate : ""),
@@ -855,7 +916,10 @@ export class VoiceTurnService {
             sourceEventId: currentEventId ?? null,
           },
         });
-        const baseTwiml = this.buildComfortRiskTwiml(csrStrategy);
+        const baseTwiml = this.buildComfortRiskTwiml(csrStrategy, {
+          callerName: this.getVoiceNameCandidate(nameState),
+          issueCandidate: comfortRiskIssue,
+        });
         const twiml = this.prependPrefaceToGatherTwiml(
           sideQuestionReply,
           baseTwiml,
@@ -948,7 +1012,10 @@ export class VoiceTurnService {
         field: "confirmation",
         targetField: "comfort_risk",
         sourceEventId: currentEventId,
-        twiml: this.buildComfortRiskTwiml(csrStrategy),
+        twiml: this.buildComfortRiskTwiml(csrStrategy, {
+          callerName: this.getVoiceNameCandidate(nameState),
+          issueCandidate: comfortRiskIssue,
+        }),
       });
     }
     // Name flow map (current):
@@ -2547,6 +2614,28 @@ export class VoiceTurnService {
             messageOverride: smsMessage,
           });
         }
+        if (
+          persistedIssueCandidate?.value &&
+          this.isIssueCollectionPrompt(safeReply)
+        ) {
+          return this.continueAfterSideQuestionWithIssueRouting({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            sideQuestionReply: "Got it.",
+            expectedField: null,
+            nameReady,
+            addressReady,
+            nameState,
+            addressState,
+            collectedData,
+            currentEventId,
+            strategy: csrStrategy,
+            timingCollector,
+          });
+        }
         if (this.shouldGatherMore(safeReply)) {
           return this.replyWithTwiml(res, this.buildSayGatherTwiml(safeReply));
         }
@@ -2766,9 +2855,29 @@ export class VoiceTurnService {
     return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
   }
 
-  private buildComfortRiskTwiml(strategy?: CsrStrategy): string {
-    const core =
+  private buildComfortRiskTwiml(
+    strategy?: CsrStrategy,
+    context?: {
+      callerName?: string | null;
+      issueCandidate?: string | null;
+    },
+  ): string {
+    const firstName = context?.callerName?.split(" ").filter(Boolean)[0] ?? "";
+    const issueSummary = context?.issueCandidate
+      ? this.buildIssueAcknowledgement(context.issueCandidate)
+      : null;
+    const introParts: string[] = [];
+    if (firstName) {
+      introParts.push(`Thanks, ${firstName}.`);
+    }
+    if (issueSummary) {
+      introParts.push(`I heard ${issueSummary}.`);
+    }
+    const question =
       "Is anyone in the home at risk, like kids or elderly, or without heat or AC?";
+    const core = introParts.length
+      ? `${introParts.join(" ")} ${question}`
+      : question;
     return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
   }
 
@@ -3193,6 +3302,12 @@ export class VoiceTurnService {
     return candidate;
   }
 
+  private getVoiceNameCandidate(
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>,
+  ): string | null {
+    return nameState.confirmed.value ?? nameState.candidate.value ?? null;
+  }
+
   private getVoiceComfortRisk(collectedData: unknown): VoiceComfortRisk {
     if (!collectedData || typeof collectedData !== "object") {
       return { askedAt: null, response: null, sourceEventId: null };
@@ -3497,6 +3612,16 @@ export class VoiceTurnService {
 
   private shouldGatherMore(reply: string): boolean {
     return reply.trim().endsWith("?");
+  }
+
+  private isIssueCollectionPrompt(reply: string): boolean {
+    const normalized = this.normalizeConfirmationUtterance(reply);
+    if (!normalized) {
+      return false;
+    }
+    return /\b(main issue|brief description|short summary|describe (?:the )?issue|what(?:'s| is) (?:the )?issue|what(?:'s| is) (?:been )?going on with (?:the )?(?:system|unit)|what seems to be the issue)\b/.test(
+      normalized,
+    );
   }
 
   private selectCsrStrategy(params: {
@@ -4629,6 +4754,13 @@ export class VoiceTurnService {
     }
     if (
       /\b(not an emergency|not emergency|non emergency|this is not an emergency)\b/.test(
+        normalized,
+      )
+    ) {
+      return "NO";
+    }
+    if (
+      /\b(no (?:elderly|kids?|children)|no one (?:is )?at risk|nobody (?:is )?at risk|not at risk|no urgent concerns?|nothing urgent|no risk)\b/.test(
         normalized,
       )
     ) {
