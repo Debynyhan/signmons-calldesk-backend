@@ -13,7 +13,8 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "voice:audit": "ts-node --transpile-only -r tsconfig-paths/register scripts/voice-quality-audit.ts"
   },
   "dependencies": {
     "@google-cloud/speech": "^7.3.0",

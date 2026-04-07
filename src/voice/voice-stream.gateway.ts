@@ -98,6 +98,12 @@ export class VoiceStreamGateway
   private static readonly HANGUP_FORCE_CLOSE_MIN_DELAY_MS = 12_000;
   private static readonly HANGUP_FORCE_CLOSE_MAX_DELAY_MS = 30_000;
   private static readonly HANGUP_FORCE_CLOSE_BUFFER_MS = 3_000;
+  private static readonly TURN_TOTAL_WARN_MS = 4_500;
+  private static readonly TURN_STT_WARN_MS = 1_800;
+  private static readonly TURN_AI_WARN_MS = 1_800;
+  private static readonly TURN_TTS_WARN_MS = 1_600;
+  private static readonly TURN_TWILIO_UPDATE_WARN_MS = 1_200;
+  private static readonly FIRST_RESPONSE_WARN_MS = 5_500;
 
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
   private readonly callSessions = new Map<string, WebSocket>();
@@ -615,38 +621,79 @@ export class VoiceStreamGateway
       ttsCacheHit?: boolean;
       ttsPolicy?: "google_play" | "twilio_say";
       hangup?: boolean;
+      isFirstResponse?: boolean;
     }) => {
+      const sttFinalMsValue =
+        typeof sttFinalMs === "number" ? Math.max(0, sttFinalMs) : null;
+      const queueDelayMsValue =
+        typeof queueDelayMs === "number" ? Math.max(0, queueDelayMs) : null;
+      const totalTurnMs = this.computeTotalTurnMs({
+        sttFinalMs: sttFinalMsValue,
+        queueDelayMs: queueDelayMsValue,
+        turnLogicMs,
+        ttsMs,
+        twilioUpdateMs,
+      });
+      const latencyBreaches = this.getTurnLatencyBreaches({
+        sttFinalMs: sttFinalMsValue,
+        aiMs: timingCollector.aiMs,
+        ttsMs,
+        twilioUpdateMs,
+        totalTurnMs,
+        isFirstResponse: params.isFirstResponse ?? false,
+      });
       this.loggingService.log(
         {
           event: "voice.stream.turn_timing",
           tenantId: session.tenantId,
           callSid: session.callSid,
           streamSid: session.streamSid,
-          sttFinalMs: sttFinalMs ?? null,
+          sttFinalMs: sttFinalMsValue,
           turnLogicMs,
           aiMs: timingCollector.aiMs,
           aiCalls: timingCollector.aiCalls,
           ttsMs,
           twilioUpdateMs,
           transcriptChars: transcript.length,
-          queueDelayMs,
+          queueDelayMs: queueDelayMsValue,
           reason: params.reason,
           twilioUpdated: params.twilioUpdated,
           usedGoogleTts: params.usedGoogleTts ?? false,
           ttsCacheHit: params.ttsCacheHit ?? false,
           ttsPolicy: params.ttsPolicy ?? "twilio_say",
           hangup: params.hangup ?? false,
+          totalTurnMs,
+          latencyBreaches,
         },
         VoiceStreamGateway.name,
       );
+      if (latencyBreaches.length > 0) {
+        this.loggingService.warn(
+          {
+            event: "voice.stream.turn_sla_warning",
+            tenantId: session.tenantId,
+            callSid: session.callSid,
+            streamSid: session.streamSid,
+            reason: params.reason,
+            totalTurnMs,
+            sttFinalMs: sttFinalMsValue,
+            aiMs: timingCollector.aiMs,
+            ttsMs,
+            twilioUpdateMs,
+            breaches: latencyBreaches,
+            firstResponse: params.isFirstResponse ?? false,
+          },
+          VoiceStreamGateway.name,
+        );
+      }
       void this.conversationsService
         .appendVoiceTurnTiming({
           tenantId: session.tenantId,
           callSid: session.callSid,
           timing: {
             recordedAt: new Date().toISOString(),
-            sttFinalMs: sttFinalMs ?? null,
-            queueDelayMs,
+            sttFinalMs: sttFinalMsValue,
+            queueDelayMs: queueDelayMsValue,
             turnLogicMs,
             aiMs: timingCollector.aiMs,
             aiCalls: timingCollector.aiCalls,
@@ -659,6 +706,8 @@ export class VoiceStreamGateway
             ttsCacheHit: params.ttsCacheHit ?? false,
             ttsPolicy: params.ttsPolicy ?? "twilio_say",
             hangup: params.hangup ?? false,
+            totalTurnMs,
+            latencyBreaches,
           },
         })
         .catch((error: unknown) => {
@@ -729,7 +778,8 @@ export class VoiceStreamGateway
         );
       }
       const useGoogleTts =
-        !hadNoSayMessages && this.shouldUseGoogleTtsForText(sayText);
+        !hadNoSayMessages &&
+        this.shouldUseGoogleTtsForText(sayText, { hangup });
       let ttsCacheHit = false;
       let playUrlResult: { url: string; objectPath: string } | null = null;
       if (useGoogleTts) {
@@ -740,6 +790,7 @@ export class VoiceStreamGateway
         ttsMs = Math.max(0, Date.now() - ttsStartedAt);
       }
       const now = Date.now();
+      const isFirstResponse = typeof session.lastResponseAt !== "number";
       const responseTwiml = buildStreamingTwiml({
         streamUrl: session.streamUrl,
         streamParams: {
@@ -778,6 +829,7 @@ export class VoiceStreamGateway
         ttsCacheHit,
         ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
         hangup,
+        isFirstResponse,
       });
     } catch (error) {
       turnLogicMs = turnLogicMs || Math.max(0, Date.now() - turnStartedAt);
@@ -990,12 +1042,23 @@ export class VoiceStreamGateway
     );
   }
 
-  private shouldUseGoogleTtsForText(text: string): boolean {
+  private shouldUseGoogleTtsForText(
+    text: string,
+    options?: { hangup?: boolean },
+  ): boolean {
     if (!this.shouldUseGoogleTts()) {
       return false;
     }
     const normalized = text.replace(/\s+/g, " ").trim();
     if (!normalized) {
+      return false;
+    }
+    // Preserve voice consistency for closing turns so the call does not
+    // switch to Twilio's default voice right before hangup.
+    if (options?.hangup) {
+      return true;
+    }
+    if (this.shouldPreferTwilioSayForLatency(normalized)) {
       return false;
     }
     const shortSayLimit = Math.max(
@@ -1006,6 +1069,76 @@ export class VoiceStreamGateway
       return false;
     }
     return true;
+  }
+
+  private shouldPreferTwilioSayForLatency(normalizedText: string): boolean {
+    const words = normalizedText.split(/\s+/).filter(Boolean);
+    if (words.length <= 10) {
+      return true;
+    }
+    if (/\?$/.test(normalizedText) && words.length <= 28) {
+      return true;
+    }
+    if (
+      /^(thanks|got it|okay|ok|perfect|please|can you|could you|would you|what('?s| is)|is this)\b/i.test(
+        normalizedText,
+      )
+    ) {
+      return words.length <= 20;
+    }
+    return false;
+  }
+
+  private computeTotalTurnMs(params: {
+    sttFinalMs: number | null;
+    queueDelayMs: number | null;
+    turnLogicMs: number;
+    ttsMs: number;
+    twilioUpdateMs: number;
+  }): number {
+    return (
+      (params.sttFinalMs ?? 0) +
+      (params.queueDelayMs ?? 0) +
+      Math.max(0, params.turnLogicMs) +
+      Math.max(0, params.ttsMs) +
+      Math.max(0, params.twilioUpdateMs)
+    );
+  }
+
+  private getTurnLatencyBreaches(params: {
+    sttFinalMs: number | null;
+    aiMs: number;
+    ttsMs: number;
+    twilioUpdateMs: number;
+    totalTurnMs: number;
+    isFirstResponse: boolean;
+  }): string[] {
+    const breaches: string[] = [];
+    if (
+      typeof params.sttFinalMs === "number" &&
+      params.sttFinalMs > VoiceStreamGateway.TURN_STT_WARN_MS
+    ) {
+      breaches.push("stt_final_slow");
+    }
+    if (params.aiMs > VoiceStreamGateway.TURN_AI_WARN_MS) {
+      breaches.push("ai_slow");
+    }
+    if (params.ttsMs > VoiceStreamGateway.TURN_TTS_WARN_MS) {
+      breaches.push("tts_slow");
+    }
+    if (params.twilioUpdateMs > VoiceStreamGateway.TURN_TWILIO_UPDATE_WARN_MS) {
+      breaches.push("twilio_update_slow");
+    }
+    if (params.totalTurnMs > VoiceStreamGateway.TURN_TOTAL_WARN_MS) {
+      breaches.push("turn_total_slow");
+    }
+    if (
+      params.isFirstResponse &&
+      params.totalTurnMs > VoiceStreamGateway.FIRST_RESPONSE_WARN_MS
+    ) {
+      breaches.push("first_response_slow");
+    }
+    return breaches;
   }
 
   private normalizeTtsCacheText(text: string): string {

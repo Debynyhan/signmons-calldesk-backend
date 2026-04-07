@@ -207,6 +207,46 @@ describe("VoiceStreamGateway provider selection", () => {
     expect(twiml).not.toContain("<Play>");
   });
 
+  it("uses <Say> for interactive question prompts to minimize latency", async () => {
+    const questionReply =
+      "Can you briefly confirm whether the unit is completely off right now so I can mark urgency correctly before I text your secure link?";
+    voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${questionReply}</Say></Response>`,
+    );
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "google",
+        voiceTtsShortSayMaxChars: 40,
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+    const session = {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      leadId: "lead-1",
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: new PassThrough(),
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    };
+
+    await (gateway as any).handleFinalTranscript(session, "it stopped working", 0.93);
+
+    expect(googleTtsService.synthesizeToObjectPath).not.toHaveBeenCalled();
+    const twiml = voiceCallService.updateCallTwiml.mock.calls[0]?.[1] as string;
+    expect(twiml).toContain(`<Say>${questionReply}</Say>`);
+    expect(twiml).not.toContain("<Play>");
+  });
+
   it("keeps Google TTS playback for hangup turns when provider is selected", async () => {
     const closingReply =
       "Thanks for calling. Acme HVAC. Perfect. I'm texting you now to confirm your details so we can move forward. Goodbye.";
@@ -440,6 +480,50 @@ describe("VoiceStreamGateway provider selection", () => {
     ).toEqual(["first issue", "second issue"]);
     expect(voiceCallService.updateCallTwiml).toHaveBeenCalledTimes(2);
     expect(conversationsService.appendVoiceTurnTiming).toHaveBeenCalledTimes(2);
+  });
+
+  it("emits SLA warnings when turn latency breaches thresholds", async () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+    const getTurnLatencyBreachesSpy = jest.spyOn(
+      gateway as any,
+      "getTurnLatencyBreaches",
+    );
+    getTurnLatencyBreachesSpy.mockReturnValue(["turn_total_slow"]);
+    const session = {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      leadId: "lead-1",
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: new PassThrough(),
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    };
+
+    await (gateway as any).handleFinalTranscript(session, "no heat", 0.9);
+
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.stream.turn_sla_warning",
+        callSid: "CA123",
+        streamSid: "MZ123",
+        breaches: ["turn_total_slow"],
+      }),
+      VoiceStreamGateway.name,
+    );
   });
 
   it("keeps mixed filler-plus-issue transcripts", () => {

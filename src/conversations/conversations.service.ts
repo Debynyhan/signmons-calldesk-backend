@@ -126,6 +126,8 @@ type VoiceTurnTiming = {
   ttsCacheHit: boolean;
   ttsPolicy: "google_play" | "twilio_say";
   hangup: boolean;
+  totalTurnMs?: number;
+  latencyBreaches?: string[];
 };
 
 @Injectable()
