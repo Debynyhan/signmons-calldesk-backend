@@ -19,5 +19,6 @@ import { LoggingModule } from "../logging/logging.module";
   ],
   controllers: [SmsController],
   providers: [ConversationsService, SmsService, AdminApiGuard],
+  exports: [SmsService],
 })
 export class SmsModule {}

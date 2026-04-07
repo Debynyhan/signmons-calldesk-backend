@@ -16,6 +16,7 @@ import { HealthController } from "./health/health.controller";
 import { VoiceModule } from "./voice/voice.module";
 import { SmsModule } from "./sms/sms.module";
 import { MarketingModule } from "./marketing/marketing.module";
+import { PaymentsModule } from "./payments/payments.module";
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { MarketingModule } from "./marketing/marketing.module";
     AiModule,
     VoiceModule,
     SmsModule,
+    PaymentsModule,
     MarketingModule,
   ],
   controllers: [AppController, HealthController],

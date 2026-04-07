@@ -12,7 +12,10 @@ import { PrismaService } from "./prisma/prisma.service";
 import { requestContextMiddleware } from "./common/context/request-context";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
   app.useWebSocketAdapter(new WsAdapter(app));
   const config = app.get<ConfigType<typeof appConfig>>(appConfig.KEY);
   const port = config?.port ?? Number(process.env.PORT ?? 3000);

@@ -13,6 +13,7 @@ import { VoiceCallService } from "./voice-call.service";
 import { VoiceStreamGateway } from "./voice-stream.gateway";
 import { VoiceTurnService } from "./voice-turn.service";
 import { VoiceConsentAudioService } from "./voice-consent-audio.service";
+import { PaymentsModule } from "../payments/payments.module";
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { VoiceConsentAudioService } from "./voice-consent-audio.service";
     AiModule,
     LoggingModule,
     GoogleModule,
+    PaymentsModule,
   ],
   providers: [
     ConversationsService,

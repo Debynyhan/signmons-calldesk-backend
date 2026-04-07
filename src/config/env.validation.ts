@@ -92,6 +92,12 @@ export const envValidationSchema = Joi.object({
     .valid("true", "false", "TRUE", "FALSE")
     .default("true"),
   TWILIO_WEBHOOK_BASE_URL: Joi.string().allow("").default(""),
+  STRIPE_SECRET_KEY: Joi.string().allow("").default(""),
+  STRIPE_WEBHOOK_SECRET: Joi.string().allow("").default(""),
+  STRIPE_CONNECT_CLIENT_ID: Joi.string().allow("").default(""),
+  SMS_INTAKE_LINK_SECRET: Joi.string().allow("").default(""),
+  SMS_INTAKE_LINK_TTL_MINUTES: Joi.number().min(5).max(10080).default(1440),
+  SMS_INTAKE_BASE_URL: Joi.string().allow("").default(""),
   DEMO_TENANT_ID: Joi.string().allow("").default(""),
   VOICE_MAX_TURNS: Joi.number().min(1).max(50).default(6),
   VOICE_MAX_DURATION_SEC: Joi.number().min(30).max(3600).default(180),
@@ -137,6 +143,11 @@ export const envValidationSchema = Joi.object({
         message: `VOICE_ENABLED=true requires: ${missing.join(", ")}`,
       });
     }
+  }
+  if (values.STRIPE_WEBHOOK_SECRET && !values.STRIPE_SECRET_KEY) {
+    return helpers.error("any.invalid", {
+      message: "STRIPE_WEBHOOK_SECRET requires STRIPE_SECRET_KEY.",
+    });
   }
   if (values.ADDRESS_VALIDATION_PROVIDER === "google") {
     if (!values.GOOGLE_PLACES_API_KEY) {

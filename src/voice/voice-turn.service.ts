@@ -14,6 +14,7 @@ import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
+import { PaymentsService } from "../payments/payments.service";
 import {
   buildIssueSlotPrompt,
   ISSUE_SLOT_SMS_DEFER_MESSAGE,
@@ -104,6 +105,7 @@ export class VoiceTurnService {
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly csrStrategySelector: CsrStrategySelector,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   public async handleTurn(params: {
@@ -3204,10 +3206,12 @@ export class VoiceTurnService {
       tenantId: params.tenantId,
       conversationId: params.conversationId,
     });
+    let resolvedSmsPhone: string | null = null;
     if (conversation?.collectedData) {
       const phoneState = this.conversationsService.getVoiceSmsPhoneState(
         conversation.collectedData,
       );
+      resolvedSmsPhone = phoneState.confirmed ? phoneState.value ?? null : null;
       if (!phoneState.confirmed) {
         const callerPhone = this.getCallerPhoneFromCollectedData(
           conversation.collectedData,
@@ -3227,6 +3231,7 @@ export class VoiceTurnService {
               lastPromptedAt: phoneState.lastPromptedAt ?? null,
             },
           });
+          resolvedSmsPhone = fallbackPhone;
           await this.conversationsService.clearVoiceSmsHandoff({
             tenantId: params.tenantId,
             conversationId: params.conversationId,
@@ -3247,36 +3252,36 @@ export class VoiceTurnService {
             conversationId: params.conversationId,
             handoff: {
               reason: params.reason,
-            messageOverride: params.messageOverride ?? null,
-            createdAt: new Date().toISOString(),
-          },
-        });
-        await this.conversationsService.updateVoiceSmsPhoneState({
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          phoneState: {
-            ...phoneState,
-            lastPromptedAt: new Date().toISOString(),
-          },
-        });
-        const sourceEventId = getRequestContext()?.sourceEventId ?? null;
-        this.loggingService.log(
-          {
-            event: "voice.sms_phone_prompted",
+              messageOverride: params.messageOverride ?? null,
+              createdAt: new Date().toISOString(),
+            },
+          });
+          await this.conversationsService.updateVoiceSmsPhoneState({
             tenantId: params.tenantId,
             conversationId: params.conversationId,
-            callSid: params.callSid,
-          },
-          VoiceTurnService.name,
-        );
-        return this.replyWithListeningWindow({
-          res: params.res,
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          field: "sms_phone",
-          sourceEventId,
-          twiml: this.buildAskSmsNumberTwiml(),
-        });
+            phoneState: {
+              ...phoneState,
+              lastPromptedAt: new Date().toISOString(),
+            },
+          });
+          const sourceEventId = getRequestContext()?.sourceEventId ?? null;
+          this.loggingService.log(
+            {
+              event: "voice.sms_phone_prompted",
+              tenantId: params.tenantId,
+              conversationId: params.conversationId,
+              callSid: params.callSid,
+            },
+            VoiceTurnService.name,
+          );
+          return this.replyWithListeningWindow({
+            res: params.res,
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            field: "sms_phone",
+            sourceEventId,
+            twiml: this.buildAskSmsNumberTwiml(),
+          });
         }
       }
     }
@@ -3303,6 +3308,29 @@ export class VoiceTurnService {
       callSid: params.callSid,
       reason: params.reason,
     });
+    if (resolvedSmsPhone) {
+      try {
+        await this.paymentsService.sendVoiceHandoffIntakeLink({
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          toPhone: resolvedSmsPhone,
+          displayName: params.displayName,
+          isEmergency: this.isUrgencyEmergency(conversation?.collectedData),
+        });
+      } catch (error) {
+        this.loggingService.warn(
+          {
+            event: "voice.sms_intake_link_send_failed",
+            tenantId: params.tenantId,
+            conversationId: params.conversationId,
+            callSid: params.callSid,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          VoiceTurnService.name,
+        );
+      }
+    }
     const closingMessage = await this.resolveSmsHandoffClosingMessage({
       tenantId: params.tenantId,
       collectedData: conversation?.collectedData,

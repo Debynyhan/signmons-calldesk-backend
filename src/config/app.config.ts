@@ -41,6 +41,12 @@ export interface AppConfig {
   twilioPhoneNumber: string;
   twilioSignatureCheck: boolean;
   twilioWebhookBaseUrl: string;
+  stripeSecretKey: string;
+  stripeWebhookSecret: string;
+  stripeConnectClientId: string;
+  smsIntakeLinkSecret: string;
+  smsIntakeLinkTtlMinutes: number;
+  smsIntakeBaseUrl: string;
   demoTenantId: string;
   voiceMaxTurns: number;
   voiceMaxDurationSec: number;
@@ -180,6 +186,20 @@ export default registerAs("app", (): AppConfig => {
     twilioSignatureCheck:
       (process.env.TWILIO_SIGNATURE_CHECK ?? "true").toLowerCase() === "true",
     twilioWebhookBaseUrl: process.env.TWILIO_WEBHOOK_BASE_URL ?? "",
+    stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
+    stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+    stripeConnectClientId: process.env.STRIPE_CONNECT_CLIENT_ID ?? "",
+    smsIntakeLinkSecret:
+      process.env.SMS_INTAKE_LINK_SECRET ??
+      process.env.DEV_AUTH_SECRET ??
+      "dev-intake-link-secret",
+    smsIntakeLinkTtlMinutes: Number(
+      process.env.SMS_INTAKE_LINK_TTL_MINUTES ?? 1440,
+    ),
+    smsIntakeBaseUrl:
+      process.env.SMS_INTAKE_BASE_URL ??
+      process.env.TWILIO_WEBHOOK_BASE_URL ??
+      "",
     demoTenantId: process.env.DEMO_TENANT_ID ?? "",
     voiceMaxTurns: Number(process.env.VOICE_MAX_TURNS ?? 6),
     voiceMaxDurationSec: Number(process.env.VOICE_MAX_DURATION_SEC ?? 180),
