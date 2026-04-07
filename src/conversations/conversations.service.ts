@@ -110,6 +110,23 @@ type VoiceListeningWindow = {
     | "comfort_risk"
     | "urgency_confirm";
 };
+type VoiceTurnTiming = {
+  recordedAt: string;
+  sttFinalMs: number | null;
+  queueDelayMs: number | null;
+  turnLogicMs: number;
+  aiMs: number;
+  aiCalls: number;
+  ttsMs: number;
+  twilioUpdateMs: number;
+  transcriptChars: number;
+  reason: string;
+  twilioUpdated: boolean;
+  usedGoogleTts: boolean;
+  ttsCacheHit: boolean;
+  ttsPolicy: "google_play" | "twilio_say";
+  hangup: boolean;
+};
 
 @Injectable()
 export class ConversationsService {
@@ -1038,6 +1055,119 @@ export class ConversationsService {
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
+    });
+  }
+
+  async appendVoiceTurnTiming(params: {
+    tenantId: string;
+    callSid: string;
+    timing: Omit<VoiceTurnTiming, "recordedAt"> & { recordedAt?: string };
+    maxHistory?: number;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        twilioCallSid: params.callSid,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const existingHistoryRaw = Array.isArray(current.voiceTurnTimings)
+      ? current.voiceTurnTimings
+      : [];
+    const existingHistory = existingHistoryRaw.filter(
+      (entry) => entry && typeof entry === "object",
+    ) as Prisma.InputJsonValue[];
+    const maxHistory = Math.min(100, Math.max(1, params.maxHistory ?? 30));
+    const timingRecord: VoiceTurnTiming = {
+      ...params.timing,
+      recordedAt: params.timing.recordedAt ?? new Date().toISOString(),
+    };
+    const nextHistory = [...existingHistory, timingRecord].slice(-maxHistory);
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      lastVoiceTurnTiming: timingRecord,
+      voiceTurnTimings: nextHistory,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async completeVoiceConversationByCallSid(params: {
+    tenantId: string;
+    callSid: string;
+    source: "stop" | "disconnect" | "forced_hangup" | "unknown";
+    endedAt?: Date;
+    hangupRequestedAt?: string | null;
+    hangupToEndMs?: number | null;
+  }) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        tenantId: params.tenantId,
+        twilioCallSid: params.callSid,
+      },
+      select: { id: true, status: true, endedAt: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const lifecycleCurrent =
+      current.voiceLifecycle && typeof current.voiceLifecycle === "object"
+        ? (current.voiceLifecycle as Record<string, unknown>)
+        : {};
+    const computedEndedAt = params.endedAt ?? new Date();
+    const endedAt = conversation.endedAt ?? computedEndedAt;
+    const inferredStatus =
+      params.source === "disconnect" && !params.hangupRequestedAt
+        ? ConversationStatus.ABANDONED
+        : ConversationStatus.COMPLETED;
+    const status =
+      conversation.status === ConversationStatus.ONGOING
+        ? inferredStatus
+        : conversation.status;
+    const lifecycleNext: Prisma.InputJsonValue = {
+      ...lifecycleCurrent,
+      endSource: params.source,
+      endedAt: endedAt.toISOString(),
+      hangupRequestedAt:
+        params.hangupRequestedAt ??
+        (typeof lifecycleCurrent.hangupRequestedAt === "string"
+          ? lifecycleCurrent.hangupRequestedAt
+          : null),
+      hangupToEndMs:
+        typeof params.hangupToEndMs === "number"
+          ? params.hangupToEndMs
+          : (typeof lifecycleCurrent.hangupToEndMs === "number"
+              ? lifecycleCurrent.hangupToEndMs
+              : null),
+      updatedAt: new Date().toISOString(),
+    };
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceLifecycle: lifecycleNext,
+    };
+
+    return this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        status,
+        endedAt,
+        collectedData: merged,
+        updatedAt: new Date(),
+      },
+      select: { id: true, status: true, endedAt: true, collectedData: true },
     });
   }
 

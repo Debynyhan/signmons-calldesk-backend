@@ -25,6 +25,8 @@ describe("VoiceStreamGateway provider selection", () => {
   };
   let conversationsService: {
     ensureVoiceConsentConversation: jest.Mock;
+    appendVoiceTurnTiming: jest.Mock;
+    completeVoiceConversationByCallSid: jest.Mock;
   };
   let googleSpeechService: {
     isEnabled: jest.Mock;
@@ -54,6 +56,10 @@ describe("VoiceStreamGateway provider selection", () => {
     };
     conversationsService = {
       ensureVoiceConsentConversation: jest.fn(),
+      appendVoiceTurnTiming: jest.fn().mockResolvedValue({ id: "conversation-1" }),
+      completeVoiceConversationByCallSid: jest
+        .fn()
+        .mockResolvedValue({ id: "conversation-1" }),
     };
     googleSpeechService = {
       isEnabled: jest.fn().mockReturnValue(true),
@@ -243,6 +249,60 @@ describe("VoiceStreamGateway provider selection", () => {
     expect(twiml).not.toContain("<Say>");
   });
 
+  it("falls back to a safe <Say> when turn TwiML has no <Say> content", async () => {
+    voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
+      '<?xml version="1.0" encoding="UTF-8"?><Response><Pause length="1"/></Response>',
+    );
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "google",
+        voiceTtsShortSayMaxChars: 80,
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+    const session = {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      leadId: "lead-1",
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: new PassThrough(),
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    };
+
+    await (gateway as any).handleFinalTranscript(session, "furnace issue", 0.93);
+
+    expect(googleTtsService.synthesizeToObjectPath).not.toHaveBeenCalled();
+    const twiml = voiceCallService.updateCallTwiml.mock.calls[0]?.[1] as string;
+    expect(twiml).toContain(
+      "<Say>Thanks, I heard you. Please say that one more time so I can make sure I got it right.</Say>",
+    );
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.stream.no_say_fallback",
+        callSid: "CA123",
+        streamSid: "MZ123",
+      }),
+      VoiceStreamGateway.name,
+    );
+    expect(conversationsService.appendVoiceTurnTiming).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timing: expect.objectContaining({
+          reason: "no_say_fallback_updated",
+        }),
+      }),
+    );
+  });
+
   it("forces call completion when a hangup turn does not end immediately", async () => {
     jest.useFakeTimers();
     try {
@@ -379,6 +439,28 @@ describe("VoiceStreamGateway provider selection", () => {
       ),
     ).toEqual(["first issue", "second issue"]);
     expect(voiceCallService.updateCallTwiml).toHaveBeenCalledTimes(2);
+    expect(conversationsService.appendVoiceTurnTiming).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps mixed filler-plus-issue transcripts", () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+
+    expect(
+      (gateway as any).isFillerTranscript("uh my furnace has no heat"),
+    ).toBe(false);
+    expect((gateway as any).isFillerTranscript("um")).toBe(true);
+    expect((gateway as any).isFillerTranscript("one sec")).toBe(true);
   });
 
   it("swallows late stream errors after cleanup", () => {
@@ -412,6 +494,50 @@ describe("VoiceStreamGateway provider selection", () => {
     (gateway as any).cleanupSession(client);
 
     expect(() => stream.emit("error", new Error("late timeout"))).not.toThrow();
+  });
+
+  it("marks the conversation completed when Twilio sends stop", async () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      loggingService as never,
+    );
+    const client = { close: jest.fn() } as unknown as WebSocket;
+    const stream = new PassThrough();
+
+    (gateway as any).sessions.set(client, {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: stream,
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    });
+    (gateway as any).callSessions.set("CA123", client);
+
+    (gateway as any).handleStop(client, {
+      event: "stop",
+      stop: { callSid: "CA123", streamSid: "MZ123" },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(conversationsService.completeVoiceConversationByCallSid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        callSid: "CA123",
+        source: "stop",
+      }),
+    );
   });
 
   it("restarts Google STT stream after recoverable 408 timeout", async () => {

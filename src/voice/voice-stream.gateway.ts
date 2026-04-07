@@ -132,7 +132,8 @@ export class VoiceStreamGateway
   handleDisconnect(client: WebSocket) {
     const session = this.sessions.get(client);
     if (session) {
-      const callEndedAt = new Date().toISOString();
+      const endedAt = new Date();
+      const callEndedAt = endedAt.toISOString();
       const hangupRequestedAt = session.hangupRequestedAtMs
         ? new Date(session.hangupRequestedAtMs).toISOString()
         : null;
@@ -151,6 +152,27 @@ export class VoiceStreamGateway
         },
         VoiceStreamGateway.name,
       );
+      void this.conversationsService
+        .completeVoiceConversationByCallSid({
+          tenantId: session.tenantId,
+          callSid: session.callSid,
+          source: "disconnect",
+          endedAt,
+          hangupRequestedAt,
+          hangupToEndMs,
+        })
+        .catch((error: unknown) => {
+          this.loggingService.warn(
+            {
+              event: "voice.stream.call_end_persist_failed",
+              callSid: session.callSid,
+              streamSid: session.streamSid,
+              source: "disconnect",
+              reason: error instanceof Error ? error.message : String(error),
+            },
+            VoiceStreamGateway.name,
+          );
+        });
     }
     this.cleanupSession(client);
   }
@@ -343,7 +365,8 @@ export class VoiceStreamGateway
     if (!session) {
       return;
     }
-    const callEndedAt = new Date().toISOString();
+    const endedAt = new Date();
+    const callEndedAt = endedAt.toISOString();
     const hangupRequestedAt = session.hangupRequestedAtMs
       ? new Date(session.hangupRequestedAtMs).toISOString()
       : null;
@@ -360,8 +383,29 @@ export class VoiceStreamGateway
         hangup_to_end_ms: hangupToEndMs,
         source: "stop",
       },
-      VoiceStreamGateway.name,
-    );
+        VoiceStreamGateway.name,
+      );
+    void this.conversationsService
+      .completeVoiceConversationByCallSid({
+        tenantId: session.tenantId,
+        callSid: session.callSid,
+        source: "stop",
+        endedAt,
+        hangupRequestedAt,
+        hangupToEndMs,
+      })
+      .catch((error: unknown) => {
+        this.loggingService.warn(
+          {
+            event: "voice.stream.call_end_persist_failed",
+            callSid: session.callSid,
+            streamSid: session.streamSid,
+            source: "stop",
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          VoiceStreamGateway.name,
+        );
+      });
     this.cleanupSession(client);
   }
 
@@ -595,6 +639,40 @@ export class VoiceStreamGateway
         },
         VoiceStreamGateway.name,
       );
+      void this.conversationsService
+        .appendVoiceTurnTiming({
+          tenantId: session.tenantId,
+          callSid: session.callSid,
+          timing: {
+            recordedAt: new Date().toISOString(),
+            sttFinalMs: sttFinalMs ?? null,
+            queueDelayMs,
+            turnLogicMs,
+            aiMs: timingCollector.aiMs,
+            aiCalls: timingCollector.aiCalls,
+            ttsMs,
+            twilioUpdateMs,
+            transcriptChars: transcript.length,
+            reason: params.reason,
+            twilioUpdated: params.twilioUpdated,
+            usedGoogleTts: params.usedGoogleTts ?? false,
+            ttsCacheHit: params.ttsCacheHit ?? false,
+            ttsPolicy: params.ttsPolicy ?? "twilio_say",
+            hangup: params.hangup ?? false,
+          },
+        })
+        .catch((error: unknown) => {
+          this.loggingService.warn(
+            {
+              event: "voice.stream.turn_timing_persist_failed",
+              tenantId: session.tenantId,
+              callSid: session.callSid,
+              streamSid: session.streamSid,
+              reason: error instanceof Error ? error.message : String(error),
+            },
+            VoiceStreamGateway.name,
+          );
+        });
     };
     try {
       const twiml = await runWithRequestContext(
@@ -616,17 +694,25 @@ export class VoiceStreamGateway
       );
       turnLogicMs = Math.max(0, Date.now() - turnStartedAt);
 
-      const messages = extractSayMessages(twiml);
-      if (!messages.length) {
-        logTurnTiming({
-          reason: "no_say_messages",
-          twilioUpdated: false,
-          ttsPolicy: "twilio_say",
-        });
-        return;
-      }
-      const sayText = messages.join(" ");
       const hangup = hasHangup(twiml);
+      const messages = extractSayMessages(twiml);
+      const hadNoSayMessages = messages.length === 0;
+      const sayText = hadNoSayMessages
+        ? this.buildNoSayFallbackText(transcript)
+        : messages.join(" ");
+      if (hadNoSayMessages) {
+        this.loggingService.warn(
+          {
+            event: "voice.stream.no_say_fallback",
+            tenantId: session.tenantId,
+            callSid: session.callSid,
+            streamSid: session.streamSid,
+            transcriptChars: transcript.length,
+            hangupRequested: hangup,
+          },
+          VoiceStreamGateway.name,
+        );
+      }
       if (hangup) {
         session.hangupRequestedAtMs = Date.now();
         this.loggingService.log(
@@ -642,7 +728,8 @@ export class VoiceStreamGateway
           VoiceStreamGateway.name,
         );
       }
-      const useGoogleTts = this.shouldUseGoogleTtsForText(sayText);
+      const useGoogleTts =
+        !hadNoSayMessages && this.shouldUseGoogleTtsForText(sayText);
       let ttsCacheHit = false;
       let playUrlResult: { url: string; objectPath: string } | null = null;
       if (useGoogleTts) {
@@ -679,7 +766,13 @@ export class VoiceStreamGateway
         this.scheduleForcedHangupIfNeeded(session, sayText);
       }
       logTurnTiming({
-        reason: twilioUpdated ? "twiml_updated" : "twiml_update_failed",
+        reason: hadNoSayMessages
+          ? twilioUpdated
+            ? "no_say_fallback_updated"
+            : "no_say_fallback_update_failed"
+          : twilioUpdated
+            ? "twiml_updated"
+            : "twiml_update_failed",
         twilioUpdated,
         usedGoogleTts: Boolean(playUrlResult?.url),
         ttsCacheHit,
@@ -726,22 +819,37 @@ export class VoiceStreamGateway
     if (!normalized) {
       return true;
     }
+    const collapsed = normalized
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     if (/\d/.test(normalized)) {
       return false;
     }
-    if (normalized.length <= 2) {
+    if (collapsed.length <= 2) {
+      return true;
+    }
+    if (/^(uh|um|hmm|mm hmm|mhm)$/.test(collapsed)) {
       return true;
     }
     if (
-      /^(i just|just|i was|because|and|but|so|well|uh|um|hmm)$/.test(
-        normalized,
+      /^(i just|just|i was|because|and|but|so|well|hold on|hang on|one sec|one second|just a sec|give me a sec|wait)$/.test(
+        collapsed,
       )
     ) {
       return true;
     }
-    return /\b(hold on|hang on|one sec|one second|just a sec|give me a sec|wait|um|uh|hmm|thank you for calling|this call may be recorded|this call may be transcribed)\b/.test(
+    return /\b(thank you for calling|this call may be recorded|this call may be transcribed)\b/.test(
       normalized,
     );
+  }
+
+  private buildNoSayFallbackText(transcript: string): string {
+    const normalized = this.normalizeTranscriptForDeduplication(transcript);
+    if (normalized.length >= 3) {
+      return "Thanks, I heard you. Please say that one more time so I can make sure I got it right.";
+    }
+    return "I am still here. Please tell me what you need help with today.";
   }
 
   private normalizeTranscriptForDeduplication(value: string): string {

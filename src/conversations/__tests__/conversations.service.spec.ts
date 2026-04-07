@@ -411,4 +411,94 @@ describe("ConversationsService", () => {
       }),
     );
   });
+
+  it("appends voice turn timing snapshots with bounded history", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {
+        voiceTurnTimings: [{ reason: "first" }, { reason: "second" }],
+      },
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      collectedData: {},
+    } as never);
+
+    await service.appendVoiceTurnTiming({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      maxHistory: 2,
+      timing: {
+        sttFinalMs: 35,
+        queueDelayMs: 5,
+        turnLogicMs: 210,
+        aiMs: 120,
+        aiCalls: 1,
+        ttsMs: 40,
+        twilioUpdateMs: 18,
+        transcriptChars: 16,
+        reason: "twiml_updated",
+        twilioUpdated: true,
+        usedGoogleTts: false,
+        ttsCacheHit: false,
+        ttsPolicy: "twilio_say",
+        hangup: false,
+      },
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "conv-1" },
+        data: expect.objectContaining({
+          collectedData: expect.objectContaining({
+            lastVoiceTurnTiming: expect.objectContaining({
+              reason: "twiml_updated",
+              recordedAt: expect.any(String),
+            }),
+            voiceTurnTimings: [
+              expect.objectContaining({ reason: "second" }),
+              expect.objectContaining({ reason: "twiml_updated" }),
+            ],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("marks disconnected voice calls as abandoned when no hangup was requested", async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: "conv-1",
+      status: "ONGOING",
+      endedAt: null,
+      collectedData: {},
+    } as never);
+    prisma.conversation.update.mockResolvedValue({
+      id: "conv-1",
+      status: "ABANDONED",
+      endedAt: new Date("2026-04-07T12:00:00.000Z"),
+      collectedData: {},
+    } as never);
+
+    await service.completeVoiceConversationByCallSid({
+      tenantId: "tenant-1",
+      callSid: "CA123",
+      source: "disconnect",
+    });
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "conv-1" },
+        data: expect.objectContaining({
+          status: "ABANDONED",
+          endedAt: expect.any(Date),
+          collectedData: expect.objectContaining({
+            voiceLifecycle: expect.objectContaining({
+              endSource: "disconnect",
+              endedAt: expect.any(String),
+            }),
+          }),
+        }),
+      }),
+    );
+  });
 });

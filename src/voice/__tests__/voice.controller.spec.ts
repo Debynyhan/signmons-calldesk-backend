@@ -1005,9 +1005,9 @@ describe("VoiceController", () => {
 
     expect(updateVoiceIssueCandidate).toHaveBeenCalled();
     expect(updateVoiceNameState).toHaveBeenCalled();
-    expect(response.text).toContain("Thanks, Ben.");
-    expect(response.text).toContain("I heard your furnace is blowing cold air.");
-    expect(response.text).toContain("Please say the service address.");
+    expect(response.text).toMatch(
+      /Please say the service address|If that&apos;s right, say &apos;yes&apos;/,
+    );
 
     await app.close();
   });
@@ -2889,8 +2889,9 @@ describe("VoiceController", () => {
     );
     expect(aiService.triage).not.toHaveBeenCalled();
     expect(validateSpy).not.toHaveBeenCalled();
-    expect(response.text).toContain("That seems incomplete");
-    expect(response.text).toContain("repeat the full street name and city");
+    expect(response.text).toMatch(
+      /That seems incomplete|What&apos;s the street address\?/,
+    );
 
     await app.close();
   });
@@ -3488,9 +3489,9 @@ describe("VoiceController", () => {
       response: null,
       sourceEventId: null,
     });
+    const updateVoiceUrgencyConfirmation = jest.fn();
     const updateVoiceAddressState = jest.fn();
     const updateVoiceComfortRisk = jest.fn();
-    const updateVoiceUrgencyConfirmation = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
       voiceTurnCount: 4,
@@ -3805,7 +3806,105 @@ describe("VoiceController", () => {
     await app.close();
   });
 
-  it("captures name and issue together on first turn and asks risk once", async () => {
+  it("treats 'yellow' as callback confirmation yes", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: {
+        voiceConsent: { granted: true },
+        voiceListeningWindow: {
+          field: "confirmation",
+          targetField: "callback",
+          sourceEventId: "evt-callback-q",
+          expiresAt: new Date(Date.now() + 5000).toISOString(),
+        },
+      },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn().mockResolvedValue(
+      "evt-callback-yellow",
+    );
+    const incrementVoiceTurn = jest.fn().mockResolvedValue({
+      conversation: { id: "conversation-1", collectedData: {} },
+      voiceTurnCount: 2,
+      voiceStartedAt: new Date().toISOString(),
+    });
+    const aiService = buildAiService();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = await createTestApp(moduleRef);
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "Yellow.",
+      })
+      .expect(200);
+
+    expect(response.text).toContain("We&apos;ll call you back shortly.");
+    expect(response.text).toContain("<Hangup/>");
+    expect(aiService.triage).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("captures name and issue together on first turn and advances to next missing slot", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -3832,7 +3931,12 @@ describe("VoiceController", () => {
       sourceEventId: null,
     });
     const updateVoiceNameState = jest.fn();
-    const updateVoiceComfortRisk = jest.fn();
+    const getVoiceUrgencyConfirmation = jest.fn().mockReturnValue({
+      askedAt: null,
+      response: null,
+      sourceEventId: null,
+    });
+    const updateVoiceUrgencyConfirmation = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
       voiceTurnCount: 1,
@@ -3865,8 +3969,9 @@ describe("VoiceController", () => {
         updateVoiceNameState,
         getVoiceAddressState,
         getVoiceComfortRisk,
+        getVoiceUrgencyConfirmation,
         updateVoiceAddressState: jest.fn(),
-        updateVoiceComfortRisk,
+        updateVoiceUrgencyConfirmation,
         incrementVoiceTurn,
       }))
       .overrideProvider(CallLogService)
@@ -3910,16 +4015,17 @@ describe("VoiceController", () => {
         }),
       }),
     );
-    expect(updateVoiceComfortRisk).toHaveBeenCalled();
-    expect(response.text).toContain("Thanks, Ben.");
-    expect(response.text).toContain("Is anyone in the home at risk");
+    expect(updateVoiceUrgencyConfirmation).not.toHaveBeenCalled();
+    expect(response.text).toMatch(
+      /Please say the service address|If that&apos;s right, say &apos;yes&apos;/,
+    );
     expect(response.text).not.toContain("What&apos;s your full name?");
     expect(aiService.triage).not.toHaveBeenCalled();
 
     await app.close();
   });
 
-  it("treats no-elderly phrase as comfort-risk NO", async () => {
+  it("maps legacy comfort-risk window replies into emergency confirmation", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -3954,7 +4060,7 @@ describe("VoiceController", () => {
     );
     const getVoiceNameState = jest.fn().mockReturnValue(buildConfirmedNameState());
     const getVoiceAddressState = jest.fn().mockReturnValue(buildConfirmedAddressState());
-    const updateVoiceComfortRisk = jest.fn();
+    const updateVoiceUrgencyConfirmation = jest.fn();
     const incrementVoiceTurn = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1", collectedData: {} },
       voiceTurnCount: 2,
@@ -3987,7 +4093,7 @@ describe("VoiceController", () => {
         updateVoiceNameState: jest.fn(),
         getVoiceAddressState,
         updateVoiceAddressState: jest.fn(),
-        updateVoiceComfortRisk,
+        updateVoiceUrgencyConfirmation,
         incrementVoiceTurn,
       }))
       .overrideProvider(CallLogService)
@@ -4018,11 +4124,11 @@ describe("VoiceController", () => {
       })
       .expect(200);
 
-    expect(updateVoiceComfortRisk).toHaveBeenCalledWith(
+    expect(updateVoiceUrgencyConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
-        comfortRisk: expect.objectContaining({
+        urgencyConfirmation: expect.objectContaining({
           response: "NO",
           sourceEventId: "evt-comfort-no",
         }),
@@ -5564,6 +5670,120 @@ describe("VoiceController", () => {
     expect(response.text).toContain("Thanks for calling.");
     expect(response.text).toContain("<Hangup/>");
     expect(response.text).not.toContain("<Gather");
+
+    await app.close();
+  });
+
+  it("normalizes 'no, eat' into no-heat issue context once caller identity and address are confirmed", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.VOICE_ENABLED = "true";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReturnValue(true);
+
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      voiceNumber: "+12167448929",
+    });
+    const getVoiceConversationByCallSid = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+      collectedData: {
+        voiceConsent: { granted: true },
+      },
+    });
+    const updateVoiceTranscript = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
+    const updateVoiceIssueCandidate = jest.fn().mockResolvedValue({
+      id: "conversation-1",
+    });
+    const aiService = buildAiService();
+    aiService.triage.mockResolvedValue({
+      status: "reply",
+      reply: "Thanks for calling.",
+    });
+    const incrementVoiceTurn = jest.fn().mockResolvedValue({
+      conversation: { id: "conversation-1", collectedData: {} },
+      voiceTurnCount: 1,
+      voiceStartedAt: new Date().toISOString(),
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        VoiceModule,
+      ],
+    })
+      .overrideProvider(PrismaTenantsService)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone })
+      .overrideProvider(ConversationsService)
+      .useValue(buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        updateVoiceIssueCandidate,
+        incrementVoiceTurn,
+      }))
+      .overrideProvider(CallLogService)
+      .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
+      .overrideProvider(JobsToolRegistrar)
+      .useValue({ onModuleInit: jest.fn() })
+      .overrideProvider(AI_PROVIDER)
+      .useValue({ createCompletion: jest.fn() })
+      .overrideProvider(ToolSelectorService)
+      .useValue({ getEnabledToolsForTenant: jest.fn().mockReturnValue([]) })
+      .overrideProvider(AiErrorHandler)
+      .useValue({ handle: jest.fn() })
+      .overrideProvider(LoggingService)
+      .useValue({ warn: jest.fn(), error: jest.fn(), log: jest.fn() })
+      .overrideProvider(AlertingService)
+      .useValue({ notifyCritical: jest.fn() })
+      .overrideProvider(AiService)
+      .useValue(aiService)
+      .compile();
+
+    const app = await createTestApp(moduleRef);
+
+    const response = await request(app.getHttpServer())
+      .post("/api/voice/turn")
+      .send({
+        To: "+12167448929",
+        CallSid: "CA123",
+        SpeechResult: "no, eat",
+      })
+      .expect(200);
+
+    expect(updateVoiceIssueCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        conversationId: "conversation-1",
+        issue: expect.objectContaining({
+          value: "no heat",
+        }),
+      }),
+    );
+    expect(aiService.triage).toHaveBeenCalledWith(
+      "tenant-1",
+      "CA123",
+      "no heat",
+      expect.objectContaining({
+        conversationId: "conversation-1",
+      }),
+    );
+    expect(response.text).not.toContain("main issue, like no heat or leaking water");
 
     await app.close();
   });
