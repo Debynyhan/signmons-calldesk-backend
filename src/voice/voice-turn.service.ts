@@ -2692,6 +2692,27 @@ export class VoiceTurnService {
             messageOverride: smsMessage,
           });
         }
+        if (
+          nameReady &&
+          addressReady &&
+          !effectiveIssueCandidate &&
+          (this.isIssueCollectionPrompt(safeReply) ||
+            this.isIssueReconfirmationPrompt(safeReply))
+        ) {
+          return this.replyWithIssueCaptureRecovery({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            nameState,
+            addressState,
+            collectedData,
+            strategy: csrStrategy,
+            reason: "ai_issue_prompt_missing",
+            transcript: normalizedSpeech,
+          });
+        }
         if (this.shouldGatherMore(safeReply)) {
           return this.replyWithTwiml(res, this.buildSayGatherTwiml(safeReply));
         }
@@ -3555,6 +3576,32 @@ export class VoiceTurnService {
     return this.normalizeHvacIssueLexicon(canonicalized);
   }
 
+  private buildFallbackIssueCandidate(value: string): string | null {
+    const normalized = this.normalizeIssueCandidate(value);
+    if (!normalized) {
+      return null;
+    }
+    if (this.isLikelyQuestion(normalized)) {
+      return null;
+    }
+    if (this.resolveBinaryUtterance(normalized)) {
+      return null;
+    }
+    const phrase = normalized.toLowerCase();
+    const words = phrase.split(/\s+/).filter(Boolean);
+    if (words.length < 4) {
+      return null;
+    }
+    if (
+      !/\b(no|not|wont|won't|stopped|stop|broken|issue|problem|leak|noise|smell|emergency|working|heat|cool|ac|furnace|unit|system|water|power|air)\b/.test(
+        phrase,
+      )
+    ) {
+      return null;
+    }
+    return normalized;
+  }
+
   private normalizeHvacIssueLexicon(value: string): string {
     if (!value) {
       return "";
@@ -3665,7 +3712,7 @@ export class VoiceTurnService {
       return false;
     }
     if (
-      /\b(furnace|heat|heating|cold|air conditioning|cooling|no heat|no hot|no[\s,.-]*(?:eat|eet|8|eight)|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working|went out|went down|blizzard|acting up|issue|problem|hvac|no ac)\b/.test(
+      /\b(furnace|heater|heat|heating|cold|air conditioning|cooling|no heat|no hot|no[\s,.-]*(?:eat|eet|8|eight)|leak|leaking|water|burst|clog|drain|electrical|power|spark|smell|smoke|gas|broken|not working|stopped working|went out|went down|blizzard|acting up|issue|problem|hvac|no ac|short cycling|cycle on and off|not heating|not cooling)\b/.test(
         normalized,
       )
     ) {
@@ -4262,6 +4309,10 @@ export class VoiceTurnService {
       return false;
     }
     if (isConfirmationWindow) {
+      return false;
+    }
+    // Keep yes/no utterances so late-confirmation replies are not dropped.
+    if (this.resolveBinaryUtterance(normalized)) {
       return false;
     }
     if (/\d/.test(normalized)) {
@@ -4949,9 +5000,12 @@ export class VoiceTurnService {
     const detectedIssueCandidate = this.normalizeIssueCandidate(
       params.transcript ?? "",
     );
+    const fallbackIssue = this.buildFallbackIssueCandidate(
+      params.transcript ?? "",
+    );
     const detectedIssue = this.isLikelyIssueCandidate(detectedIssueCandidate)
       ? detectedIssueCandidate
-      : null;
+      : fallbackIssue;
     const askCount = this.issuePromptAttemptsByCall.get(params.callSid) ?? 0;
     const decision = reduceIssueSlot(
       {
