@@ -45,6 +45,9 @@ describe("VoiceStreamGateway provider selection", () => {
   let voiceTurnService: {
     handleStreamingTurn: jest.Mock;
   };
+  let voiceFillerAudioService: {
+    getFillerUrl: jest.Mock;
+  };
   let loggingService: {
     log: jest.Mock;
     warn: jest.Mock;
@@ -82,6 +85,9 @@ describe("VoiceStreamGateway provider selection", () => {
         '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thanks for calling.</Say></Response>',
       ),
     };
+    voiceFillerAudioService = {
+      getFillerUrl: jest.fn().mockReturnValue(null),
+    };
     loggingService = {
       log: jest.fn(),
       warn: jest.fn(),
@@ -100,6 +106,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
 
@@ -140,6 +147,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {
@@ -184,6 +192,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {
@@ -224,6 +233,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {
@@ -264,6 +274,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {
@@ -304,6 +315,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {
@@ -359,6 +371,7 @@ describe("VoiceStreamGateway provider selection", () => {
         googleTtsService as never,
         voiceCallService as never,
         voiceTurnService as never,
+        voiceFillerAudioService as never,
         loggingService as never,
       );
       const session = {
@@ -399,6 +412,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
 
@@ -439,6 +453,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {
@@ -493,6 +508,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const getTurnLatencyBreachesSpy = jest.spyOn(
@@ -537,6 +553,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
 
@@ -558,6 +575,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const client = { close: jest.fn() } as unknown as WebSocket;
@@ -591,6 +609,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const client = { close: jest.fn() } as unknown as WebSocket;
@@ -635,6 +654,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
 
@@ -699,6 +719,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
 
@@ -756,6 +777,7 @@ describe("VoiceStreamGateway provider selection", () => {
       googleTtsService as never,
       voiceCallService as never,
       voiceTurnService as never,
+      voiceFillerAudioService as never,
       loggingService as never,
     );
     const session = {

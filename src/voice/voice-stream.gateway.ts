@@ -14,6 +14,7 @@ import { GoogleTtsService } from "../google/google-tts.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { VoiceCallService } from "./voice-call.service";
 import { VoiceTurnService } from "./voice-turn.service";
+import { VoiceFillerAudioService } from "./voice-filler-audio.service";
 import {
   buildStreamUrl,
   buildStreamingTwiml,
@@ -126,6 +127,7 @@ export class VoiceStreamGateway
     private readonly googleTtsService: GoogleTtsService,
     private readonly voiceCallService: VoiceCallService,
     private readonly voiceTurnService: VoiceTurnService,
+    private readonly voiceFillerAudioService: VoiceFillerAudioService,
     private readonly loggingService: LoggingService,
   ) {}
 
@@ -605,6 +607,21 @@ export class VoiceStreamGateway
       return;
     }
     session.processing = true;
+
+    // Fire a filler clip immediately to eliminate dead-air while AI processes.
+    // Fire-and-forget: if it fails or no URL is ready, the call continues normally.
+    const fillerUrl = this.voiceFillerAudioService.getFillerUrl();
+    if (fillerUrl && !session.closed) {
+      const fillerTwiml = buildStreamingTwiml({
+        streamUrl: session.streamUrl,
+        streamParams: { tenantId: session.tenantId, leadId: session.leadId },
+        playUrl: fillerUrl,
+        keepAliveSec: this.config.voiceStreamingKeepAliveSec,
+        track: this.config.voiceStreamingTrack,
+      });
+      void this.voiceCallService.updateCallTwiml(session.callSid, fillerTwiml);
+    }
+
     const queueDelayMs =
       typeof queuedAtMs === "number"
         ? Math.max(0, Date.now() - queuedAtMs)

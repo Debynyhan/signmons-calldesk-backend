@@ -2823,13 +2823,8 @@ export class VoiceTurnService {
   }
 
   public buildConsentTwiml(displayName: string): string {
-    const actionUrl = this.buildWebhookUrl("/api/voice/turn");
     const composed = this.buildConsentMessage(displayName);
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
-      composed,
-    )}</Say><Gather input="speech" action="${this.escapeXml(
-      actionUrl,
-    )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
+    return this.buildSayGatherTwiml(composed, { timeout: 5 });
   }
 
   private buildSayGatherTwiml(
@@ -2838,7 +2833,7 @@ export class VoiceTurnService {
   ): string {
     const actionUrl = this.buildWebhookUrl("/api/voice/turn");
     const timeout = options?.timeout ?? 5;
-    const bargeIn = options?.bargeIn ? ' bargeIn="true"' : "";
+    const bargeIn = options?.bargeIn !== false ? ' bargeIn="true"' : "";
     return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
       message,
     )}</Say><Gather input="speech" action="${this.escapeXml(
@@ -2847,16 +2842,11 @@ export class VoiceTurnService {
   }
 
   private buildRepromptTwiml(strategy?: CsrStrategy): string {
-    const actionUrl = this.buildWebhookUrl("/api/voice/turn");
     const message = this.applyCsrStrategy(
       strategy,
       "Sorry, I didn't catch that. Please say that again.",
     );
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
-      message,
-    )}</Say><Gather input="speech" action="${this.escapeXml(
-      actionUrl,
-    )}" method="POST" timeout="5" speechTimeout="auto"/></Response>`;
+    return this.buildSayGatherTwiml(message);
   }
 
   private buildNameConfirmationTwiml(

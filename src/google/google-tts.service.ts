@@ -129,9 +129,13 @@ export class GoogleTtsService {
       AUDIO_CONTENT_TYPE_MAP[this.config.googleTtsAudioEncoding] ??
       "audio/mpeg";
 
+    const input = this.config.googleTtsSsmlEnabled
+      ? { ssml: this.wrapWithSsml(safeText) }
+      : { text: safeText };
+
     try {
       const [response] = await this.ttsClient.synthesizeSpeech({
-        input: { text: safeText },
+        input,
         voice: voiceParams,
         audioConfig,
       });
@@ -209,9 +213,13 @@ export class GoogleTtsService {
       volumeGainDb: params.volumeGainDb ?? this.config.googleTtsVolumeGainDb,
     };
 
+    const input = this.config.googleTtsSsmlEnabled
+      ? { ssml: this.wrapWithSsml(safeText) }
+      : { text: safeText };
+
     try {
       const [response] = await this.ttsClient.synthesizeSpeech({
-        input: { text: safeText },
+        input,
         voice: voiceParams,
         audioConfig,
       });
@@ -260,5 +268,48 @@ export class GoogleTtsService {
       );
       return null;
     }
+  }
+
+  /**
+   * Wraps plain text in SSML to add natural prosody:
+   * - 200ms pause after sentence-ending periods
+   * - 150ms pause at end of text
+   * - 95% speaking rate on question sentences for a more patient tone
+   */
+  private wrapWithSsml(text: string): string {
+    // Escape XML special chars before inserting SSML markup
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+
+    // Add a brief pause after sentence-ending period followed by a capital letter
+    // (avoids breaking abbreviations like "Dr." or "St.")
+    let ssml = escaped.replace(
+      /\.\s+(?=[A-Z])/g,
+      '.<break time="200ms"/> ',
+    );
+
+    // Slow down question sentences slightly for a more patient, attentive tone
+    ssml = ssml
+      .split(/(?<=\?)\s+/)
+      .map((segment) => {
+        const trimmed = segment.trim();
+        if (!trimmed) return trimmed;
+        if (trimmed.endsWith("?")) {
+          return `<prosody rate="95%">${trimmed}</prosody>`;
+        }
+        return trimmed;
+      })
+      .join(" ");
+
+    // Trailing pause at the end so the last word doesn't cut off abruptly
+    if (!ssml.endsWith("/>")) {
+      ssml = ssml.replace(/\.\s*$/, '.<break time="150ms"/>');
+    }
+
+    return `<speak>${ssml}</speak>`;
   }
 }

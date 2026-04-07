@@ -76,6 +76,7 @@ export interface AppConfig {
   googleTtsVolumeGainDb: number;
   googleTtsBucket: string;
   googleTtsSignedUrlTtlSec: number;
+  googleTtsSsmlEnabled: boolean;
   corsOrigins: string[];
 }
 
@@ -254,6 +255,8 @@ export default registerAs("app", (): AppConfig => {
     googleTtsSignedUrlTtlSec: Number(
       process.env.GOOGLE_TTS_SIGNED_URL_TTL_SEC ?? 900,
     ),
+    googleTtsSsmlEnabled:
+      (process.env.GOOGLE_TTS_SSML_ENABLED ?? "true").toLowerCase() === "true",
     corsOrigins,
   };
 });

@@ -13,6 +13,7 @@ import { VoiceCallService } from "./voice-call.service";
 import { VoiceStreamGateway } from "./voice-stream.gateway";
 import { VoiceTurnService } from "./voice-turn.service";
 import { VoiceConsentAudioService } from "./voice-consent-audio.service";
+import { VoiceFillerAudioService } from "./voice-filler-audio.service";
 import { PaymentsModule } from "../payments/payments.module";
 
 @Module({
@@ -33,6 +34,7 @@ import { PaymentsModule } from "../payments/payments.module";
     VoiceStreamGateway,
     VoiceTurnService,
     VoiceConsentAudioService,
+    VoiceFillerAudioService,
   ],
   controllers: [VoiceController],
 })

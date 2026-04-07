@@ -5655,7 +5655,7 @@ describe("VoiceController", () => {
       })
       .expect(200);
 
-    expect(response.text).not.toContain('bargeIn="true"');
+    expect(response.text).toContain('bargeIn="true"');
     expect(response.text).toContain("Thanks, Dean.");
     expect(response.text).toContain("Please say the service address.");
 
