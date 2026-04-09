@@ -4,7 +4,6 @@ import {
   OnGatewayDisconnect,
   WebSocketGateway,
 } from "@nestjs/websockets";
-import { createHash } from "crypto";
 import { protos } from "@google-cloud/speech";
 import type { RawData, WebSocket } from "ws";
 import appConfig, { type AppConfig } from "../config/app.config";
@@ -25,7 +24,8 @@ import {
 import { runWithRequestContext } from "../common/context/request-context";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
-import type { TenantOrganization } from "@prisma/client";
+import { VoiceStreamTurnRuntime } from "./voice-stream-turn.runtime";
+import type { VoiceStreamSession } from "./voice-stream.types";
 
 type TwilioStreamStart = {
   event: "start";
@@ -56,66 +56,16 @@ type TwilioStreamMessage =
   | TwilioStreamMedia
   | TwilioStreamStop;
 
-type VoicePendingTranscript = {
-  transcript: string;
-  confidence?: number;
-  sttFinalMs?: number;
-  queuedAtMs: number;
-};
-
-type VoiceStreamSession = {
-  callSid: string;
-  streamSid: string;
-  tenantId: string;
-  tenant: TenantOrganization;
-  leadId?: string;
-  streamUrl: string;
-  speechStream: NodeJS.ReadWriteStream;
-  processing: boolean;
-  startedAtMs: number;
-  lastMediaAtMs?: number;
-  pendingTranscript?: VoicePendingTranscript;
-  lastTranscript?: string;
-  lastTranscriptAt?: number;
-  lastResponseText?: string;
-  lastResponseAt?: number;
-  speechRestartCount: number;
-  lastSpeechRestartAtMs?: number;
-  restartingSpeechStream?: boolean;
-  hangupRequestedAtMs?: number;
-  forceHangupScheduled?: boolean;
-  forceHangupDelayMs?: number;
-  closed: boolean;
-};
-
 @WebSocketGateway({ path: VOICE_STREAM_PATH })
 export class VoiceStreamGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
-  private static readonly TTS_SIGNED_URL_SKEW_MS = 5_000;
-  private static readonly TTS_SIGNED_URL_CACHE_MAX = 200;
   private static readonly SPEECH_STREAM_RESTART_MAX = 3;
   private static readonly SPEECH_STREAM_RESTART_WINDOW_MS = 60_000;
-  private static readonly HANGUP_FORCE_CLOSE_MIN_DELAY_MS = 12_000;
-  private static readonly HANGUP_FORCE_CLOSE_MAX_DELAY_MS = 30_000;
-  private static readonly HANGUP_FORCE_CLOSE_BUFFER_MS = 3_000;
-  private static readonly TURN_TOTAL_WARN_MS = 4_500;
-  private static readonly TURN_STT_WARN_MS = 1_800;
-  private static readonly TURN_AI_WARN_MS = 1_800;
-  private static readonly TURN_TTS_WARN_MS = 1_600;
-  private static readonly TURN_TWILIO_UPDATE_WARN_MS = 1_200;
-  private static readonly FIRST_RESPONSE_WARN_MS = 5_500;
 
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
   private readonly callSessions = new Map<string, WebSocket>();
-  private readonly lastResponseByCall = new Map<
-    string,
-    { text: string; at: number }
-  >();
-  private readonly googleTtsSignedUrlCache = new Map<
-    string,
-    { url: string; objectPath: string; expiresAtMs: number }
-  >();
+  private readonly turnRuntime: VoiceStreamTurnRuntime;
 
   constructor(
     @Inject(appConfig.KEY)
@@ -129,7 +79,14 @@ export class VoiceStreamGateway
     private readonly voiceTurnService: VoiceTurnService,
     private readonly voiceFillerAudioService: VoiceFillerAudioService,
     private readonly loggingService: LoggingService,
-  ) {}
+  ) {
+    this.turnRuntime = new VoiceStreamTurnRuntime(
+      this.config,
+      this.googleTtsService,
+      this.voiceCallService,
+      this.loggingService,
+    );
+  }
 
   handleConnection(client: WebSocket) {
     client.on("message", (data: RawData) => {
@@ -829,7 +786,6 @@ export class VoiceStreamGateway
       twilioUpdateMs = Math.max(0, Date.now() - twilioUpdateStartedAt);
       session.lastResponseText = sayText;
       session.lastResponseAt = now;
-      this.lastResponseByCall.set(session.callSid, { text: sayText, at: now });
       if (hangup) {
         this.scheduleForcedHangupIfNeeded(session, sayText);
       }
@@ -884,50 +840,15 @@ export class VoiceStreamGateway
   }
 
   private isFillerTranscript(transcript: string): boolean {
-    const normalized = transcript.toLowerCase().trim();
-    if (!normalized) {
-      return true;
-    }
-    const collapsed = normalized
-      .replace(/[^a-z0-9\s]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (/\d/.test(normalized)) {
-      return false;
-    }
-    if (collapsed.length <= 2) {
-      return true;
-    }
-    if (/^(uh|um|hmm|mm hmm|mhm)$/.test(collapsed)) {
-      return true;
-    }
-    if (
-      /^(i just|just|i was|because|and|but|so|well|hold on|hang on|one sec|one second|just a sec|give me a sec|wait)$/.test(
-        collapsed,
-      )
-    ) {
-      return true;
-    }
-    return /\b(thank you for calling|this call may be recorded|this call may be transcribed)\b/.test(
-      normalized,
-    );
+    return this.turnRuntime.isFillerTranscript(transcript);
   }
 
   private buildNoSayFallbackText(transcript: string): string {
-    const normalized = this.normalizeTranscriptForDeduplication(transcript);
-    if (normalized.length >= 3) {
-      return "Thanks, I heard you. Please say that one more time so I can make sure I got it right.";
-    }
-    return "I am still here. Please tell me what you need help with today.";
+    return this.turnRuntime.buildNoSayFallbackText(transcript);
   }
 
   private normalizeTranscriptForDeduplication(value: string): string {
-    return value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    return this.turnRuntime.normalizeTranscriptForDeduplication(value);
   }
 
   private cleanupSession(client: WebSocket) {
@@ -954,90 +875,11 @@ export class VoiceStreamGateway
     }
   }
 
-  private estimateHangupForceDelayMs(text: string): number {
-    const normalized = text.replace(/\s+/g, " ").trim();
-    if (!normalized) {
-      return VoiceStreamGateway.HANGUP_FORCE_CLOSE_MIN_DELAY_MS;
-    }
-    const wordCount = normalized.split(" ").filter(Boolean).length;
-    const speechMs = Math.round((wordCount / 2.4) * 1000);
-    const withBuffer = speechMs + VoiceStreamGateway.HANGUP_FORCE_CLOSE_BUFFER_MS;
-    return Math.min(
-      VoiceStreamGateway.HANGUP_FORCE_CLOSE_MAX_DELAY_MS,
-      Math.max(VoiceStreamGateway.HANGUP_FORCE_CLOSE_MIN_DELAY_MS, withBuffer),
-    );
-  }
-
   private scheduleForcedHangupIfNeeded(
     session: VoiceStreamSession,
     closingText: string,
   ): void {
-    if (session.closed || session.forceHangupScheduled) {
-      return;
-    }
-    session.forceHangupScheduled = true;
-    const delayMs = this.estimateHangupForceDelayMs(closingText);
-    session.forceHangupDelayMs = delayMs;
-    this.loggingService.log(
-      {
-        event: "voice.stream.hangup_force_scheduled",
-        callSid: session.callSid,
-        streamSid: session.streamSid,
-        hangup_requested_at: session.hangupRequestedAtMs
-          ? new Date(session.hangupRequestedAtMs).toISOString()
-          : null,
-        force_delay_ms: delayMs,
-      },
-      VoiceStreamGateway.name,
-    );
-    const timer = setTimeout(() => {
-      if (session.closed) {
-        return;
-      }
-      const now = Date.now();
-      const hangupRequestedAt = session.hangupRequestedAtMs ?? now;
-      const elapsedMs = Math.max(0, now - hangupRequestedAt);
-      void this.voiceCallService
-        .completeCall(session.callSid)
-        .then((completed) => {
-          this.loggingService.log(
-            {
-              event: "voice.stream.hangup_force_result",
-              callSid: session.callSid,
-              streamSid: session.streamSid,
-              completed,
-              hangup_requested_at: new Date(hangupRequestedAt).toISOString(),
-              force_attempted_at: new Date(now).toISOString(),
-              hangup_to_force_attempt_ms: elapsedMs,
-              force_delay_ms: delayMs,
-            },
-            VoiceStreamGateway.name,
-          );
-        })
-        .catch((error: unknown) => {
-          this.loggingService.warn(
-            {
-              event: "voice.stream.hangup_force_result",
-              callSid: session.callSid,
-              streamSid: session.streamSid,
-              completed: false,
-              reason: error instanceof Error ? error.message : String(error),
-              hangup_requested_at: new Date(hangupRequestedAt).toISOString(),
-              force_attempted_at: new Date(now).toISOString(),
-              hangup_to_force_attempt_ms: elapsedMs,
-              force_delay_ms: delayMs,
-            },
-            VoiceStreamGateway.name,
-          );
-        })
-        .finally(() => {
-          session.forceHangupScheduled = false;
-          session.forceHangupDelayMs = undefined;
-        });
-    }, delayMs);
-    if (typeof (timer as NodeJS.Timeout).unref === "function") {
-      (timer as NodeJS.Timeout).unref();
-    }
+    this.turnRuntime.scheduleForcedHangupIfNeeded(session, closingText);
   }
 
   private isWritableStream(stream: NodeJS.ReadWriteStream): boolean {
@@ -1054,56 +896,18 @@ export class VoiceStreamGateway
   }
 
   private shouldUseGoogleTts(): boolean {
-    return (
-      this.config.voiceTtsProvider === "google" && this.googleTtsService.isEnabled()
-    );
+    return this.turnRuntime.shouldUseGoogleTts();
   }
 
   private shouldUseGoogleTtsForText(
     text: string,
     options?: { hangup?: boolean },
   ): boolean {
-    if (!this.shouldUseGoogleTts()) {
-      return false;
-    }
-    const normalized = text.replace(/\s+/g, " ").trim();
-    if (!normalized) {
-      return false;
-    }
-    // Preserve voice consistency for closing turns so the call does not
-    // switch to Twilio's default voice right before hangup.
-    if (options?.hangup) {
-      return true;
-    }
-    if (this.shouldPreferTwilioSayForLatency(normalized)) {
-      return false;
-    }
-    const shortSayLimit = Math.max(
-      0,
-      Math.floor(this.config.voiceTtsShortSayMaxChars ?? 0),
-    );
-    if (shortSayLimit > 0 && normalized.length <= shortSayLimit) {
-      return false;
-    }
-    return true;
+    return this.turnRuntime.shouldUseGoogleTtsForText(text, options);
   }
 
   private shouldPreferTwilioSayForLatency(normalizedText: string): boolean {
-    const words = normalizedText.split(/\s+/).filter(Boolean);
-    if (words.length <= 10) {
-      return true;
-    }
-    if (/\?$/.test(normalizedText) && words.length <= 28) {
-      return true;
-    }
-    if (
-      /^(thanks|got it|okay|ok|perfect|please|can you|could you|would you|what('?s| is)|is this)\b/i.test(
-        normalizedText,
-      )
-    ) {
-      return words.length <= 20;
-    }
-    return false;
+    return this.turnRuntime.shouldPreferTwilioSayForLatency(normalizedText);
   }
 
   private computeTotalTurnMs(params: {
@@ -1113,13 +917,7 @@ export class VoiceStreamGateway
     ttsMs: number;
     twilioUpdateMs: number;
   }): number {
-    return (
-      (params.sttFinalMs ?? 0) +
-      (params.queueDelayMs ?? 0) +
-      Math.max(0, params.turnLogicMs) +
-      Math.max(0, params.ttsMs) +
-      Math.max(0, params.twilioUpdateMs)
-    );
+    return this.turnRuntime.computeTotalTurnMs(params);
   }
 
   private getTurnLatencyBreaches(params: {
@@ -1130,106 +928,13 @@ export class VoiceStreamGateway
     totalTurnMs: number;
     isFirstResponse: boolean;
   }): string[] {
-    const breaches: string[] = [];
-    if (
-      typeof params.sttFinalMs === "number" &&
-      params.sttFinalMs > VoiceStreamGateway.TURN_STT_WARN_MS
-    ) {
-      breaches.push("stt_final_slow");
-    }
-    if (params.aiMs > VoiceStreamGateway.TURN_AI_WARN_MS) {
-      breaches.push("ai_slow");
-    }
-    if (params.ttsMs > VoiceStreamGateway.TURN_TTS_WARN_MS) {
-      breaches.push("tts_slow");
-    }
-    if (params.twilioUpdateMs > VoiceStreamGateway.TURN_TWILIO_UPDATE_WARN_MS) {
-      breaches.push("twilio_update_slow");
-    }
-    if (params.totalTurnMs > VoiceStreamGateway.TURN_TOTAL_WARN_MS) {
-      breaches.push("turn_total_slow");
-    }
-    if (
-      params.isFirstResponse &&
-      params.totalTurnMs > VoiceStreamGateway.FIRST_RESPONSE_WARN_MS
-    ) {
-      breaches.push("first_response_slow");
-    }
-    return breaches;
-  }
-
-  private normalizeTtsCacheText(text: string): string {
-    return text.replace(/\s+/g, " ").trim();
-  }
-
-  private buildTtsTextHash(text: string): string {
-    return createHash("sha256").update(text).digest("hex");
-  }
-
-  private pruneGoogleTtsSignedUrlCache(nowMs = Date.now()): void {
-    for (const [key, entry] of this.googleTtsSignedUrlCache.entries()) {
-      if (entry.expiresAtMs <= nowMs + VoiceStreamGateway.TTS_SIGNED_URL_SKEW_MS) {
-        this.googleTtsSignedUrlCache.delete(key);
-      }
-    }
-    while (
-      this.googleTtsSignedUrlCache.size > VoiceStreamGateway.TTS_SIGNED_URL_CACHE_MAX
-    ) {
-      const oldestKey = this.googleTtsSignedUrlCache.keys().next().value as
-        | string
-        | undefined;
-      if (!oldestKey) {
-        break;
-      }
-      this.googleTtsSignedUrlCache.delete(oldestKey);
-    }
+    return this.turnRuntime.getTurnLatencyBreaches(params);
   }
 
   private async getGoogleTtsPlayback(text: string): Promise<{
     playback: { url: string; objectPath: string };
     cacheHit: boolean;
   } | null> {
-    const normalizedText = this.normalizeTtsCacheText(text);
-    if (!normalizedText) {
-      return null;
-    }
-    const nowMs = Date.now();
-    this.pruneGoogleTtsSignedUrlCache(nowMs);
-    const hash = this.buildTtsTextHash(normalizedText);
-    const cached = this.googleTtsSignedUrlCache.get(hash);
-    if (cached && cached.expiresAtMs > nowMs + VoiceStreamGateway.TTS_SIGNED_URL_SKEW_MS) {
-      return {
-        playback: { url: cached.url, objectPath: cached.objectPath },
-        cacheHit: true,
-      };
-    }
-
-    const objectPath = `tts/cache/${hash}.${this.googleTtsService.getAudioExtension()}`;
-    const synthesized = await this.googleTtsService.synthesizeToObjectPath({
-      text: normalizedText,
-      objectPath,
-    });
-    if (!synthesized) {
-      return null;
-    }
-    const signedUrl = await this.googleTtsService.getSignedUrlIfExists(objectPath);
-    if (!signedUrl) {
-      return null;
-    }
-
-    const configuredTtlSec = this.config.googleTtsSignedUrlTtlSec;
-    const ttlSec =
-      Number.isFinite(configuredTtlSec) && configuredTtlSec > 0
-        ? configuredTtlSec
-        : 900;
-    this.googleTtsSignedUrlCache.set(hash, {
-      url: signedUrl,
-      objectPath,
-      expiresAtMs: nowMs + ttlSec * 1000,
-    });
-    return {
-      playback: { url: signedUrl, objectPath },
-      cacheHit: false,
-    };
+    return this.turnRuntime.getGoogleTtsPlayback(text);
   }
 }
