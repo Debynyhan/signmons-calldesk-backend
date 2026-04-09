@@ -61,7 +61,6 @@ import {
   stripConfirmationPrefix,
   type VoiceConfirmationResolution,
 } from "./intake/voice-field-confirmation.policy";
-import { reduceBookingCallbackSlot } from "./intake/voice-booking-callback.reducer";
 import { reduceIssueSlot } from "./intake/voice-intake.reducer";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
 import {
@@ -81,6 +80,10 @@ import {
   isSmsDifferentNumberRequest as isSmsDifferentNumberRequestPolicy,
   resolveBinaryUtterance as resolveBinaryUtterancePolicy,
 } from "./voice-utterance.policy";
+import { VoiceTurnPreludeRuntime } from "./voice-turn-prelude.runtime";
+import { VoiceTurnContextRuntime } from "./voice-turn-context.runtime";
+import { VoiceTurnEarlyRoutingRuntime } from "./voice-turn-early-routing.runtime";
+import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 
 type VoiceListeningField =
   | "name"
@@ -135,6 +138,10 @@ export class VoiceTurnService {
     { twiml: string; at: number }
   >();
   private readonly issuePromptAttemptsByCall = new Map<string, number>();
+  private readonly turnPreludeRuntime: VoiceTurnPreludeRuntime;
+  private readonly turnContextRuntime: VoiceTurnContextRuntime;
+  private readonly turnEarlyRoutingRuntime: VoiceTurnEarlyRoutingRuntime;
+  private readonly turnInterruptRuntime: VoiceTurnInterruptRuntime;
 
   constructor(
     @Inject(appConfig.KEY)
@@ -153,7 +160,130 @@ export class VoiceTurnService {
     private readonly voiceSmsPhoneSlotService: VoiceSmsPhoneSlotService,
     private readonly voiceUrgencySlotService: VoiceUrgencySlotService,
     private readonly paymentsService: PaymentsService,
-  ) {}
+  ) {
+    this.turnPreludeRuntime = new VoiceTurnPreludeRuntime(
+      this.config,
+      this.conversationsService,
+      this.callLogService,
+      {
+        getVoiceListeningWindow: (collectedData) =>
+          this.getVoiceListeningWindow(collectedData),
+        getExpectedListeningField: (listeningWindow) =>
+          this.getExpectedListeningField(
+            listeningWindow as VoiceListeningWindow | null,
+          ),
+        shouldIgnoreStreamingTranscript: (
+          transcript,
+          collectedData,
+          expectedField,
+        ) =>
+          this.shouldIgnoreStreamingTranscript(
+            transcript,
+            collectedData,
+            expectedField as VoiceExpectedField | null,
+          ),
+        isDuplicateTranscript: (collectedData, transcript, now) =>
+          this.isDuplicateTranscript(collectedData, transcript, now),
+        normalizeConfidence: (value) => this.normalizeConfidence(value),
+        getTenantDisplayName: (tenant) => this.getTenantDisplayName(tenant),
+        buildRepromptTwiml: () => this.buildRepromptTwiml(),
+        buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+        replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+        replyWithNoHandoff: (params) => this.replyWithNoHandoff(params),
+        replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
+      },
+    );
+    this.turnContextRuntime = new VoiceTurnContextRuntime(this.loggingService, {
+      getVoiceNameState: (collectedData) =>
+        this.conversationsService.getVoiceNameState(collectedData),
+      getVoiceSmsPhoneState: (collectedData) =>
+        this.conversationsService.getVoiceSmsPhoneState(collectedData),
+      getVoiceAddressState: (collectedData) =>
+        this.conversationsService.getVoiceAddressState(collectedData),
+      selectCsrStrategy: (params) => this.selectCsrStrategy(params),
+      normalizeCsrStrategyForTurn: (strategy, turnCount) =>
+        this.normalizeCsrStrategyForTurn(strategy, turnCount),
+      getVoiceListeningWindow: (collectedData) =>
+        this.getVoiceListeningWindow(collectedData),
+      shouldClearListeningWindow: (
+        listeningWindow,
+        now,
+        nameState,
+        addressState,
+        phoneState,
+      ) =>
+        this.shouldClearListeningWindow(
+          listeningWindow,
+          now,
+          nameState,
+          addressState,
+          phoneState,
+        ),
+      clearVoiceListeningWindow: (params) =>
+        this.clearVoiceListeningWindow(params),
+      getVoiceLastEventId: (collectedData) =>
+        this.getVoiceLastEventId(collectedData),
+      replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+      buildListeningWindowReprompt: (params) =>
+        this.buildListeningWindowReprompt(params),
+      markVoiceEventProcessed: (params) => this.markVoiceEventProcessed(params),
+      getExpectedListeningField: (window) => this.getExpectedListeningField(window),
+      isVoiceFieldReady: (locked, confirmed) =>
+        this.isVoiceFieldReady(locked, confirmed),
+    });
+    this.turnEarlyRoutingRuntime = new VoiceTurnEarlyRoutingRuntime({
+      resolveBinaryUtterance: (transcript) =>
+        this.resolveBinaryUtterance(transcript),
+      isBookingIntent: (transcript) => this.isBookingIntent(transcript),
+      clearVoiceListeningWindow: (params) =>
+        this.clearVoiceListeningWindow(params),
+      replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      buildBookingPromptTwiml: (strategy) =>
+        this.buildBookingPromptTwiml(strategy),
+      replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
+      buildCallbackOfferTwiml: (strategy) =>
+        this.buildCallbackOfferTwiml(strategy),
+      handleExpectedUrgencyField: (params) =>
+        this.voiceUrgencySlotService.handleExpectedField(params),
+      continueAfterSideQuestionWithIssueRouting: (params) =>
+        this.continueAfterSideQuestionWithIssueRouting(params),
+      buildUrgencyConfirmTwiml: (strategy, opts) =>
+        this.buildUrgencyConfirmTwiml(strategy, opts),
+    });
+    this.turnInterruptRuntime = new VoiceTurnInterruptRuntime(
+      {
+        isSlowDownRequest: (transcript) => this.isSlowDownRequest(transcript),
+        replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+        buildTakeYourTimeTwiml: (field, strategy) =>
+          this.buildTakeYourTimeTwiml(field, strategy),
+        replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+        buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      },
+      {
+        isHangupRequest: (transcript) => this.isHangupRequest(transcript),
+        clearIssuePromptAttempts: (callSid) =>
+          this.clearIssuePromptAttempts(callSid),
+        replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+        buildTwiml: (message) => this.buildTwiml(message),
+        isHumanTransferRequest: (transcript) =>
+          this.isHumanTransferRequest(transcript),
+        replyWithListeningWindow: (params) =>
+          this.replyWithListeningWindow(params),
+        buildCallbackOfferTwiml: (strategy) =>
+          this.buildCallbackOfferTwiml(strategy),
+        isSmsDifferentNumberRequest: (transcript) =>
+          this.isSmsDifferentNumberRequest(transcript),
+        updateVoiceSmsHandoff: (params) =>
+          this.conversationsService.updateVoiceSmsHandoff(params),
+        updateVoiceSmsPhoneState: (params) =>
+          this.conversationsService.updateVoiceSmsPhoneState(params),
+        buildAskSmsNumberTwiml: (strategy) =>
+          this.buildAskSmsNumberTwiml(strategy),
+      },
+    );
+  }
 
   public async handleTurn(params: {
     res?: Response;
@@ -203,188 +333,28 @@ export class VoiceTurnService {
   }) {
     const { tenant, callSid, res } = params;
     const timingCollector = params.timingCollector;
-
-    const conversation =
-      await this.conversationsService.getVoiceConversationByCallSid({
-        tenantId: tenant.id,
-        callSid,
-      });
-    const consentGranted = Boolean(
-      (conversation?.collectedData as { voiceConsent?: { granted?: boolean } })
-        ?.voiceConsent?.granted,
-    );
-    if (!consentGranted) {
-      return this.replyWithNoHandoff({
-        res,
-        tenantId: tenant.id,
-        callSid,
-        reason: "consent_missing",
-      });
+    const prelude = await this.turnPreludeRuntime.prepare({
+      res,
+      tenant,
+      callSid,
+      speechResult: params.speechResult ?? null,
+      confidence: params.confidence ?? null,
+    });
+    if (prelude.kind === "exit") {
+      return prelude.value;
     }
-
-    if (!conversation) {
-      return this.replyWithNoHandoff({
-        res,
-        tenantId: tenant.id,
-        callSid,
-        reason: "conversation_missing",
-      });
-    }
-
-    const now = new Date();
-    const speechResult = params.speechResult ?? null;
-    const normalizedSpeech = speechResult
-      ? speechResult.replace(/\s+/g, " ").trim()
-      : "";
-    if (!normalizedSpeech) {
-      return res ? this.replyWithTwiml(res, this.buildRepromptTwiml()) : "";
-    }
-    const collectedDataSnapshot = conversation.collectedData ?? null;
-    const listeningWindowSnapshot = this.getVoiceListeningWindow(
-      collectedDataSnapshot,
-    );
-    const expectedFieldSnapshot = this.getExpectedListeningField(
-      listeningWindowSnapshot,
-    );
-    if (
-      !res &&
-      this.shouldIgnoreStreamingTranscript(
-        normalizedSpeech,
-        collectedDataSnapshot,
-        expectedFieldSnapshot,
-      )
-    ) {
-      return "";
-    }
-    if (
-      !res &&
-      this.isDuplicateTranscript(
-        conversation?.collectedData,
-        normalizedSpeech,
-        now,
-      )
-    ) {
-      return "";
-    }
-
-    const turnState = await this.conversationsService.incrementVoiceTurn({
-      tenantId: tenant.id,
-      conversationId: conversation.id,
+    const {
       now,
-    });
-
-    if (!turnState) {
-      return this.replyWithNoHandoff({
-        res,
-        tenantId: tenant.id,
-        conversationId: conversation.id,
-        callSid,
-        reason: "turn_state_missing",
-      });
-    }
-
-    const voiceTurnCount = turnState.voiceTurnCount;
-    const maxTurns = Math.max(1, this.config.voiceMaxTurns ?? 6);
-    const maxDurationSec = Math.max(30, this.config.voiceMaxDurationSec ?? 180);
-    const startedAt = new Date(turnState.voiceStartedAt);
-    const elapsedSec = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
-    const displayName = this.getTenantDisplayName(tenant);
-    if (turnState.voiceTurnCount > maxTurns || elapsedSec > maxDurationSec) {
-      return this.replyWithHumanFallback({
-        res,
-        tenantId: tenant.id,
-        conversationId: conversation.id,
-        callSid,
-        displayName,
-        reason:
-          turnState.voiceTurnCount > maxTurns
-            ? "max_turns_exceeded"
-            : "max_duration_exceeded",
-      });
-    }
-    if (
-      this.isDuplicateTranscript(
-        conversation?.collectedData,
-        normalizedSpeech,
-        now,
-      )
-    ) {
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml("Thanks, I heard that. Please continue."),
-      );
-    }
-    const confidence = this.normalizeConfidence(params.confidence ?? null);
-    const updatedConversation =
-      await this.conversationsService.updateVoiceTranscript({
-        tenantId: tenant.id,
-        callSid,
-        transcript: normalizedSpeech,
-        confidence,
-      });
-    let transcriptEventId: string | null = null;
-    if (updatedConversation) {
-      // Text only, no audio blobs.
-      transcriptEventId = await this.callLogService.createVoiceTranscriptLog({
-        tenantId: tenant.id,
-        conversationId: updatedConversation.id,
-        callSid,
-        transcript: normalizedSpeech,
-        confidence,
-        occurredAt: new Date(),
-      });
-    }
-    const conversationId = updatedConversation?.id ?? conversation?.id;
-    if (!conversationId) {
-      return this.replyWithNoHandoff({
-        res,
-        tenantId: tenant.id,
-        callSid,
-        reason: "conversation_id_missing",
-      });
-    }
-    if (!transcriptEventId) {
-      return this.replyWithNoHandoff({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        callSid,
-        reason: "transcript_event_missing",
-      });
-    }
-
-    const collectedData =
-      updatedConversation?.collectedData ?? conversation.collectedData;
-    let nameState = this.conversationsService.getVoiceNameState(collectedData);
-    const phoneState =
-      this.conversationsService.getVoiceSmsPhoneState(collectedData);
-    const addressState =
-      this.conversationsService.getVoiceAddressState(collectedData);
-    const rawCsrStrategy = this.selectCsrStrategy({
-      conversation: updatedConversation ?? conversation,
-      collectedData,
-      nameState,
-      addressState,
-    });
-    const csrStrategy = this.normalizeCsrStrategyForTurn(
-      rawCsrStrategy,
+      normalizedSpeech,
+      confidence,
       voiceTurnCount,
-    );
-    this.loggingService.log(
-      {
-        event: "voice.strategy_selected",
-        tenantId: tenant.id,
-        conversationId,
-        strategy: csrStrategy ?? "NONE",
-        rawStrategy: rawCsrStrategy,
-        fsmState:
-          updatedConversation?.currentFSMState ??
-          conversation.currentFSMState ??
-          null,
-      },
-      VoiceTurnService.name,
-    );
-    const currentEventId = transcriptEventId;
+      displayName,
+      currentEventId,
+      conversation,
+      updatedConversation,
+      conversationId,
+      collectedData,
+    } = prelude;
     const requestId = params.requestId;
     setRequestContextData({
       tenantId: tenant.id,
@@ -394,217 +364,72 @@ export class VoiceTurnService {
       channel: "VOICE",
       sourceEventId: currentEventId ?? undefined,
     });
-    let listeningWindow = this.getVoiceListeningWindow(collectedData);
-    if (
-      listeningWindow &&
-      this.shouldClearListeningWindow(
-        listeningWindow,
-        now,
-        nameState,
-        addressState,
-        phoneState,
-      )
-    ) {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      listeningWindow = null;
-    }
-    const lastEventId = this.getVoiceLastEventId(collectedData);
-    if (lastEventId && lastEventId === currentEventId) {
-      return this.replyWithTwiml(
-        res,
-        this.buildListeningWindowReprompt({
-          window: listeningWindow,
-          nameState,
-          addressState,
-          phoneState,
-          strategy: csrStrategy,
-        }),
-      );
-    }
-    await this.markVoiceEventProcessed({
+    const turnContext = await this.turnContextRuntime.prepareTurnContext({
+      res,
       tenantId: tenant.id,
       conversationId,
-      eventId: currentEventId,
+      currentEventId,
+      voiceTurnCount,
+      now,
+      collectedData,
+      conversationForStrategy: updatedConversation ?? conversation,
+      conversationCurrentFsmState:
+        updatedConversation?.currentFSMState ??
+        conversation.currentFSMState ??
+        null,
     });
-    let expectedField = this.getExpectedListeningField(listeningWindow);
-    let nameReady =
-      Boolean(nameState.confirmed.value) ||
-      this.isVoiceFieldReady(nameState.locked, nameState.confirmed.value);
-    const addressDeferred = Boolean(addressState.smsConfirmNeeded);
-    const addressReady =
-      Boolean(addressState.confirmed) ||
-      this.isVoiceFieldReady(addressState.locked, addressState.confirmed) ||
-      addressDeferred;
-    if (expectedField === "name" && nameReady) {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      expectedField = null;
+    if (turnContext.kind === "exit") {
+      return turnContext.value;
     }
-    if (
-      expectedField === "address" &&
-      !nameReady &&
-      nameState.attemptCount === 0
-    ) {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      expectedField = null;
-    }
-    const bookingCallbackAction = reduceBookingCallbackSlot({
-      expectedField:
-        expectedField === "booking" || expectedField === "callback"
-          ? expectedField
-          : null,
-      binaryIntent: this.resolveBinaryUtterance(normalizedSpeech),
-      hasBookingIntent: this.isBookingIntent(normalizedSpeech),
+    const {
+      nameState: contextNameState,
+      phoneState: contextPhoneState,
+      addressState: contextAddressState,
+      csrStrategy: contextStrategy,
+      listeningWindow,
+      expectedField: contextExpectedField,
+      nameReady: contextNameReady,
+      addressReady: contextAddressReady,
+    } = turnContext;
+    let nameState = contextNameState;
+    const phoneState = contextPhoneState;
+    const addressState = contextAddressState;
+    const csrStrategy = contextStrategy;
+    let expectedField = contextExpectedField;
+    let nameReady = contextNameReady;
+    const addressReady = contextAddressReady;
+    const earlyRouting = await this.turnEarlyRoutingRuntime.route({
+      res,
+      tenantId: tenant.id,
+      conversationId,
+      callSid,
+      displayName,
+      currentEventId,
+      normalizedSpeech,
+      expectedField,
+      nameReady,
+      addressReady,
+      nameState,
+      addressState,
+      collectedData,
+      strategy: csrStrategy,
+      timingCollector,
     });
-    if (bookingCallbackAction.type === "CLEAR_AND_CONTINUE") {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      expectedField = null;
-    } else if (bookingCallbackAction.type === "BOOKING_DECLINED") {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml(
-          "No problem. Do you have any other questions?",
-        ),
-      );
-    } else if (bookingCallbackAction.type === "REPROMPT_BOOKING") {
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "confirmation",
-        targetField: "booking",
-        sourceEventId: currentEventId,
-        twiml: this.buildBookingPromptTwiml(csrStrategy),
-      });
-    } else if (bookingCallbackAction.type === "CALLBACK_REQUESTED") {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      return this.replyWithHumanFallback({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        callSid,
-        displayName,
-        reason: "callback_requested",
-        messageOverride: "We'll call you back shortly.",
-      });
-    } else if (bookingCallbackAction.type === "CALLBACK_DECLINED") {
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml(
-          "No problem. I can keep helping here. How can I help?",
-        ),
-      );
-    } else if (bookingCallbackAction.type === "REPROMPT_CALLBACK") {
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "confirmation",
-        targetField: "callback",
-        sourceEventId: currentEventId,
-        twiml: this.buildCallbackOfferTwiml(csrStrategy),
-      });
+    if (earlyRouting.kind === "exit") {
+      return earlyRouting.value;
     }
-    if (
-      expectedField === "comfort_risk" ||
-      expectedField === "urgency_confirm"
-    ) {
-      const urgencyOutcome =
-        await this.voiceUrgencySlotService.handleExpectedField({
-          expectedField,
-          binaryIntent: this.resolveBinaryUtterance(normalizedSpeech),
-          tenantId: tenant.id,
-          conversationId,
-          sourceEventId: currentEventId ?? null,
-        });
-      if (urgencyOutcome.kind === "answered") {
-        return this.continueAfterSideQuestionWithIssueRouting({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          sideQuestionReply: urgencyOutcome.preface,
-          expectedField: null,
-          nameReady,
-          addressReady,
-          nameState,
-          addressState,
-          collectedData,
-          currentEventId,
-          strategy: csrStrategy,
-          timingCollector,
-        });
-      }
-      if (urgencyOutcome.kind === "reprompt") {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "confirmation",
-          targetField: "urgency_confirm",
-          sourceEventId: currentEventId,
-          twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
-        });
-      }
-    }
-    if (this.isSlowDownRequest(normalizedSpeech)) {
-      if (expectedField === "name") {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildTakeYourTimeTwiml("name", csrStrategy),
-        });
-      }
-      if (expectedField === "address") {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "address",
-          sourceEventId: currentEventId,
-          twiml: this.buildTakeYourTimeTwiml("address", csrStrategy),
-        });
-      }
-      if (expectedField === "sms_phone") {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "sms_phone",
-          sourceEventId: currentEventId,
-          twiml: this.buildTakeYourTimeTwiml("sms_phone", csrStrategy),
-        });
-      }
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml("Sure—take your time. How can I help?"),
-      );
+    expectedField = earlyRouting.expectedField;
+    const slowDownBranch = await this.turnInterruptRuntime.handleSlowDown({
+      res,
+      tenantId: tenant.id,
+      conversationId,
+      currentEventId,
+      normalizedSpeech,
+      expectedField,
+      strategy: csrStrategy,
+    });
+    if (slowDownBranch.kind === "exit") {
+      return slowDownBranch.value;
     }
 
     const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
@@ -793,56 +618,18 @@ export class VoiceTurnService {
       });
     }
 
-    if (this.isHangupRequest(normalizedSpeech)) {
-      this.clearIssuePromptAttempts(callSid);
-      return this.replyWithTwiml(
-        res,
-        this.buildTwiml(
-          "No problem. If you need anything later, call us back.",
-        ),
-      );
-    }
-
-    if (this.isHumanTransferRequest(normalizedSpeech)) {
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "confirmation",
-        targetField: "callback",
-        sourceEventId: currentEventId,
-        twiml: this.buildCallbackOfferTwiml(csrStrategy),
-      });
-    }
-    if (this.isSmsDifferentNumberRequest(normalizedSpeech)) {
-      await this.conversationsService.updateVoiceSmsHandoff({
-        tenantId: tenant.id,
-        conversationId,
-        handoff: {
-          reason: "sms_number_change_requested",
-          messageOverride: null,
-          createdAt: new Date().toISOString(),
-        },
-      });
-      await this.conversationsService.updateVoiceSmsPhoneState({
-        tenantId: tenant.id,
-        conversationId,
-        phoneState: {
-          ...phoneState,
-          confirmed: false,
-          confirmedAt: null,
-          attemptCount: 0,
-          lastPromptedAt: new Date().toISOString(),
-        },
-      });
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "sms_phone",
-        sourceEventId: currentEventId,
-        twiml: this.buildAskSmsNumberTwiml(csrStrategy),
-      });
+    const interruptBranch = await this.turnInterruptRuntime.handleInterrupts({
+      res,
+      tenantId: tenant.id,
+      conversationId,
+      callSid,
+      currentEventId,
+      normalizedSpeech,
+      strategy: csrStrategy,
+      phoneState,
+    });
+    if (interruptBranch.kind === "exit") {
+      return interruptBranch.value;
     }
 
     if (this.isFrustrationRequest(normalizedSpeech)) {
