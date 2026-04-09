@@ -25,6 +25,16 @@ import {
   buildIssueSlotPrompt,
   ISSUE_SLOT_SMS_DEFER_MESSAGE,
 } from "./intake/issue-slot.policy";
+import {
+  buildNameClarificationPrompt,
+  extractNameCandidateDeterministic,
+  isLikelyNameCandidate,
+  isValidNameCandidate,
+  normalizeNameCandidate,
+  parseSpelledNameParts,
+  shouldPromptForNameSpelling,
+  shouldRepromptForLowConfidenceName,
+} from "./intake/voice-name-candidate.policy";
 import { reduceBookingCallbackSlot } from "./intake/voice-booking-callback.reducer";
 import { reduceIssueSlot } from "./intake/voice-intake.reducer";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
@@ -594,11 +604,11 @@ export class VoiceTurnService {
       !nameState.candidate.value;
     if (shouldCaptureOpeningNameFromMultiSlot) {
       const deterministicNameCandidate =
-        this.extractNameCandidateDeterministic(normalizedSpeech);
+        extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService);
       const hasDeterministicName =
         deterministicNameCandidate &&
-        this.isValidNameCandidate(deterministicNameCandidate) &&
-        this.isLikelyNameCandidate(deterministicNameCandidate);
+        isValidNameCandidate(deterministicNameCandidate) &&
+        isLikelyNameCandidate(deterministicNameCandidate);
       if (hasDeterministicName && deterministicNameCandidate) {
         const currentName = nameState.candidate.value?.trim().toLowerCase() ?? "";
         const incomingName = deterministicNameCandidate.trim().toLowerCase();
@@ -1006,7 +1016,11 @@ export class VoiceTurnService {
       const repromptLowConfidenceNameForAddress = async () => {
         const candidate = workingNameState.candidate.value;
         if (
-          !this.shouldRepromptForLowConfidenceName(workingNameState, candidate)
+          !shouldRepromptForLowConfidenceName(
+            workingNameState,
+            candidate,
+            this.sanitizationService,
+          )
         ) {
           return null;
         }
@@ -1045,7 +1059,10 @@ export class VoiceTurnService {
           twiml: this.buildSayGatherTwiml(
             this.applyCsrStrategy(
               csrStrategy,
-              this.buildNameClarificationPrompt(candidate),
+              buildNameClarificationPrompt(
+                candidate,
+                this.sanitizationService,
+              ),
             ),
           ),
         });
@@ -1190,7 +1207,13 @@ export class VoiceTurnService {
         nextNameState: typeof nameState,
         issueSummary?: string | null,
       ) => {
-        if (this.shouldPromptForNameSpelling(nextNameState, candidate)) {
+        if (
+          shouldPromptForNameSpelling(
+            nextNameState,
+            candidate,
+            this.sanitizationService,
+          )
+        ) {
           return promptForNameSpelling(candidate, nextNameState);
         }
         return acknowledgeNameAndMoveOn(candidate, issueSummary ?? null);
@@ -1208,17 +1231,17 @@ export class VoiceTurnService {
         return replyWithAddressPrompt(preface);
       };
       const spellingResponseCandidate =
-        this.normalizeNameCandidate(normalizedSpeech);
+        normalizeNameCandidate(normalizedSpeech, this.sanitizationService);
       const shouldHandleSpellingResponse =
         Boolean(workingNameState.spellPromptedAt) &&
         (typeof workingNameState.spellPromptedTurnIndex !== "number" ||
           turnIndex > workingNameState.spellPromptedTurnIndex ||
           (spellingResponseCandidate &&
-            this.isValidNameCandidate(spellingResponseCandidate) &&
-            this.isLikelyNameCandidate(spellingResponseCandidate)));
+            isValidNameCandidate(spellingResponseCandidate) &&
+            isLikelyNameCandidate(spellingResponseCandidate)));
 
       if (shouldHandleSpellingResponse) {
-        const parsed = this.parseSpelledNameParts(normalizedSpeech);
+        const parsed = parseSpelledNameParts(normalizedSpeech);
         if (parsed.firstName) {
           const candidate = parsed.lastName
             ? `${parsed.firstName} ${parsed.lastName}`
@@ -1247,12 +1270,12 @@ export class VoiceTurnService {
         }
         if (parsed.reason === "no_letters") {
           const fallbackCandidate =
-            this.extractNameCandidateDeterministic(normalizedSpeech) ??
-            this.normalizeNameCandidate(normalizedSpeech);
+            extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService) ??
+            normalizeNameCandidate(normalizedSpeech, this.sanitizationService);
           if (
             fallbackCandidate &&
-            this.isValidNameCandidate(fallbackCandidate) &&
-            this.isLikelyNameCandidate(fallbackCandidate)
+            isValidNameCandidate(fallbackCandidate) &&
+            isLikelyNameCandidate(fallbackCandidate)
           ) {
             await storeProvisionalName(fallbackCandidate, {
               lastConfidence: confidence ?? null,
@@ -1327,11 +1350,11 @@ export class VoiceTurnService {
           );
         }
         const openingCandidate =
-          this.extractNameCandidateDeterministic(normalizedSpeech);
+          extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService);
         const hasOpeningName =
           openingCandidate &&
-          this.isValidNameCandidate(openingCandidate) &&
-          this.isLikelyNameCandidate(openingCandidate);
+          isValidNameCandidate(openingCandidate) &&
+          isLikelyNameCandidate(openingCandidate);
         const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
         const hasIssue = this.isLikelyIssueCandidate(issueCandidate);
         if (hasIssue) {
@@ -1460,16 +1483,16 @@ export class VoiceTurnService {
       }
 
       const deterministicCandidate =
-        this.extractNameCandidateDeterministic(normalizedSpeech);
+        extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService);
       const extracted =
         deterministicCandidate ??
         (await this.trackAiCall(timingCollector, () =>
           this.aiService.extractNameCandidate(tenant.id, normalizedSpeech),
         ));
-      const candidateName = this.normalizeNameCandidate(extracted ?? "");
+      const candidateName = normalizeNameCandidate(extracted ?? "", this.sanitizationService);
       const validatedCandidate =
-        this.isValidNameCandidate(candidateName) &&
-        this.isLikelyNameCandidate(candidateName)
+        isValidNameCandidate(candidateName) &&
+        isLikelyNameCandidate(candidateName)
           ? candidateName
           : "";
       if (validatedCandidate) {
@@ -1479,7 +1502,13 @@ export class VoiceTurnService {
           existingCandidate.trim().toLowerCase() ===
             validatedCandidate.trim().toLowerCase()
         ) {
-          if (this.shouldPromptForNameSpelling(nameState, existingCandidate)) {
+          if (
+            shouldPromptForNameSpelling(
+              nameState,
+              existingCandidate,
+              this.sanitizationService,
+            )
+          ) {
             return promptForNameSpelling(existingCandidate, nameState);
           }
           return acknowledgeNameAndMoveOn(existingCandidate);
@@ -1498,7 +1527,11 @@ export class VoiceTurnService {
       }
       if (nameState.candidate.value) {
         if (
-          this.shouldPromptForNameSpelling(nameState, nameState.candidate.value)
+          shouldPromptForNameSpelling(
+            nameState,
+            nameState.candidate.value,
+            this.sanitizationService,
+          )
         ) {
           return promptForNameSpelling(nameState.candidate.value, nameState);
         }
@@ -3873,10 +3906,10 @@ export class VoiceTurnService {
     if (/\d/.test(normalized)) {
       return false;
     }
-    const normalizedCandidate = this.normalizeNameCandidate(normalized);
+    const normalizedCandidate = normalizeNameCandidate(normalized, this.sanitizationService);
     if (
-      this.isValidNameCandidate(normalizedCandidate) &&
-      this.isLikelyNameCandidate(normalizedCandidate)
+      isValidNameCandidate(normalizedCandidate) &&
+      isLikelyNameCandidate(normalizedCandidate)
     ) {
       return false;
     }
@@ -4120,7 +4153,7 @@ export class VoiceTurnService {
     }
     const normalizedCandidate =
       fieldType === "name"
-        ? this.normalizeNameCandidate(utterance)
+        ? normalizeNameCandidate(utterance, this.sanitizationService)
         : this.sanitizationService.normalizeWhitespace(
             this.normalizeAddressCandidate(utterance),
           );
@@ -4129,8 +4162,8 @@ export class VoiceTurnService {
     }
     if (fieldType === "name") {
       if (
-        !this.isValidNameCandidate(normalizedCandidate) ||
-        !this.isLikelyNameCandidate(normalizedCandidate)
+        !isValidNameCandidate(normalizedCandidate) ||
+        !isLikelyNameCandidate(normalizedCandidate)
       ) {
         return false;
       }
@@ -4226,11 +4259,11 @@ export class VoiceTurnService {
       return null;
     }
     if (fieldType === "name") {
-      const candidate = this.normalizeNameCandidate(stripped);
+      const candidate = normalizeNameCandidate(stripped, this.sanitizationService);
       if (
         !candidate ||
-        !this.isValidNameCandidate(candidate) ||
-        !this.isLikelyNameCandidate(candidate)
+        !isValidNameCandidate(candidate) ||
+        !isLikelyNameCandidate(candidate)
       ) {
         return null;
       }
@@ -4789,7 +4822,7 @@ export class VoiceTurnService {
     if (!normalized) {
       return false;
     }
-    if (this.extractNameCandidateDeterministic(transcript)) {
+    if (extractNameCandidateDeterministic(transcript, this.sanitizationService)) {
       return false;
     }
     if (this.isLikelyIssueCandidate(this.normalizeIssueCandidate(normalized))) {
@@ -4930,222 +4963,6 @@ export class VoiceTurnService {
       .trim();
   }
 
-  private normalizeNameCandidate(value: string): string {
-    const cleaned = this.sanitizationService
-      .sanitizeText(value)
-      .toLowerCase()
-      .replace(/[^a-z\s'-]/g, " ");
-    const stripped = this.stripNameFillers(cleaned);
-    const normalized = this.sanitizationService.normalizeWhitespace(stripped);
-    if (!normalized) {
-      return "";
-    }
-    return this.toTitleCase(normalized);
-  }
-
-  private extractNameCandidateDeterministic(transcript: string): string | null {
-    const cleaned = this.sanitizationService.sanitizeText(transcript);
-    if (!cleaned) {
-      return null;
-    }
-    if (/\d/.test(transcript)) {
-      return null;
-    }
-    const tokenPattern =
-      "([A-Za-z][A-Za-z'\\-]*(?:\\s+[A-Za-z][A-Za-z'\\-]*){0,2})";
-    const patterns = [
-      new RegExp(`\\bmy name is\\s+${tokenPattern}`, "i"),
-      new RegExp(`\\bthis is\\s+${tokenPattern}`, "i"),
-      new RegExp(`\\bi am\\s+${tokenPattern}`, "i"),
-      new RegExp(`\\bi'?m\\s+${tokenPattern}`, "i"),
-      new RegExp(`\\bname is\\s+${tokenPattern}`, "i"),
-      new RegExp(`\\bit'?s\\s+${tokenPattern}`, "i"),
-    ];
-    for (const pattern of patterns) {
-      const match = cleaned.match(pattern);
-      if (!match || !match[1]) {
-        continue;
-      }
-      const normalized = this.normalizeNameCandidate(match[1]);
-      if (this.isValidNameCandidate(normalized)) {
-        return normalized;
-      }
-    }
-    const spelled = this.extractSpelledNameCandidate(cleaned);
-    if (spelled) {
-      return spelled;
-    }
-    const direct = this.normalizeNameCandidate(cleaned);
-    if (!this.isValidNameCandidate(direct)) {
-      return null;
-    }
-    return this.isLikelyNameCandidate(direct) ? direct : null;
-  }
-
-  private parseSpelledNameParts(transcript: string): {
-    firstName: string | null;
-    lastName?: string;
-    letterCount: number;
-    reason?: "no_letters" | "too_short" | "too_long";
-  } {
-    const cleaned = transcript.toUpperCase().replace(/[^A-Z\s]/g, " ");
-    const tokens = cleaned.split(/\s+/).filter(Boolean);
-    const letters: string[] = [];
-    let startIndex = -1;
-    let index = 0;
-    while (index < tokens.length) {
-      const token = tokens[index];
-      if (/^[A-Z]$/.test(token)) {
-        if (startIndex < 0) {
-          startIndex = index;
-        }
-        letters.push(token);
-      } else if (letters.length >= 3) {
-        break;
-      } else {
-        letters.length = 0;
-        startIndex = -1;
-      }
-      index += 1;
-    }
-    if (letters.length === 0) {
-      const hasLongTokens = tokens.some((token) => token.length > 4);
-      const shortTokens = tokens.filter(
-        (token) => token.length >= 2 && token.length <= 4,
-      );
-      if (
-        !hasLongTokens &&
-        shortTokens.length >= 2 &&
-        shortTokens.length <= 6
-      ) {
-        const joinedShort = shortTokens.join("");
-        if (joinedShort.length >= 3 && joinedShort.length <= 12) {
-          const firstName = this.toTitleCase(joinedShort.toLowerCase());
-          return {
-            firstName,
-            letterCount: joinedShort.length,
-          };
-        }
-      }
-      return { firstName: null, letterCount: 0, reason: "no_letters" };
-    }
-    if (letters.length < 3) {
-      return {
-        firstName: null,
-        letterCount: letters.length,
-        reason: "too_short",
-      };
-    }
-    if (letters.length > 12) {
-      return {
-        firstName: null,
-        letterCount: letters.length,
-        reason: "too_long",
-      };
-    }
-    const joined = letters.join("").toLowerCase();
-    const firstName = this.toTitleCase(joined);
-    const remainderIndex =
-      startIndex >= 0 ? startIndex + letters.length : index;
-    const remaining = tokens
-      .slice(remainderIndex)
-      .filter((token) => token.length > 1);
-    const rawLastName = remaining[0];
-    const normalizedLastName = rawLastName
-      ? this.toTitleCase(rawLastName.toLowerCase())
-      : null;
-    const lastName =
-      normalizedLastName && this.isValidLastNameToken(normalizedLastName)
-        ? normalizedLastName
-        : undefined;
-    return { firstName, lastName, letterCount: letters.length };
-  }
-
-  private isValidLastNameToken(value: string): boolean {
-    return /^[A-Za-z][A-Za-z'-]*$/.test(value) && value.length >= 2;
-  }
-
-  private extractSpelledNameCandidate(transcript: string): string | null {
-    const parsed = this.parseSpelledNameParts(transcript);
-    if (!parsed.firstName) {
-      return null;
-    }
-    const candidate = parsed.lastName
-      ? `${parsed.firstName} ${parsed.lastName}`
-      : parsed.firstName;
-    return this.isValidNameCandidate(candidate) ? candidate : null;
-  }
-
-  private isValidNameCandidate(candidate: string): boolean {
-    const tokens = candidate.split(" ").filter(Boolean);
-    if (tokens.length < 1 || tokens.length > 3) {
-      return false;
-    }
-    return tokens.every((token) => /^[A-Za-z][A-Za-z'-]*$/.test(token));
-  }
-
-  private isLikelyNameCandidate(candidate: string): boolean {
-    const blocked = new Set([
-      "hello",
-      "hi",
-      "hey",
-      "there",
-      "this",
-      "that",
-      "you",
-      "your",
-      "me",
-      "my",
-      "the",
-      "yes",
-      "yeah",
-      "yep",
-      "yup",
-      "yah",
-      "ya",
-      "yuh",
-      "yellow",
-      "yello",
-      "no",
-      "nope",
-      "correct",
-      "incorrect",
-      "right",
-      "ok",
-      "okay",
-      "maybe",
-      "sure",
-      "acting",
-      "act",
-      "up",
-      "issue",
-      "problem",
-      "help",
-      "from",
-      "buggy",
-      "slow",
-      "down",
-      "bye",
-      "goodbye",
-    ]);
-    return candidate
-      .toLowerCase()
-      .split(" ")
-      .filter(Boolean)
-      .every((token) => !blocked.has(token));
-  }
-
-  private isNameFragment(candidate: string): boolean {
-    const normalized = this.sanitizationService.normalizeWhitespace(
-      this.stripNameFillers(candidate.toLowerCase()),
-    );
-    const tokens = normalized.split(" ").filter(Boolean);
-    if (tokens.length === 0) {
-      return true;
-    }
-    return tokens[0].length <= 2;
-  }
-
   private normalizeCsrStrategyForTurn(
     strategy: CsrStrategy,
     turnCount: number,
@@ -5157,58 +4974,6 @@ export class VoiceTurnService {
       return undefined;
     }
     return strategy;
-  }
-
-  private shouldPromptForNameSpelling(
-    nameState: ReturnType<ConversationsService["getVoiceNameState"]>,
-    candidate: string | null,
-  ): boolean {
-    if (!candidate) {
-      return false;
-    }
-    if ((nameState.spellPromptCount ?? 0) > 0) {
-      return false;
-    }
-    const tokenCount = candidate.split(" ").filter(Boolean).length;
-    const lowConfidence = (nameState.lastConfidence ?? 1) < 0.8;
-    const repeatedCorrections = (nameState.corrections ?? 0) >= 2;
-    const fragment = this.isNameFragment(candidate);
-    if (repeatedCorrections || fragment) {
-      return true;
-    }
-    return lowConfidence && tokenCount <= 1;
-  }
-
-  private shouldRepromptForLowConfidenceName(
-    nameState: ReturnType<ConversationsService["getVoiceNameState"]>,
-    candidate: string | null,
-  ): boolean {
-    if (!candidate) {
-      return false;
-    }
-    const promptCount = nameState.spellPromptCount ?? 0;
-    if (promptCount >= 2) {
-      return false;
-    }
-    const tokenCount = candidate.split(" ").filter(Boolean).length;
-    const confidence = nameState.lastConfidence;
-    const lowConfidence =
-      typeof confidence === "number" && confidence >= 0 && confidence < 0.35;
-    const fragment = this.isNameFragment(candidate);
-    if (fragment) {
-      return true;
-    }
-    return tokenCount <= 1 && lowConfidence && !nameState.firstNameSpelled;
-  }
-
-  private buildNameClarificationPrompt(candidate: string | null): string {
-    const normalizedCandidate = candidate
-      ? this.sanitizationService.normalizeWhitespace(candidate)
-      : "";
-    if (normalizedCandidate) {
-      return `I want to make sure I got your name right. I heard ${normalizedCandidate}. Please say your full first and last name.`;
-    }
-    return "I want to make sure I got your name right. Please say your full first and last name.";
   }
 
   private isLikelyAddressInputForName(transcript: string): boolean {
@@ -5949,76 +5714,6 @@ export class VoiceTurnService {
       return candidate;
     }
     return `${candidate} ${normalized}`.replace(/\s+/g, " ").trim();
-  }
-
-  private stripNameFillers(value: string): string {
-    const leadingTokens = new Set([
-      "um",
-      "uh",
-      "erm",
-      "er",
-      "hey",
-      "hi",
-      "hello",
-    ]);
-    let result = value.trim();
-    let trimmed = true;
-    while (trimmed) {
-      trimmed = false;
-      for (const token of leadingTokens) {
-        if (result.startsWith(`${token} `)) {
-          result = result.slice(token.length).trim();
-          trimmed = true;
-          break;
-        }
-      }
-    }
-    const fillers = [
-      "my name is",
-      "this is",
-      "i am",
-      "im",
-      "i'm",
-      "name is",
-      "its",
-      "it's",
-    ];
-    for (const filler of fillers) {
-      if (result.startsWith(`${filler} `)) {
-        result = result.slice(filler.length).trim();
-        break;
-      }
-    }
-    trimmed = true;
-    while (trimmed) {
-      trimmed = false;
-      for (const token of leadingTokens) {
-        if (result.startsWith(`${token} `)) {
-          result = result.slice(token.length).trim();
-          trimmed = true;
-          break;
-        }
-      }
-    }
-    const trailingCourtesyTokens = new Set([
-      "thanks",
-      "thank",
-      "you",
-      "please",
-      "sir",
-      "maam",
-      "mam",
-    ]);
-    let tokens = result.split(/\s+/).filter(Boolean);
-    while (tokens.length > 1) {
-      const tail = tokens[tokens.length - 1];
-      if (!trailingCourtesyTokens.has(tail)) {
-        break;
-      }
-      tokens = tokens.slice(0, -1);
-    }
-    result = tokens.join(" ");
-    return result;
   }
 
   private toTitleCase(value: string): string {
