@@ -68,6 +68,19 @@ import {
   getRequestContext,
   setRequestContextData,
 } from "../common/context/request-context";
+import {
+  isAffirmativeUtterance as isAffirmativeUtterancePolicy,
+  isBookingIntent as isBookingIntentPolicy,
+  isDuplicateTranscript as isDuplicateTranscriptPolicy,
+  isFrustrationRequest as isFrustrationRequestPolicy,
+  isHangupRequest as isHangupRequestPolicy,
+  isHumanTransferRequest as isHumanTransferRequestPolicy,
+  isLikelyQuestion as isLikelyQuestionPolicy,
+  isNegativeUtterance as isNegativeUtterancePolicy,
+  isSlowDownRequest as isSlowDownRequestPolicy,
+  isSmsDifferentNumberRequest as isSmsDifferentNumberRequestPolicy,
+  resolveBinaryUtterance as resolveBinaryUtterancePolicy,
+} from "./voice-utterance.policy";
 
 type VoiceListeningField =
   | "name"
@@ -4746,78 +4759,37 @@ export class VoiceTurnService {
   }
 
   private isLikelyQuestion(transcript: string): boolean {
-    if (!transcript) {
-      return false;
-    }
-    if (transcript.trim().endsWith("?")) {
-      return true;
-    }
-    return /^(who|what|when|where|why|how|can|do|does|is|are|will)\b/i.test(
-      transcript.trim(),
-    );
+    return isLikelyQuestionPolicy(transcript);
   }
 
   private isBookingIntent(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    return /\b(book|schedule|appointment|visit|dispatch|send someone|send a tech|come out|come over|set up)\b/.test(
-      normalized,
-    );
+    return isBookingIntentPolicy(normalized);
   }
 
   private isSlowDownRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    if (
-      /\b(hold on|hang on|wait|one sec|one second|just a sec|give me a sec)\b/.test(
-        normalized,
-      )
-    ) {
-      return true;
-    }
-    if (/\btoo fast\b/.test(normalized)) {
-      return true;
-    }
-    return /\bslow\b.*\bdown\b/.test(normalized);
+    return isSlowDownRequestPolicy(normalized);
   }
 
   private isFrustrationRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    if (this.isSlowDownRequest(normalized)) {
-      return false;
-    }
-    return /\b(human|agent|representative|supervisor|manager|person|operator|buggy|repeating|not listening|ridiculous|frustrated|annoying|robotic|already told|told you already|said that already)\b/.test(
-      normalized,
-    );
+    return isFrustrationRequestPolicy(normalized);
   }
 
   private isHumanTransferRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    if (
-      /\b(human|agent|representative|supervisor|manager|operator)\b/.test(
-        normalized,
-      )
-    ) {
-      return true;
-    }
-    return /\b(?:talk|speak)\s+to\s+(?:a|an|the)?\s*(?:human|agent|representative|supervisor|manager|person|someone|operator)\b/.test(
-      normalized,
-    );
+    return isHumanTransferRequestPolicy(normalized);
   }
 
   private isSmsDifferentNumberRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    if (!normalized) {
-      return false;
-    }
-    return /\b(different number|another number|use another number|new number|text (?:me )?at another number|text a different number)\b/.test(
-      normalized,
-    );
+    return isSmsDifferentNumberRequestPolicy(normalized);
   }
 
   private isHangupRequest(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    return /\b(bye|goodbye|hang up|hangup|stop calling|no thanks|no thank you|cancel|never mind|nevermind|that'?s all)\b/.test(
-      normalized,
-    );
+    return isHangupRequestPolicy(normalized);
   }
 
   private isOpeningGreetingOnly(transcript: string): boolean {
@@ -4840,89 +4812,17 @@ export class VoiceTurnService {
 
   private isAffirmativeUtterance(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    return [
-      "yes",
-      "yeah",
-      "yep",
-      "yup",
-      "yah",
-      "ya",
-      "yuh",
-      "yellow",
-      "yello",
-      "correct",
-      "that's right",
-      "that is right",
-      "right",
-      "ok",
-      "okay",
-      "affirmative",
-      "sure",
-      "please",
-      "go ahead",
-      "perfect",
-      "that's perfect",
-      "that is perfect",
-    ].includes(normalized);
+    return isAffirmativeUtterancePolicy(normalized);
   }
 
   private resolveBinaryUtterance(transcript: string): "YES" | "NO" | null {
-    if (this.isAffirmativeUtterance(transcript)) {
-      return "YES";
-    }
-    if (this.isNegativeUtterance(transcript)) {
-      return "NO";
-    }
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    if (!normalized) {
-      return null;
-    }
-    if (
-      /\b(not an emergency|not emergency|non emergency|this is not an emergency)\b/.test(
-        normalized,
-      )
-    ) {
-      return "NO";
-    }
-    if (
-      /\b(no (?:elderly|kids?|children)|no one (?:is )?at risk|nobody (?:is )?at risk|not at risk|no urgent concerns?|nothing urgent|no risk)\b/.test(
-        normalized,
-      )
-    ) {
-      return "NO";
-    }
-    if (
-      /^(yes|yeah|yep|yup|yah|ya|yuh|yellow|yello|correct|right|affirmative|sure|ok|okay)\b/.test(
-        normalized,
-      )
-    ) {
-      return "YES";
-    }
-    if (/^(no|nope|negative)\b/.test(normalized)) {
-      if (
-        /\b(no heat|no ac|no air|no cooling|no water|no power|not working|won't turn on)\b/.test(
-          normalized,
-        )
-      ) {
-        return null;
-      }
-      return "NO";
-    }
-    return null;
+    return resolveBinaryUtterancePolicy(normalized);
   }
 
   private isNegativeUtterance(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
-    return [
-      "no",
-      "nope",
-      "incorrect",
-      "that's wrong",
-      "that is wrong",
-      "not right",
-      "negative",
-      "not now",
-    ].includes(normalized);
+    return isNegativeUtterancePolicy(normalized);
   }
 
   private isDuplicateTranscript(
@@ -4930,42 +4830,7 @@ export class VoiceTurnService {
     transcript: string,
     now: Date,
   ): boolean {
-    if (!collectedData || typeof collectedData !== "object") {
-      return false;
-    }
-    const data = collectedData as Record<string, unknown>;
-    const lastTranscript =
-      typeof data.lastTranscript === "string" ? data.lastTranscript : null;
-    const lastTranscriptAt =
-      typeof data.lastTranscriptAt === "string" ? data.lastTranscriptAt : null;
-    if (!lastTranscript || !lastTranscriptAt) {
-      return false;
-    }
-    const lastTime = Date.parse(lastTranscriptAt);
-    if (Number.isNaN(lastTime)) {
-      return false;
-    }
-    const withinWindow = now.getTime() - lastTime <= 4000;
-    if (!withinWindow) {
-      return false;
-    }
-    const normalizedCurrent =
-      this.normalizeTranscriptForDuplicateCheck(transcript);
-    const normalizedLast =
-      this.normalizeTranscriptForDuplicateCheck(lastTranscript);
-    if (!normalizedCurrent || !normalizedLast) {
-      return false;
-    }
-    return normalizedLast === normalizedCurrent;
-  }
-
-  private normalizeTranscriptForDuplicateCheck(value: string): string {
-    return value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    return isDuplicateTranscriptPolicy(collectedData, transcript, now);
   }
 
   private normalizeCsrStrategyForTurn(
