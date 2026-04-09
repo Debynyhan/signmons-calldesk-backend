@@ -46,6 +46,16 @@ import {
   storeProvisionalNameCandidate as reduceStoreProvisionalNameCandidate,
 } from "./intake/voice-name-slot.reducer";
 import {
+  buildAddressCorrectionState,
+  buildAddressExtractionBaseState,
+  buildAddressExtractionCandidateState,
+  buildAddressExtractionRetryState,
+  buildAddressLockedCandidateState,
+  buildAddressRejectedState,
+  buildAddressReplacementState,
+  buildAddressStateFromLocalityMerge,
+} from "./intake/voice-address-slot.reducer";
+import {
   normalizeConfirmationUtterance,
   resolveConfirmation,
   stripConfirmationPrefix,
@@ -1654,16 +1664,15 @@ export class VoiceTurnService {
         const mergedParts = this.mergeAddressParts(addressState, localityParts);
         const mergedCandidateFromParts =
           this.buildAddressCandidateFromParts(mergedParts);
-        const nextAddressState: typeof addressState = {
-          ...addressState,
-          ...mergedParts,
-          candidate:
+        const nextAddressState = buildAddressStateFromLocalityMerge({
+          state: addressState,
+          mergedParts,
+          mergedCandidate:
             mergedCandidate ||
             mergedCandidateFromParts ||
             addressState.candidate,
-          needsLocality: false,
           sourceEventId: currentEventId,
-        };
+        });
         await this.conversationsService.updateVoiceAddressState({
           tenantId: tenant.id,
           conversationId,
@@ -1780,14 +1789,12 @@ export class VoiceTurnService {
               this.normalizeAddressCandidate(normalizedSpeech),
             ) ||
             addressState.candidate;
-          const nextAddressState: typeof addressState = {
-            ...addressState,
-            ...mergedParts,
-            candidate: mergedCandidate,
-            status: "CANDIDATE",
-            needsLocality: false,
+          const nextAddressState = buildAddressCorrectionState({
+            state: addressState,
+            mergedParts,
+            mergedCandidate,
             sourceEventId: currentEventId,
-          };
+          });
           await this.conversationsService.updateVoiceAddressState({
             tenantId: tenant.id,
             conversationId,
@@ -1870,12 +1877,10 @@ export class VoiceTurnService {
           }
           if (!addressState.locked) {
             const confirmedAt = new Date().toISOString();
-            const nextAddressState: typeof addressState = {
-              ...addressState,
-              status: "CANDIDATE",
-              locked: true,
+            const nextAddressState = buildAddressLockedCandidateState({
+              state: addressState,
               sourceEventId: currentEventId,
-            };
+            });
             await this.conversationsService.updateVoiceAddressState({
               tenantId: tenant.id,
               conversationId,
@@ -1937,15 +1942,12 @@ export class VoiceTurnService {
           );
         }
         if (resolution.outcome === "REJECT") {
-          const nextAttempt = addressState.attemptCount + 1;
-          const shouldFailClosed = nextAttempt >= 2;
-          const nextAddressState: typeof addressState = {
-            ...addressState,
-            candidate: null,
-            status: shouldFailClosed ? "FAILED" : "MISSING",
-            attemptCount: nextAttempt,
+          const rejectedAddress = buildAddressRejectedState({
+            state: addressState,
             sourceEventId: currentEventId,
-          };
+          });
+          const shouldFailClosed = rejectedAddress.shouldFailClosed;
+          const nextAddressState = rejectedAddress.state;
           await this.conversationsService.updateVoiceAddressState({
             tenantId: tenant.id,
             conversationId,
@@ -2028,12 +2030,10 @@ export class VoiceTurnService {
             }
             if (!addressState.locked) {
               const confirmedAt = new Date().toISOString();
-              const nextAddressState: typeof addressState = {
-                ...addressState,
-                status: "CANDIDATE",
-                locked: true,
+              const nextAddressState = buildAddressLockedCandidateState({
+                state: addressState,
                 sourceEventId: currentEventId,
-              };
+              });
               await this.conversationsService.updateVoiceAddressState({
                 tenantId: tenant.id,
                 conversationId,
@@ -2095,16 +2095,13 @@ export class VoiceTurnService {
             );
           }
 
-          const nextAttempt = addressState.attemptCount + 1;
-          const shouldFailClosed = nextAttempt >= 2;
-          const nextAddressState: typeof addressState = {
-            ...addressState,
-            candidate: resolution.candidate,
-            status: shouldFailClosed ? "FAILED" : "CANDIDATE",
-            confidence: addressState.confidence,
+          const replacedAddress = buildAddressReplacementState({
+            state: addressState,
+            replacementCandidate: resolution.candidate,
             sourceEventId: currentEventId,
-            attemptCount: nextAttempt,
-          };
+          });
+          const shouldFailClosed = replacedAddress.shouldFailClosed;
+          const nextAddressState = replacedAddress.state;
           await this.conversationsService.updateVoiceAddressState({
             tenantId: tenant.id,
             conversationId,
@@ -2294,13 +2291,13 @@ export class VoiceTurnService {
         typeof extractedConfidence === "number"
           ? extractedConfidence >= minConfidence
           : hasDeterministicSignal || Boolean(usableFallbackCandidate);
-      const baseAddressState: typeof addressState = {
-        ...addressState,
-        ...mergedParts,
+      const baseAddressState = buildAddressExtractionBaseState({
+        state: addressState,
+        mergedParts,
         candidate: candidateAddress,
         confidence: extractedConfidence,
         sourceEventId: currentEventId,
-      };
+      });
       const hasStructured = this.hasStructuredAddressParts(baseAddressState);
       const missingParts = this.getAddressMissingParts(baseAddressState);
       const missingStreetOrNumber = hasStructured
@@ -2310,14 +2307,12 @@ export class VoiceTurnService {
         ? missingParts.locality
         : Boolean(candidateAddress && this.isMissingLocality(candidateAddress));
       if (!candidateAddress || missingStreetOrNumber || !meetsConfidence) {
-        const nextAttempt = addressState.attemptCount + 1;
-        const shouldFailClosed = nextAttempt >= 2;
-        const nextAddressState: typeof addressState = {
-          ...baseAddressState,
-          status: shouldFailClosed ? "FAILED" : "CANDIDATE",
-          attemptCount: nextAttempt,
-          needsLocality: missingLocality && !shouldFailClosed,
-        };
+        const retryAddress = buildAddressExtractionRetryState({
+          baseState: baseAddressState,
+          missingLocality,
+        });
+        const shouldFailClosed = retryAddress.shouldFailClosed;
+        const nextAddressState = retryAddress.state;
         await this.conversationsService.updateVoiceAddressState({
           tenantId: tenant.id,
           conversationId,
@@ -2348,11 +2343,10 @@ export class VoiceTurnService {
         });
       }
 
-      const nextAddressState: typeof addressState = {
-        ...baseAddressState,
-        status: "CANDIDATE",
-        needsLocality: missingLocality,
-      };
+      const nextAddressState = buildAddressExtractionCandidateState({
+        baseState: baseAddressState,
+        missingLocality,
+      });
       await this.conversationsService.updateVoiceAddressState({
         tenantId: tenant.id,
         conversationId,
