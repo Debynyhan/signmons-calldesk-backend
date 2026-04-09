@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { SmsController } from "./sms.controller";
 import { SmsService } from "./sms.service";
-import { ConversationsService } from "../conversations/conversations.service";
+import { ConversationsModule } from "../conversations/conversations.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SanitizationModule } from "../sanitization/sanitization.module";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
@@ -13,12 +13,13 @@ import { LoggingModule } from "../logging/logging.module";
   imports: [
     PrismaModule,
     SanitizationModule,
+    ConversationsModule,
     AiModule,
     TenantsModule,
     LoggingModule,
   ],
   controllers: [SmsController],
-  providers: [ConversationsService, SmsService, AdminApiGuard],
+  providers: [SmsService, AdminApiGuard],
   exports: [SmsService],
 })
 export class SmsModule {}

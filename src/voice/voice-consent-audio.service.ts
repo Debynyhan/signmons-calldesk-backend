@@ -53,6 +53,53 @@ export class VoiceConsentAudioService {
     return url;
   }
 
+  /**
+   * Synthesizes and returns a signed URL for the consent audio, waiting inline
+   * if the audio hasn't been generated yet. Falls back to null on error.
+   * Use this on the first inbound call for a tenant to avoid a Twilio→Google
+   * voice switch mid-conversation.
+   */
+  async synthesizeAndGetUrl(
+    tenantId: string,
+    consentMessage: string,
+  ): Promise<string | null> {
+    if (
+      this.config.voiceTtsProvider !== "google" ||
+      !this.config.googleTtsEnabled ||
+      !this.config.googleTtsBucket
+    ) {
+      return null;
+    }
+    const objectPath = this.buildObjectPath(tenantId, consentMessage);
+    try {
+      await this.googleTtsService.synthesizeToObjectPath({
+        text: consentMessage,
+        objectPath,
+      });
+      const url = await this.googleTtsService.getSignedUrlIfExists(objectPath);
+      if (url) {
+        this.cache.set(objectPath, {
+          objectPath,
+          exists: true,
+          checkedAt: Date.now(),
+        });
+      }
+      return url;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.loggingService.warn(
+        {
+          event: "voice.consent_audio_synthesize_failed",
+          tenantId,
+          reason: errorMessage,
+        },
+        VoiceConsentAudioService.name,
+      );
+      return null;
+    }
+  }
+
   warmConsentAudio(tenantId: string, consentMessage: string): void {
     if (
       this.config.voiceTtsProvider !== "google" ||

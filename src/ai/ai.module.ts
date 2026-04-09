@@ -18,7 +18,7 @@ import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiErrorHandler } from "./ai-error.handler";
 import { TenantGuard } from "../common/guards/tenant.guard";
 import { AuthModule } from "../auth/auth.module";
-import { ConversationsService } from "../conversations/conversations.service";
+import { ConversationsModule } from "../conversations/conversations.module";
 import { AiPromptOrchestrationService } from "./prompts/prompt-orchestration.service";
 import { ToolExecutorRegistryService } from "./tools/tool-executor.registry";
 import { RouteConversationToolExecutor } from "./tools/route-conversation.executor";
@@ -26,7 +26,13 @@ import { AiCreateJobToolExecutor } from "./tools/create-job.executor";
 import { ToolRegistryModule } from "./tools/tool-registry.module";
 
 @Module({
-  imports: [JobsModule, TenantsModule, AuthModule, ToolRegistryModule],
+  imports: [
+    JobsModule,
+    TenantsModule,
+    AuthModule,
+    ToolRegistryModule,
+    ConversationsModule,
+  ],
   controllers: [AiController],
   providers: [
     {
@@ -58,7 +64,6 @@ import { ToolRegistryModule } from "./tools/tool-registry.module";
     TenantGuard,
     ToolSelectorService,
     AiPromptOrchestrationService,
-    ConversationsService,
     AiErrorHandler,
     AiService,
   ],

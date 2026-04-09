@@ -10,7 +10,7 @@
     "start": "NEST_CLI_TELEMETRY=false nest start",
     "start:dev": "NEST_CLI_TELEMETRY=false nest start --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "jest",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "prisma:generate": "prisma generate",

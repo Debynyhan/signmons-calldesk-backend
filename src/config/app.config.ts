@@ -81,7 +81,7 @@ export interface AppConfig {
 }
 
 const DEFAULT_DATABASE_URL =
-  "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk";
+  "postgresql://calldesk:call_backend_v1@localhost:5432/calldesk?schema=public";
 const DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:3101"];
 
 export default registerAs("app", (): AppConfig => {

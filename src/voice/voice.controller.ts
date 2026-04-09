@@ -100,12 +100,14 @@ export class VoiceController {
         this.config.twilioWebhookBaseUrl,
         VOICE_STREAM_PATH,
       );
-      const playUrl = await this.voiceConsentAudioService.getCachedConsentUrl(
+      let playUrl = await this.voiceConsentAudioService.getCachedConsentUrl(
         tenant.id,
         consentMessage,
       );
       if (!playUrl) {
-        this.voiceConsentAudioService.warmConsentAudio(
+        // Synthesize inline on first call so the greeting uses the same Google
+        // TTS voice as all subsequent streaming turns (no mid-call voice switch).
+        playUrl = await this.voiceConsentAudioService.synthesizeAndGetUrl(
           tenant.id,
           consentMessage,
         );
@@ -196,12 +198,12 @@ export class VoiceController {
         this.config.twilioWebhookBaseUrl,
         VOICE_STREAM_PATH,
       );
-      const playUrl = await this.voiceConsentAudioService.getCachedConsentUrl(
+      let playUrl = await this.voiceConsentAudioService.getCachedConsentUrl(
         tenant.id,
         consentMessage,
       );
       if (!playUrl) {
-        this.voiceConsentAudioService.warmConsentAudio(
+        playUrl = await this.voiceConsentAudioService.synthesizeAndGetUrl(
           tenant.id,
           consentMessage,
         );

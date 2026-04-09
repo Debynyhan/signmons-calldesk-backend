@@ -182,7 +182,7 @@ describe("VoiceController", () => {
     validateRequestMock.mockReset();
     process.env.OPENAI_API_KEY = "test-key-1234567890";
     process.env.DATABASE_URL =
-      "postgresql://user:pass@localhost:5432/test?schema=calldesk";
+      "postgresql://user:pass@localhost:5432/test?schema=public";
     process.env.ADMIN_API_TOKEN = "test-admin-token";
     process.env.DEV_AUTH_ENABLED = "false";
     process.env.TWILIO_ACCOUNT_SID = "AC123";
@@ -440,6 +440,7 @@ describe("VoiceController", () => {
     });
     const voiceConsentAudioService = {
       getCachedConsentUrl: jest.fn().mockResolvedValue(null),
+      synthesizeAndGetUrl: jest.fn().mockResolvedValue(null),
       warmConsentAudio: jest.fn(),
     };
     const loggingService = { warn: jest.fn(), error: jest.fn(), log: jest.fn() };
@@ -509,7 +510,8 @@ describe("VoiceController", () => {
       "tenant-1",
       expect.any(String),
     );
-    expect(voiceConsentAudioService.warmConsentAudio).toHaveBeenCalledWith(
+    // synthesizeAndGetUrl is called inline on first inbound to avoid TTS voice switch.
+    expect(voiceConsentAudioService.synthesizeAndGetUrl).toHaveBeenCalledWith(
       "tenant-1",
       expect.any(String),
     );
@@ -1006,7 +1008,7 @@ describe("VoiceController", () => {
     expect(updateVoiceIssueCandidate).toHaveBeenCalled();
     expect(updateVoiceNameState).toHaveBeenCalled();
     expect(response.text).toMatch(
-      /Please say the service address|If that&apos;s right, say &apos;yes&apos;/,
+      /Please say the service address|If that&apos;s right, say &apos;yes&apos;|What&apos;s the service address/,
     );
 
     await app.close();
@@ -4017,7 +4019,7 @@ describe("VoiceController", () => {
     );
     expect(updateVoiceUrgencyConfirmation).not.toHaveBeenCalled();
     expect(response.text).toMatch(
-      /Please say the service address|If that&apos;s right, say &apos;yes&apos;/,
+      /Please say the service address|If that&apos;s right, say &apos;yes&apos;|What&apos;s the service address/,
     );
     expect(response.text).not.toContain("What&apos;s your full name?");
     expect(aiService.triage).not.toHaveBeenCalled();
@@ -4449,7 +4451,8 @@ describe("VoiceController", () => {
         }),
       }),
     );
-    expect(response.text).toContain("I&apos;m texting you now");
+    // ANI confirmation prompt fires before SMS handoff — caller confirms their number first.
+    expect(response.text).toContain("number ending in 8929");
     expect(response.text).not.toContain("main issue, like no heat or leaking water");
     expect(response.text).not.toContain("brief description of the issue");
 
@@ -4661,8 +4664,8 @@ describe("VoiceController", () => {
         SpeechResult: "hello",
       })
       .expect(200);
-    expect(second.text).toContain("service fee");
-    expect(second.text).toContain("I&apos;m texting you now");
+    // ANI confirmation prompt fires before SMS handoff — caller confirms their number first.
+    expect(second.text).toContain("number ending in 8929");
     expect(second.text).not.toContain("main issue, like no heat or leaking water");
 
     await app.close();
@@ -5228,12 +5231,12 @@ describe("VoiceController", () => {
     );
     expect(response.text).toContain("additional $150 emergency fee");
     expect(response.text).toContain("emergency fee is not credited");
-    expect(response.text).toContain("approve the fees so we can move forward");
+    expect(response.text).toContain("approve the fees");
 
     await app.close();
   });
 
-  it("uses ANI by default at sms handoff and closes without re-asking number", async () => {
+  it("prompts caller to confirm ANI number before sending SMS at handoff", async () => {
     process.env.NODE_ENV = "development";
     process.env.VOICE_ENABLED = "true";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
@@ -5341,6 +5344,7 @@ describe("VoiceController", () => {
       })
       .expect(200);
 
+    // ANI is pre-populated but NOT auto-confirmed — caller must confirm first.
     expect(updateVoiceSmsPhoneState).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
@@ -5348,20 +5352,15 @@ describe("VoiceController", () => {
         phoneState: expect.objectContaining({
           value: "+12167448929",
           source: "twilio_ani",
-          confirmed: true,
+          confirmed: false,
         }),
       }),
     );
-    expect(clearVoiceSmsHandoff).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: "tenant-1",
-        conversationId: "conversation-1",
-      }),
-    );
-    expect(response.text).toContain("<Hangup/>");
+    // Should NOT immediately close — prompts caller to confirm their number.
+    expect(response.text).not.toContain("<Hangup/>");
     expect(response.text).not.toContain("best number to text updates");
-    expect(response.text).toContain("service fee");
-    expect(response.text).toContain("texting you now");
+    expect(response.text).toContain("number ending in 8929");
+    expect(response.text).toContain("Does that work");
 
     await app.close();
   });

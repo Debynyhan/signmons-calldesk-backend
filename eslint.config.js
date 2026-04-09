@@ -34,6 +34,28 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/**/*.module.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../conversations/conversations.service",
+                "../../conversations/conversations.service",
+                "../../../conversations/conversations.service",
+                "src/conversations/conversations.service",
+              ],
+              message:
+                "Import ConversationsModule and inject ConversationsService instead of providing it in feature modules.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["src/**/*.spec.ts", "test/**/*.spec.ts"],
     rules: {
       "@typescript-eslint/unbound-method": "off",

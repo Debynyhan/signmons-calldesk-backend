@@ -8,7 +8,7 @@ export const envValidationSchema = Joi.object({
   DATABASE_URL: Joi.string()
     .uri({ scheme: ["postgres", "postgresql"] })
     .default(
-      "postgresql://signmons:Signmons-calldesk-backend-v1@localhost:5432/postgres?schema=calldesk",
+      "postgresql://calldesk:call_backend_v1@localhost:5432/calldesk?schema=public",
     ),
   ADMIN_API_TOKEN: Joi.string().min(12).default("changeme-admin-token"),
   DEV_AUTH_ENABLED: Joi.string()

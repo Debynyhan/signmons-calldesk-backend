@@ -5,6 +5,7 @@ import {
   Prisma,
   TenantOrganization,
 } from "@prisma/client";
+import type { TenantFeePolicy as PrismaTenantFeePolicy } from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
@@ -14,6 +15,9 @@ import { LoggingService } from "../logging/logging.service";
 import { AiService } from "../ai/ai.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
+import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
+import { VoicePromptComposerService } from "./voice-prompt-composer.service";
+import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
 import { PaymentsService } from "../payments/payments.service";
 import {
   buildIssueSlotPrompt,
@@ -77,11 +81,6 @@ type VoiceUrgencyConfirmation = {
   response: VoiceUrgencyConfirmationResponse | null;
   sourceEventId: string | null;
 };
-type TenantFeePolicy = {
-  serviceFeeCents: number;
-  emergencyFeeCents: number;
-  creditWindowHours: number;
-};
 type VoiceTurnTimingCollector = {
   aiMs: number;
   aiCalls?: number;
@@ -106,6 +105,9 @@ export class VoiceTurnService {
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly csrStrategySelector: CsrStrategySelector,
+    private readonly voicePromptComposer: VoicePromptComposerService,
+    private readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
+    private readonly voiceSmsHandoffService: VoiceSmsHandoffService,
     private readonly paymentsService: PaymentsService,
   ) {}
 
@@ -625,6 +627,8 @@ export class VoiceTurnService {
     const existingIssueCandidate = this.getVoiceIssueCandidate(collectedData);
     const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
     const hasIssueCandidate = this.isLikelyIssueCandidate(issueCandidate);
+    // Set by multi-slot opening capture below; used to personalize the first address ask.
+    let openingAddressPreface: string | null = null;
     if (existingIssueCandidate?.value || hasIssueCandidate) {
       this.clearIssuePromptAttempts(callSid);
     }
@@ -693,6 +697,20 @@ export class VoiceTurnService {
           nameState = nextNameState;
         }
         nameReady = true;
+        // Build a personalized preface for the upcoming address ask so the caller
+        // hears "Thanks, David. I heard furnace issue." rather than "Thanks for calling."
+        const _msFirstName =
+          deterministicNameCandidate.split(" ").filter(Boolean)[0] ?? "";
+        const _msIssueAck = hasIssueCandidate
+          ? this.buildIssueAcknowledgement(issueCandidate)
+          : null;
+        const _msTrimmedIssue =
+          _msIssueAck?.trim().replace(/[.?!]+$/, "") ?? "";
+        openingAddressPreface = _msFirstName
+          ? _msTrimmedIssue
+            ? `Thanks, ${_msFirstName}. I heard ${_msTrimmedIssue}.`
+            : `Thanks, ${_msFirstName}.`
+          : null;
       }
     }
     if (
@@ -1781,6 +1799,26 @@ export class VoiceTurnService {
           timingCollector,
         });
       }
+      // First address ask after a multi-slot opening (name+issue captured in one turn).
+      // Use the personalized preface so the caller hears "Thanks, David. I heard furnace
+      // issue. What's the service address?" instead of the generic CSR opening prefix.
+      if (openingAddressPreface && !addressState.candidate) {
+        const preface = openingAddressPreface;
+        openingAddressPreface = null;
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "address",
+          sourceEventId: currentEventId,
+          timeoutSec: 8,
+          twiml: this.buildSayGatherTwiml(
+            `${preface} What's the service address?`,
+            { timeout: 8 },
+          ),
+        });
+      }
+
       const duplicateMissing =
         !addressState.candidate &&
         addressState.sourceEventId === currentEventId;
@@ -2650,6 +2688,7 @@ export class VoiceTurnService {
             feePolicy,
             includeFees,
             isEmergency: this.isUrgencyEmergency(collectedData),
+            callerFirstName: this.getVoiceNameCandidate(nameState)?.split(" ").filter(Boolean)[0],
           });
           return this.replyWithSmsHandoff({
             res,
@@ -2681,6 +2720,7 @@ export class VoiceTurnService {
             feePolicy,
             includeFees,
             isEmergency: this.isUrgencyEmergency(collectedData),
+            callerFirstName: this.getVoiceNameCandidate(nameState)?.split(" ").filter(Boolean)[0],
           });
           return this.replyWithSmsHandoff({
             res,
@@ -2808,118 +2848,77 @@ export class VoiceTurnService {
   }
 
   public disabledTwiml(): string {
-    return this.buildTwiml(
-      "Voice intake is currently unavailable. Please try again later.",
-    );
+    return this.voicePromptComposer.disabledTwiml();
   }
 
   private unroutableTwiml(): string {
-    return this.buildTwiml("We're unable to route your call at this time.");
+    return this.voicePromptComposer.unroutableTwiml();
   }
 
   public buildConsentMessage(displayName: string): string {
-    const tenantLabel = displayName?.trim() || "our team";
-    return `Thank you for calling ${tenantLabel}. This is Signmons. This call may be transcribed and handled by automated systems for service and quality purposes. By continuing, you consent to this process. How may I help you?`;
+    return this.voicePromptComposer.buildConsentMessage(displayName);
   }
 
   public buildConsentTwiml(displayName: string): string {
-    const composed = this.buildConsentMessage(displayName);
-    return this.buildSayGatherTwiml(composed, { timeout: 5 });
+    return this.voicePromptComposer.buildConsentTwiml(displayName);
   }
 
   private buildSayGatherTwiml(
     message: string,
     options?: { timeout?: number; bargeIn?: boolean },
   ): string {
-    const actionUrl = this.buildWebhookUrl("/api/voice/turn");
-    const timeout = options?.timeout ?? 5;
-    const bargeIn = options?.bargeIn !== false ? ' bargeIn="true"' : "";
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
-      message,
-    )}</Say><Gather input="speech" action="${this.escapeXml(
-      actionUrl,
-    )}" method="POST" timeout="${timeout}" speechTimeout="auto"${bargeIn}/></Response>`;
+    return this.voicePromptComposer.buildSayGatherTwiml(message, options);
   }
 
   private buildRepromptTwiml(strategy?: CsrStrategy): string {
-    const message = this.applyCsrStrategy(
-      strategy,
-      "Sorry, I didn't catch that. Please say that again.",
-    );
-    return this.buildSayGatherTwiml(message);
+    return this.voicePromptComposer.buildRepromptTwiml(strategy);
   }
 
   private buildNameConfirmationTwiml(
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
-    const thanks = firstName ? `Thanks, ${firstName}. ` : "Thanks. ";
-    const core = `${thanks}I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
-    const message = this.applyCsrStrategy(
+    return this.voicePromptComposer.buildNameConfirmationTwiml(
+      candidate,
       strategy,
-      this.withPrefix("Got it. ", core),
     );
-    return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
   private buildNameSoftConfirmationTwiml(
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
-    const thanks = firstName ? `Thanks, ${firstName}. ` : "Thanks. ";
-    const core = `${thanks}I heard ${candidate}. If that's right, say 'yes'. Otherwise, say your full name again.`;
-    const message = this.applyCsrStrategy(
+    return this.voicePromptComposer.buildNameSoftConfirmationTwiml(
+      candidate,
       strategy,
-      this.withPrefix("Got it. ", core),
     );
-    return this.buildSayGatherTwiml(message, { bargeIn: true });
   }
 
   private buildAskNameTwiml(strategy?: CsrStrategy): string {
-    const core = "What's your full name?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+    return this.voicePromptComposer.buildAskNameTwiml(strategy);
   }
 
   private buildSpellNameTwiml(strategy?: CsrStrategy): string {
-    const core = "Thanks—how do you spell your first name?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+    return this.voicePromptComposer.buildSpellNameTwiml(strategy);
   }
 
   private buildAskSmsNumberTwiml(strategy?: CsrStrategy): string {
-    const core = "What's the best number to text updates to?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+    return this.voicePromptComposer.buildAskSmsNumberTwiml(strategy);
   }
 
   private buildTakeYourTimeTwiml(
     field: "name" | "address" | "sms_phone",
     strategy?: CsrStrategy,
   ): string {
-    let question = "How can I help?";
-    let timeout = 5;
-    if (field === "name") {
-      question = "What's your full name?";
-    } else if (field === "address") {
-      question = "Please say the service address.";
-      timeout = 8;
-    } else if (field === "sms_phone") {
-      question = "What's the best number to text updates to?";
-    }
-    const message = `Sure—take your time. ${question}`.trim();
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, message), {
-      timeout,
-    });
+    return this.voicePromptComposer.buildTakeYourTimeTwiml(field, strategy);
   }
 
   private buildBookingPromptTwiml(strategy?: CsrStrategy): string {
-    const core = "Would you like to book a visit?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+    return this.voicePromptComposer.buildBookingPromptTwiml(strategy);
   }
 
   private buildCallbackOfferTwiml(strategy?: CsrStrategy): string {
-    const core = "I can have a dispatcher call you back. Is that okay?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core));
+    return this.voicePromptComposer.buildCallbackOfferTwiml(strategy);
   }
 
   private buildComfortRiskTwiml(
@@ -2929,23 +2928,11 @@ export class VoiceTurnService {
       issueCandidate?: string | null;
     },
   ): string {
-    const firstName = context?.callerName?.split(" ").filter(Boolean)[0] ?? "";
-    const issueSummary = context?.issueCandidate
-      ? this.buildIssueAcknowledgement(context.issueCandidate)
-      : null;
-    const introParts: string[] = [];
-    if (firstName) {
-      introParts.push(`Thanks, ${firstName}.`);
-    }
-    if (issueSummary) {
-      introParts.push(`I heard ${issueSummary}.`);
-    }
-    const question = "Is this an emergency right now?";
-    const core = introParts.length
-      ? `${introParts.join(" ")} ${question}`
-      : question;
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
-      bargeIn: true,
+    return this.voicePromptComposer.buildComfortRiskTwiml(strategy, {
+      callerName: context?.callerName,
+      issueSummary: context?.issueCandidate
+        ? this.buildIssueAcknowledgement(context.issueCandidate)
+        : null,
     });
   }
 
@@ -2956,23 +2943,11 @@ export class VoiceTurnService {
       issueCandidate?: string | null;
     },
   ): string {
-    const firstName = context?.callerName?.split(" ").filter(Boolean)[0] ?? "";
-    const issueSummary = context?.issueCandidate
-      ? this.buildIssueAcknowledgement(context.issueCandidate)
-      : null;
-    const introParts: string[] = [];
-    if (firstName) {
-      introParts.push(`Thanks, ${firstName}.`);
-    }
-    if (issueSummary) {
-      introParts.push(`I heard ${issueSummary}.`);
-    }
-    const question = "Is this an emergency right now?";
-    const core = introParts.length
-      ? `${introParts.join(" ")} ${question}`
-      : question;
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
-      bargeIn: true,
+    return this.voicePromptComposer.buildUrgencyConfirmTwiml(strategy, {
+      callerName: context?.callerName,
+      issueSummary: context?.issueCandidate
+        ? this.buildIssueAcknowledgement(context.issueCandidate)
+        : null,
     });
   }
 
@@ -2980,152 +2955,81 @@ export class VoiceTurnService {
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const core = `Thanks. I heard ${candidate}. If that's right, say 'yes'. If not, say what needs to be corrected.`;
-    const message = this.applyCsrStrategy(
+    return this.voicePromptComposer.buildAddressConfirmationTwiml(
+      candidate,
       strategy,
-      this.withPrefix("Got it. ", core),
     );
-    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
   }
 
   private buildAddressSoftConfirmationTwiml(
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const core = `Thanks. I heard ${candidate}. If that's right, say 'yes'. If not, say what needs to be corrected.`;
-    const message = this.applyCsrStrategy(
+    return this.voicePromptComposer.buildAddressSoftConfirmationTwiml(
+      candidate,
       strategy,
-      this.withPrefix("Got it. ", core),
     );
-    return this.buildSayGatherTwiml(message, { timeout: 8, bargeIn: true });
   }
 
   private buildAddressLocalityPromptTwiml(strategy?: CsrStrategy): string {
-    const core = "What city and state is that in, or what's the ZIP code?";
-    const message = this.applyCsrStrategy(strategy, core);
-    return this.buildSayGatherTwiml(message, { timeout: 8 });
+    return this.voicePromptComposer.buildAddressLocalityPromptTwiml(strategy);
   }
 
   private buildAskAddressTwiml(strategy?: CsrStrategy): string {
-    const core = "What's the service address?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
-      timeout: 8,
-    });
+    return this.voicePromptComposer.buildAskAddressTwiml(strategy);
   }
 
   private buildIncompleteAddressTwiml(
     candidate: string,
     strategy?: CsrStrategy,
   ): string {
-    const normalized = candidate.replace(/\s+/g, " ").trim();
-    const tokens = normalized ? normalized.split(" ") : [];
-    const numberIndex = tokens.findIndex((token) => /\d/.test(token));
-    if (numberIndex === -1) {
-      return this.buildSayGatherTwiml(
-        this.applyCsrStrategy(
-          strategy,
-          "I didn't catch the house number. Please repeat the full street name and city.",
-        ),
-      );
-    }
-    const numberToken = tokens[numberIndex];
-    const prefixTokens = tokens.slice(numberIndex + 1, numberIndex + 4);
-    const prefix = prefixTokens.length ? ` ${prefixTokens.join(" ")}` : "";
-    const core = `I heard: ${numberToken}${prefix}... That seems incomplete. Please repeat the full street name and city.`;
-    const message = this.applyCsrStrategy(strategy, core);
-    return this.buildSayGatherTwiml(message, { timeout: 8 });
-  }
-
-  private buildYesNoRepromptTwiml(strategy?: CsrStrategy): string {
-    return this.buildSayGatherTwiml(
-      this.applyCsrStrategy(
-        strategy,
-        this.withPrefix(
-          "Sorry, I didn't catch that. ",
-          "Please say 'yes' or say the correct details.",
-        ),
-      ),
-      { bargeIn: true },
+    return this.voicePromptComposer.buildIncompleteAddressTwiml(
+      candidate,
+      strategy,
     );
   }
 
-  private buildWebhookUrl(path: string): string {
-    const baseUrl = this.config.twilioWebhookBaseUrl?.replace(/\/$/, "");
-    return baseUrl ? `${baseUrl}${path}` : path;
+  private buildYesNoRepromptTwiml(strategy?: CsrStrategy): string {
+    return this.voicePromptComposer.buildYesNoRepromptTwiml(strategy);
   }
 
-  private buildSmsHandoffMessage(): string {
-    return "Perfect. I'm texting you now to confirm your details so we can move forward. Goodbye.";
+  private buildSmsHandoffMessage(callerFirstName?: string): string {
+    return this.voiceHandoffPolicy.buildSmsHandoffMessage(callerFirstName);
   }
 
   private buildSmsHandoffMessageWithFees(params: {
-    feePolicy: TenantFeePolicy | null;
+    feePolicy: PrismaTenantFeePolicy | null;
     isEmergency: boolean;
+    callerFirstName?: string;
   }): string {
-    const { serviceFee, emergencyFee, creditWindowHours } =
-      this.getTenantFeeConfig(params.feePolicy);
-    const creditWindowLabel =
-      creditWindowHours === 1 ? "1 hour" : `${creditWindowHours} hours`;
-    const serviceLine =
-      typeof serviceFee === "number"
-        ? `The service fee is ${this.formatFeeAmount(
-            serviceFee,
-          )}, and it's credited toward repairs if you approve within ${creditWindowLabel}.`
-        : `A service fee applies, and it's credited toward repairs if you approve within ${creditWindowLabel}.`;
-    const emergencyLine = params.isEmergency
-      ? typeof emergencyFee === "number"
-        ? `Because this is urgent, there's an additional ${this.formatFeeAmount(
-            emergencyFee,
-          )} emergency fee. The emergency fee is not credited.`
-        : "Because this is urgent, an additional emergency fee applies. The emergency fee is not credited."
-      : "";
-    const approvalTarget = params.isEmergency ? "the fees" : "the service fee";
-    const smsLine = `I'm texting you now to confirm your details and approve ${approvalTarget} so we can move forward. Goodbye.`;
-    return `Perfect. ${serviceLine}${emergencyLine ? ` ${emergencyLine}` : ""} ${smsLine}`.trim();
+    return this.voiceHandoffPolicy.buildSmsHandoffMessageWithFees(params);
   }
 
   private buildSmsHandoffMessageForContext(params: {
-    feePolicy: TenantFeePolicy | null;
+    feePolicy: PrismaTenantFeePolicy | null;
     includeFees: boolean;
     isEmergency: boolean;
+    callerFirstName?: string;
   }): string {
-    if (!params.includeFees) {
-      return this.buildSmsHandoffMessage();
-    }
-    return this.buildSmsHandoffMessageWithFees({
-      feePolicy: params.feePolicy,
-      isEmergency: params.isEmergency,
-    });
+    return this.voiceHandoffPolicy.buildSmsHandoffMessageForContext(params);
   }
 
   private async resolveSmsHandoffClosingMessage(params: {
     tenantId: string;
     collectedData: unknown;
     messageOverride?: string;
+    callerFirstName?: string;
   }): Promise<string> {
-    const feePolicy = await this.getTenantFeePolicySafe(params.tenantId);
-    const fallbackMessage = this.buildSmsHandoffMessageWithFees({
-      feePolicy,
+    return this.voiceHandoffPolicy.resolveSmsHandoffClosingMessage({
+      tenantId: params.tenantId,
       isEmergency: this.isUrgencyEmergency(params.collectedData),
+      messageOverride: params.messageOverride,
+      callerFirstName: params.callerFirstName,
     });
-    const override = params.messageOverride?.trim();
-    if (!override) {
-      return fallbackMessage;
-    }
-    const hasFeeLanguage =
-      /\b(service fee|emergency fee|credited toward repairs|fee applies|approve (?:the )?fees|approve (?:the )?service fee)\b/i.test(
-        override,
-      );
-    const hasTextLanguage = /\btext(?:ing)? you\b/i.test(override);
-    return hasFeeLanguage && hasTextLanguage ? override : fallbackMessage;
   }
 
   private buildClosingTwiml(displayName: string, message: string): string {
-    const tenantLabel = displayName?.trim();
-    const prefix = tenantLabel
-      ? `Thanks for calling. ${tenantLabel}. `
-      : "Thanks for calling. ";
-    return this.buildTwiml(`${prefix}${message}`);
+    return this.voicePromptComposer.buildClosingTwiml(displayName, message);
   }
 
   private isHumanFallbackMessage(message: string): boolean {
@@ -3165,105 +3069,37 @@ export class VoiceTurnService {
     messageOverride?: string;
   }) {
     this.clearIssuePromptAttempts(params.callSid);
-    const conversation = await this.conversationsService.getConversationById({
+    const handoffPreparation = await this.voiceSmsHandoffService.prepare({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
+      callSid: params.callSid,
+      reason: params.reason,
+      messageOverride: params.messageOverride,
+      loggerContext: VoiceTurnService.name,
     });
-    let resolvedSmsPhone: string | null = null;
-    if (conversation?.collectedData) {
-      const phoneState = this.conversationsService.getVoiceSmsPhoneState(
-        conversation.collectedData,
-      );
-      resolvedSmsPhone = phoneState.confirmed ? phoneState.value ?? null : null;
-      if (!phoneState.confirmed) {
-        const callerPhone = this.getCallerPhoneFromCollectedData(
-          conversation.collectedData,
-        );
-        const fallbackPhone = phoneState.value ?? callerPhone;
-        if (fallbackPhone) {
-          await this.conversationsService.updateVoiceSmsPhoneState({
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-            phoneState: {
-              ...phoneState,
-              value: fallbackPhone,
-              source: phoneState.source ?? "twilio_ani",
-              confirmed: true,
-              confirmedAt: new Date().toISOString(),
-              attemptCount: 0,
-              lastPromptedAt: phoneState.lastPromptedAt ?? null,
-            },
-          });
-          resolvedSmsPhone = fallbackPhone;
-          await this.conversationsService.clearVoiceSmsHandoff({
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-          });
-          this.loggingService.log(
-            {
-              event: "voice.sms_phone_auto_confirmed",
-              tenantId: params.tenantId,
-              conversationId: params.conversationId,
-              callSid: params.callSid,
-              source: phoneState.source ?? "twilio_ani",
-            },
-            VoiceTurnService.name,
-          );
-        } else {
-          await this.conversationsService.updateVoiceSmsHandoff({
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-            handoff: {
-              reason: params.reason,
-              messageOverride: params.messageOverride ?? null,
-              createdAt: new Date().toISOString(),
-            },
-          });
-          await this.conversationsService.updateVoiceSmsPhoneState({
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-            phoneState: {
-              ...phoneState,
-              lastPromptedAt: new Date().toISOString(),
-            },
-          });
-          const sourceEventId = getRequestContext()?.sourceEventId ?? null;
-          this.loggingService.log(
-            {
-              event: "voice.sms_phone_prompted",
-              tenantId: params.tenantId,
-              conversationId: params.conversationId,
-              callSid: params.callSid,
-            },
-            VoiceTurnService.name,
-          );
-          return this.replyWithListeningWindow({
-            res: params.res,
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-            field: "sms_phone",
-            sourceEventId,
-            twiml: this.buildAskSmsNumberTwiml(),
-          });
-        }
-      }
-    }
-
-    await this.conversationsService.clearVoiceSmsHandoff({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-    });
-    const smsHandoffStartedAt = new Date().toISOString();
-    this.loggingService.log(
-      {
-        event: "voice.sms_handoff_started",
+    if (handoffPreparation.kind === "prompt_confirm_ani") {
+      const lastFour = handoffPreparation.fallbackPhone.replace(/\D/g, "").slice(-4);
+      return this.replyWithListeningWindow({
+        res: params.res,
         tenantId: params.tenantId,
         conversationId: params.conversationId,
-        callSid: params.callSid,
-        sms_handoff_started_at: smsHandoffStartedAt,
-      },
-      VoiceTurnService.name,
-    );
+        field: "sms_phone",
+        sourceEventId: handoffPreparation.sourceEventId,
+        twiml: this.buildSayGatherTwiml(
+          `I'll send your confirmation to the number ending in ${lastFour}. Does that work, or would you prefer a different number?`,
+        ),
+      });
+    }
+    if (handoffPreparation.kind === "prompt_ask_sms_phone") {
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "sms_phone",
+        sourceEventId: handoffPreparation.sourceEventId,
+        twiml: this.buildAskSmsNumberTwiml(),
+      });
+    }
     this.logVoiceOutcome({
       outcome: "sms_handoff",
       tenantId: params.tenantId,
@@ -3271,15 +3107,15 @@ export class VoiceTurnService {
       callSid: params.callSid,
       reason: params.reason,
     });
-    if (resolvedSmsPhone) {
+    if (handoffPreparation.resolvedSmsPhone) {
       try {
         await this.paymentsService.sendVoiceHandoffIntakeLink({
           tenantId: params.tenantId,
           conversationId: params.conversationId,
           callSid: params.callSid,
-          toPhone: resolvedSmsPhone,
+          toPhone: handoffPreparation.resolvedSmsPhone,
           displayName: params.displayName,
-          isEmergency: this.isUrgencyEmergency(conversation?.collectedData),
+          isEmergency: this.isUrgencyEmergency(handoffPreparation.collectedData),
         });
       } catch (error) {
         this.loggingService.warn(
@@ -3296,15 +3132,12 @@ export class VoiceTurnService {
     }
     const closingMessage = await this.resolveSmsHandoffClosingMessage({
       tenantId: params.tenantId,
-      collectedData: conversation?.collectedData,
+      collectedData: handoffPreparation.collectedData,
       messageOverride: params.messageOverride,
     });
     return this.replyWithTwiml(
       params.res,
-      this.buildClosingTwiml(
-        params.displayName,
-        closingMessage,
-      ),
+      this.buildClosingTwiml(params.displayName, closingMessage),
     );
   }
 
@@ -3465,6 +3298,7 @@ export class VoiceTurnService {
         feePolicy,
         includeFees,
         isEmergency: this.isUrgencyEmergency(params.collectedData),
+        callerFirstName: this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0],
       });
       return this.replyWithSmsHandoff({
         res: params.res,
@@ -3690,7 +3524,49 @@ export class VoiceTurnService {
     ) {
       summary = `your ${summary}`;
     }
-    return summary || null;
+    if (!summary) {
+      return null;
+    }
+    // Quality guard: if the summary looks garbled (too many filler/function words
+    // relative to content words), fall back to a clean category label so we don't
+    // echo broken STT verbatim (e.g. "your furnace is doing cold here when she doing warmer").
+    const words = summary.split(/\s+/).filter(Boolean);
+    const fillerWords = new Set([
+      "is", "are", "was", "were", "be", "been", "being",
+      "it", "its", "it's", "the", "a", "an", "and", "or", "but",
+      "in", "on", "at", "to", "for", "of", "with", "by", "from",
+      "here", "there", "when", "while", "she", "he", "they", "we",
+      "doing", "going", "getting", "just", "so", "that", "this",
+      "i", "my", "me", "you", "your",
+    ]);
+    const fillerCount = words.filter((w) =>
+      fillerWords.has(w.toLowerCase()),
+    ).length;
+    const fillerRatio = words.length > 0 ? fillerCount / words.length : 0;
+    if (fillerRatio > 0.55 && words.length > 4) {
+      // Too garbled — derive a clean category label from the original value instead
+      const lowerValue = value.toLowerCase();
+      if (/\b(furnace|heat|heating|no heat|blowing cold|cold air)\b/.test(lowerValue)) {
+        return "your furnace issue";
+      }
+      if (/\b(ac|air conditioning|cooling|no cool)\b/.test(lowerValue)) {
+        return "your AC issue";
+      }
+      if (/\b(leak|leaking|water|burst|pipe)\b/.test(lowerValue)) {
+        return "your plumbing issue";
+      }
+      if (/\b(electrical|power|spark|outlet|breaker)\b/.test(lowerValue)) {
+        return "your electrical issue";
+      }
+      if (/\b(drain|clog|toilet|sewer)\b/.test(lowerValue)) {
+        return "your drain issue";
+      }
+      if (/\b(gas|smell|smoke|carbon)\b/.test(lowerValue)) {
+        return "your gas or smell concern";
+      }
+      return "your service request";
+    }
+    return summary;
   }
 
   private isLikelyIssueCandidate(value: string): boolean {
@@ -3788,6 +3664,7 @@ export class VoiceTurnService {
     displayName: string;
     includeFees: boolean;
     isEmergency: boolean;
+    nameState?: ReturnType<ConversationsService["getVoiceNameState"]>;
     timingCollector?: VoiceTurnTimingCollector;
   }) {
     try {
@@ -3815,6 +3692,7 @@ export class VoiceTurnService {
             feePolicy,
             includeFees: params.includeFees,
             isEmergency: params.isEmergency,
+            callerFirstName: params.nameState ? this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0] : undefined,
           });
           return this.replyWithSmsHandoff({
             res: params.res,
@@ -3843,6 +3721,7 @@ export class VoiceTurnService {
             feePolicy,
             includeFees: params.includeFees,
             isEmergency: params.isEmergency,
+            callerFirstName: params.nameState ? this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0] : undefined,
           });
           return this.replyWithSmsHandoff({
             res: params.res,
@@ -3877,24 +3756,6 @@ export class VoiceTurnService {
       reason: "issue_candidate_failed",
       messageOverride: "Thanks. We'll follow up shortly.",
     });
-  }
-
-  private escapeXml(value: string): string {
-    return value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
-  }
-
-  private unescapeXml(value: string): string {
-    return value
-      .replace(/&apos;/g, "'")
-      .replace(/&quot;/g, '"')
-      .replace(/&gt;/g, ">")
-      .replace(/&lt;/g, "<")
-      .replace(/&amp;/g, "&");
   }
 
   private capAiReply(value: string): string {
@@ -3980,46 +3841,20 @@ export class VoiceTurnService {
 
   private async getTenantFeePolicySafe(
     tenantId: string,
-  ): Promise<TenantFeePolicy | null> {
-    try {
-      return await this.tenantsService.getTenantFeePolicy(tenantId);
-    } catch {
-      return null;
-    }
+  ): Promise<PrismaTenantFeePolicy | null> {
+    return this.voiceHandoffPolicy.getTenantFeePolicySafe(tenantId);
   }
 
-  private getTenantFeeConfig(policy: TenantFeePolicy | null): {
+  private getTenantFeeConfig(policy: PrismaTenantFeePolicy | null): {
     serviceFee: number | null;
     emergencyFee: number | null;
     creditWindowHours: number;
   } {
-    if (!policy) {
-      return {
-        serviceFee: null,
-        emergencyFee: null,
-        creditWindowHours: 24,
-      };
-    }
-    const creditWindowHours =
-      typeof policy.creditWindowHours === "number" &&
-      policy.creditWindowHours > 0
-        ? policy.creditWindowHours
-        : 24;
-    const emergencyFee =
-      typeof policy.emergencyFeeCents === "number" &&
-      policy.emergencyFeeCents > 0
-        ? policy.emergencyFeeCents / 100
-        : null;
-    return {
-      serviceFee: policy.serviceFeeCents / 100,
-      emergencyFee,
-      creditWindowHours,
-    };
+    return this.voiceHandoffPolicy.getTenantFeeConfig(policy);
   }
 
   private formatFeeAmount(value: number): string {
-    const rounded = Math.round(value * 100) / 100;
-    return Number.isInteger(rounded) ? `$${rounded}` : `$${rounded.toFixed(2)}`;
+    return this.voiceHandoffPolicy.formatFeeAmount(value);
   }
 
   private isUrgencyEmergency(collectedData: unknown): boolean {
@@ -4058,21 +3893,7 @@ export class VoiceTurnService {
     strategy: CsrStrategy | undefined,
     message: string,
   ): string {
-    const prefix = this.getCsrPrefix(strategy);
-    if (!prefix) {
-      return message;
-    }
-    const normalizedMessage = message.trim().toLowerCase();
-    const normalizedPrefix = prefix.toLowerCase();
-    if (
-      normalizedMessage.includes(normalizedPrefix) ||
-      normalizedMessage.startsWith("thanks") ||
-      normalizedMessage.startsWith("got it") ||
-      normalizedMessage.startsWith("sorry")
-    ) {
-      return message;
-    }
-    return `${prefix} ${message}`.trim();
+    return this.voicePromptComposer.applyCsrStrategy(strategy, message);
   }
 
   private async logVoiceAssistantMessages(twiml: string) {
@@ -4123,96 +3944,32 @@ export class VoiceTurnService {
   }
 
   private extractSayMessages(twiml: string): string[] {
-    const results: string[] = [];
-    const regex = /<Say>(.*?)<\/Say>/g;
-    let match: RegExpExecArray | null = null;
-    while ((match = regex.exec(twiml)) !== null) {
-      const raw = this.unescapeXml(match[1] ?? "");
-      const trimmed = raw.trim();
-      if (trimmed) {
-        results.push(trimmed);
-      }
-    }
-    return results;
+    return this.voicePromptComposer.extractSayMessages(twiml);
   }
 
   private extractGatherOptions(twiml: string): {
     timeout?: number;
     bargeIn?: boolean;
   } {
-    const timeoutMatch = twiml.match(/timeout="(\d+)"/);
-    const timeout = timeoutMatch ? Number(timeoutMatch[1]) : undefined;
-    const bargeIn = /bargeIn="true"/.test(twiml) ? true : undefined;
-    return {
-      ...(typeof timeout === "number" ? { timeout } : {}),
-      ...(bargeIn ? { bargeIn } : {}),
-    };
+    return this.voicePromptComposer.extractGatherOptions(twiml);
   }
 
   private combineSideQuestionReply(preface: string, message: string): string {
-    const cleanedPreface = preface.trim();
-    const cleanedMessage = message.trim();
-    if (!cleanedPreface) {
-      return cleanedMessage;
-    }
-    if (!cleanedMessage) {
-      return cleanedPreface;
-    }
-    const normalizedPreface = cleanedPreface.toLowerCase();
-    const normalizedMessage = cleanedMessage.toLowerCase();
-    if (normalizedMessage.startsWith(normalizedPreface)) {
-      return cleanedMessage;
-    }
-    return `${cleanedPreface} ${cleanedMessage}`.replace(/\s+/g, " ").trim();
+    return this.voicePromptComposer.combineSideQuestionReply(preface, message);
   }
 
   private prependPrefaceToGatherTwiml(
     preface: string,
     baseTwiml: string,
   ): string {
-    const cleanedPreface = preface.trim();
-    if (!cleanedPreface) {
-      return baseTwiml;
-    }
-    const messages = this.extractSayMessages(baseTwiml);
-    if (!messages.length) {
-      return baseTwiml;
-    }
-    const baseMessage = messages.join(" ").trim();
-    if (!baseMessage) {
-      return baseTwiml;
-    }
-    const combined = this.combineSideQuestionReply(cleanedPreface, baseMessage);
-    const options = this.extractGatherOptions(baseTwiml);
-    return this.buildSayGatherTwiml(combined, options);
+    return this.voicePromptComposer.prependPrefaceToGatherTwiml(
+      preface,
+      baseTwiml,
+    );
   }
 
   private withPrefix(prefix: string | undefined, message: string): string {
-    if (!prefix) {
-      return message;
-    }
-    const trimmed = message.trim();
-    const normalized = trimmed.toLowerCase();
-    const normalizedPrefix = prefix.trim().toLowerCase();
-    if (normalized.startsWith(normalizedPrefix)) {
-      return message;
-    }
-    return `${prefix}${message}`;
-  }
-
-  private getCsrPrefix(strategy: CsrStrategy | undefined): string {
-    switch (strategy) {
-      case CsrStrategy.OPENING:
-        return "Thanks for calling.";
-      case CsrStrategy.EMPATHY:
-        return "I'm here to help.";
-      case CsrStrategy.URGENCY_FRAMING:
-        return "We'll treat this as urgent so we can help quickly.";
-      case CsrStrategy.NEXT_STEP_POSITIONING:
-        return "Here's what we'll do next.";
-      default:
-        return "";
-    }
+    return this.voicePromptComposer.withPrefix(prefix, message);
   }
 
   private isVoiceFieldReady(
@@ -4598,6 +4355,18 @@ export class VoiceTurnService {
       "yellow",
       "yello",
       "correct",
+      "perfect",
+      "sure",
+      "sounds good",
+      "that works",
+      "that's fine",
+      "that is fine",
+      "that's good",
+      "that is good",
+      "works for me",
+      "go ahead",
+      "that's correct",
+      "that is correct",
       "that's right",
       "that is right",
       "this one",
@@ -4605,6 +4374,10 @@ export class VoiceTurnService {
       "same number",
       "use this",
       "use this number",
+      "that number",
+      "that number works",
+      "that number's fine",
+      "that number is fine",
     ];
     if (directMatches.includes(normalizedUtterance)) {
       return true;
@@ -4613,7 +4386,10 @@ export class VoiceTurnService {
       normalizedUtterance.includes("this number") ||
       normalizedUtterance.includes("same number") ||
       normalizedUtterance.includes("this one") ||
-      normalizedUtterance.startsWith("use this")
+      normalizedUtterance.startsWith("use this") ||
+      normalizedUtterance.includes("that works") ||
+      normalizedUtterance.includes("sounds good") ||
+      normalizedUtterance.includes("that number")
     );
   }
 
@@ -4930,6 +4706,7 @@ export class VoiceTurnService {
           feePolicy,
           includeFees,
           isEmergency: this.isUrgencyEmergency(params.collectedData),
+          callerFirstName: this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0],
         });
         return this.replyWithSmsHandoff({
           res: params.res,
@@ -5041,6 +4818,7 @@ export class VoiceTurnService {
         feePolicy,
         includeFees,
         isEmergency: this.isUrgencyEmergency(params.collectedData),
+        callerFirstName: this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0],
       });
       return this.replyWithSmsHandoff({
         res: params.res,
@@ -6519,8 +6297,6 @@ export class VoiceTurnService {
   }
 
   private buildTwiml(message: string): string {
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${this.escapeXml(
-      message,
-    )}</Say><Hangup/></Response>`;
+    return this.voicePromptComposer.buildTwiml(message);
   }
 }

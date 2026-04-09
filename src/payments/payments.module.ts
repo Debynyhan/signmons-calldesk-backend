@@ -5,7 +5,7 @@ import { TenantsModule } from "../tenants/tenants.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { LoggingModule } from "../logging/logging.module";
 import { SmsModule } from "../sms/sms.module";
-import { ConversationsService } from "../conversations/conversations.service";
+import { ConversationsModule } from "../conversations/conversations.module";
 import { IntakeLinkService } from "./intake-link.service";
 import { PaymentsService } from "./payments.service";
 import { PaymentsController } from "./payments.controller";
@@ -18,9 +18,10 @@ import { PaymentsController } from "./payments.controller";
     JobsModule,
     LoggingModule,
     SmsModule,
+    ConversationsModule,
   ],
   controllers: [PaymentsController],
-  providers: [ConversationsService, IntakeLinkService, PaymentsService],
+  providers: [IntakeLinkService, PaymentsService],
   exports: [IntakeLinkService, PaymentsService],
 })
 export class PaymentsModule {}
