@@ -1726,39 +1726,22 @@ export class VoiceTurnService {
         Boolean(addressState.candidate) &&
         addressState.sourceEventId === currentEventId;
       if (candidateForEvent && addressState.candidate) {
-        const hasStructured = this.hasStructuredAddressParts(addressState);
-        const missingParts = this.getAddressMissingParts(addressState);
-        const missingLocality = hasStructured
-          ? missingParts.locality
-          : this.isMissingLocality(addressState.candidate);
-        const missingStreetOrNumber = hasStructured
-          ? missingParts.houseNumber || missingParts.street
-          : this.isIncompleteAddress(addressState.candidate);
-        if (missingLocality) {
-          return this.handleMissingLocalityPrompt({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            candidate: addressState.candidate,
-            addressState,
-            nameState,
-            collectedData,
-            currentEventId,
-            displayName,
-            strategy: csrStrategy,
-            timingCollector,
-          });
-        }
-        if (missingStreetOrNumber) {
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "address",
-            sourceEventId: currentEventId,
-            twiml: this.buildAddressPromptForState(addressState, csrStrategy),
-          });
+        const routeResponse = await this.routeAddressCompleteness({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          displayName,
+          currentEventId,
+          addressState,
+          candidateForCompleteness: addressState.candidate,
+          nameState,
+          collectedData,
+          strategy: csrStrategy,
+          timingCollector,
+        });
+        if (routeResponse) {
+          return routeResponse;
         }
         return this.replyWithListeningWindow({
           res,
@@ -1841,39 +1824,22 @@ export class VoiceTurnService {
           "address",
         );
         if (resolution.outcome === "CONFIRM") {
-          const hasStructured = this.hasStructuredAddressParts(addressState);
-          const missingParts = this.getAddressMissingParts(addressState);
-          const missingLocality = hasStructured
-            ? missingParts.locality
-            : this.isMissingLocality(addressState.candidate);
-          const missingStreetOrNumber = hasStructured
-            ? missingParts.houseNumber || missingParts.street
-            : this.isIncompleteAddress(addressState.candidate);
-          if (missingLocality) {
-            return this.handleMissingLocalityPrompt({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              candidate: addressState.candidate,
-              addressState,
-              nameState,
-              collectedData,
-              currentEventId,
-              displayName,
-              strategy: csrStrategy,
-              timingCollector,
-            });
-          }
-          if (missingStreetOrNumber) {
-            return this.replyWithListeningWindow({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              field: "address",
-              sourceEventId: currentEventId,
-              twiml: this.buildAddressPromptForState(addressState, csrStrategy),
-            });
+          const routeResponse = await this.routeAddressCompleteness({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            currentEventId,
+            addressState,
+            candidateForCompleteness: addressState.candidate,
+            nameState,
+            collectedData,
+            strategy: csrStrategy,
+            timingCollector,
+          });
+          if (routeResponse) {
+            return routeResponse;
           }
           return this.handleAddressConfirmedContinuation({
             res,
@@ -1940,42 +1906,22 @@ export class VoiceTurnService {
               resolution.candidate,
             )
           ) {
-            const hasStructured = this.hasStructuredAddressParts(addressState);
-            const missingParts = this.getAddressMissingParts(addressState);
-            const missingLocality = hasStructured
-              ? missingParts.locality
-              : this.isMissingLocality(addressState.candidate);
-            const missingStreetOrNumber = hasStructured
-              ? missingParts.houseNumber || missingParts.street
-              : this.isIncompleteAddress(addressState.candidate);
-            if (missingLocality) {
-              return this.handleMissingLocalityPrompt({
-                res,
-                tenantId: tenant.id,
-                conversationId,
-                callSid,
-                candidate: addressState.candidate,
-                addressState,
-                nameState,
-                collectedData,
-                currentEventId,
-                displayName,
-                strategy: csrStrategy,
-                timingCollector,
-              });
-            }
-            if (missingStreetOrNumber) {
-              return this.replyWithListeningWindow({
-                res,
-                tenantId: tenant.id,
-                conversationId,
-                field: "address",
-                sourceEventId: currentEventId,
-                twiml: this.buildAddressPromptForState(
-                  addressState,
-                  csrStrategy,
-                ),
-              });
+            const routeResponse = await this.routeAddressCompleteness({
+              res,
+              tenantId: tenant.id,
+              conversationId,
+              callSid,
+              displayName,
+              currentEventId,
+              addressState,
+              candidateForCompleteness: addressState.candidate,
+              nameState,
+              collectedData,
+              strategy: csrStrategy,
+              timingCollector,
+            });
+            if (routeResponse) {
+              return routeResponse;
             }
             return this.handleAddressConfirmedContinuation({
               res,
@@ -2020,43 +1966,22 @@ export class VoiceTurnService {
               timingCollector,
             });
           }
-          const hasStructured =
-            this.hasStructuredAddressParts(nextAddressState);
-          const missingParts = this.getAddressMissingParts(nextAddressState);
-          const missingLocality = hasStructured
-            ? missingParts.locality
-            : this.isMissingLocality(resolution.candidate);
-          const missingStreetOrNumber = hasStructured
-            ? missingParts.houseNumber || missingParts.street
-            : this.isIncompleteAddress(resolution.candidate);
-          if (missingLocality) {
-            return this.handleMissingLocalityPrompt({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              candidate: resolution.candidate,
-              addressState: nextAddressState,
-              nameState,
-              collectedData,
-              currentEventId,
-              displayName,
-              strategy: csrStrategy,
-              timingCollector,
-            });
-          }
-          if (missingStreetOrNumber) {
-            return this.replyWithListeningWindow({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              field: "address",
-              sourceEventId: currentEventId,
-              twiml: this.buildAddressPromptForState(
-                nextAddressState,
-                csrStrategy,
-              ),
-            });
+          const routeResponse = await this.routeAddressCompleteness({
+            res,
+            tenantId: tenant.id,
+            conversationId,
+            callSid,
+            displayName,
+            currentEventId,
+            addressState: nextAddressState,
+            candidateForCompleteness: resolution.candidate,
+            nameState,
+            collectedData,
+            strategy: csrStrategy,
+            timingCollector,
+          });
+          if (routeResponse) {
+            return routeResponse;
           }
           return this.replyWithListeningWindow({
             res,
@@ -2285,41 +2210,20 @@ export class VoiceTurnService {
       addressState.sourceEventId &&
       addressState.sourceEventId === currentEventId
     ) {
-      await this.clearVoiceListeningWindow({
+      return this.handleAddressConfirmedContinuation({
+        res,
         tenantId: tenant.id,
         conversationId,
+        callSid,
+        displayName,
+        currentEventId,
+        addressState,
+        nameState,
+        nameReady,
+        collectedData,
+        strategy: csrStrategy,
+        timingCollector,
       });
-      const issueCandidate = this.getVoiceIssueCandidate(collectedData);
-      if (issueCandidate?.value) {
-        return this.continueAfterSideQuestionWithIssueRouting({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          sideQuestionReply: "Perfect, thanks for confirming that.",
-          expectedField: null,
-          nameReady,
-          addressReady: true,
-          nameState,
-          addressState: {
-            ...addressState,
-            locked: true,
-            status: "CANDIDATE",
-            sourceEventId: currentEventId,
-          },
-          collectedData,
-          currentEventId,
-          strategy: csrStrategy,
-          timingCollector,
-        });
-      }
-      return this.replyWithTwiml(
-        res,
-        this.buildSayGatherTwiml(
-          "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
-        ),
-      );
     }
 
     const persistedIssueCandidate = this.getVoiceIssueCandidate(collectedData);
@@ -4089,6 +3993,65 @@ export class VoiceTurnService {
         "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
       ),
     );
+  }
+
+  private async routeAddressCompleteness(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    displayName: string;
+    currentEventId: string | null;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    candidateForCompleteness: string | null;
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
+    collectedData: Prisma.JsonValue | null;
+    strategy?: CsrStrategy;
+    timingCollector?: VoiceTurnTimingCollector;
+  }): Promise<string | null> {
+    const hasStructured = this.hasStructuredAddressParts(params.addressState);
+    const missingParts = this.getAddressMissingParts(params.addressState);
+    const missingLocality = hasStructured
+      ? missingParts.locality
+      : Boolean(
+          params.candidateForCompleteness &&
+          this.isMissingLocality(params.candidateForCompleteness),
+        );
+    const missingStreetOrNumber = hasStructured
+      ? missingParts.houseNumber || missingParts.street
+      : !params.candidateForCompleteness ||
+        this.isIncompleteAddress(params.candidateForCompleteness);
+
+    if (missingLocality) {
+      return this.handleMissingLocalityPrompt({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        candidate: params.candidateForCompleteness ?? "",
+        addressState: params.addressState,
+        nameState: params.nameState,
+        collectedData: params.collectedData,
+        currentEventId: params.currentEventId,
+        displayName: params.displayName,
+        strategy: params.strategy,
+        timingCollector: params.timingCollector,
+      });
+    }
+    if (missingStreetOrNumber) {
+      return this.replyWithListeningWindow({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        field: "address",
+        sourceEventId: params.currentEventId,
+        twiml: this.buildAddressPromptForState(
+          params.addressState,
+          params.strategy,
+        ),
+      });
+    }
+    return null;
   }
 
   private async markVoiceEventProcessed(params: {
