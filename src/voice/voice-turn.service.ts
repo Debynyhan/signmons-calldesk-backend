@@ -84,6 +84,7 @@ import {
 import { VoiceTurnPreludeRuntime } from "./voice-turn-prelude.runtime";
 import { VoiceTurnContextRuntime } from "./voice-turn-context.runtime";
 import { VoiceTurnEarlyRoutingRuntime } from "./voice-turn-early-routing.runtime";
+import { VoiceTurnExpectedFieldRuntime } from "./voice-turn-expected-field.runtime";
 import { VoiceTurnIssueRecoveryRuntime } from "./voice-turn-issue-recovery.runtime";
 import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
@@ -146,6 +147,7 @@ export class VoiceTurnService {
   private readonly turnPreludeRuntime: VoiceTurnPreludeRuntime;
   private readonly turnContextRuntime: VoiceTurnContextRuntime;
   private readonly turnEarlyRoutingRuntime: VoiceTurnEarlyRoutingRuntime;
+  private readonly turnExpectedFieldRuntime: VoiceTurnExpectedFieldRuntime;
   private readonly turnIssueRecoveryRuntime: VoiceTurnIssueRecoveryRuntime;
   private readonly turnInterruptRuntime: VoiceTurnInterruptRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
@@ -260,6 +262,26 @@ export class VoiceTurnService {
         this.continueAfterSideQuestionWithIssueRouting(params),
       buildUrgencyConfirmTwiml: (strategy, opts) =>
         this.buildUrgencyConfirmTwiml(strategy, opts),
+    });
+    this.turnExpectedFieldRuntime = new VoiceTurnExpectedFieldRuntime({
+      getVoiceSmsHandoff: (collectedData) =>
+        this.conversationsService.getVoiceSmsHandoff(collectedData),
+      getCallerPhoneFromCollectedData: (collectedData) =>
+        this.getCallerPhoneFromCollectedData(collectedData),
+      normalizeConfirmationUtterance: (value) =>
+        this.normalizeConfirmationUtterance(value),
+      isSmsNumberConfirmation: (transcript) =>
+        this.isSmsNumberConfirmation(transcript),
+      extractSmsPhoneCandidate: (transcript) =>
+        this.extractSmsPhoneCandidate(transcript),
+      handleExpectedSmsPhoneField: (params) =>
+        this.voiceSmsPhoneSlotService.handleExpectedField(params),
+      replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
+      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      buildAskSmsNumberTwiml: (strategy) =>
+        this.buildAskSmsNumberTwiml(strategy),
+      replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
+      loggerContext: VoiceTurnService.name,
     });
     this.turnInterruptRuntime = new VoiceTurnInterruptRuntime(
       {
@@ -1348,57 +1370,24 @@ export class VoiceTurnService {
       return replyWithNameTwiml(this.buildAskNameTwiml(csrStrategy));
     }
 
-    if (expectedField === "sms_phone") {
-      const smsHandoff =
-        this.conversationsService.getVoiceSmsHandoff(collectedData);
-      const callerPhone = this.getCallerPhoneFromCollectedData(collectedData);
-      const fallbackPhone = phoneState.value ?? callerPhone;
-      const normalized = this.normalizeConfirmationUtterance(normalizedSpeech);
-      const smsPhoneOutcome =
-        await this.voiceSmsPhoneSlotService.handleExpectedField({
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          smsHandoff,
-          phoneState,
-          fallbackPhone,
-          isSameNumber: this.isSmsNumberConfirmation(normalized),
-          parsedPhone: this.extractSmsPhoneCandidate(normalizedSpeech),
-          sourceEventId: currentEventId,
-          loggerContext: VoiceTurnService.name,
-        });
-      if (smsPhoneOutcome.kind === "not_waiting") {
-        expectedField = null;
-      } else if (smsPhoneOutcome.kind === "handoff") {
-        return this.replyWithSmsHandoff({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          reason: smsPhoneOutcome.reason,
-          messageOverride: smsPhoneOutcome.messageOverride,
-        });
-      } else if (smsPhoneOutcome.kind === "reprompt") {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "sms_phone",
-          sourceEventId: smsPhoneOutcome.sourceEventId,
-          twiml: this.buildAskSmsNumberTwiml(csrStrategy),
-        });
-      } else {
-        return this.replyWithHumanFallback({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          reason: "sms_phone_missing",
-        });
-      }
+    const expectedFieldBranch =
+      await this.turnExpectedFieldRuntime.handleSmsPhoneExpectedField({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        displayName,
+        expectedField,
+        phoneState,
+        collectedData,
+        normalizedSpeech,
+        currentEventId,
+        strategy: csrStrategy,
+      });
+    if (expectedFieldBranch.kind === "exit") {
+      return expectedFieldBranch.value;
     }
+    expectedField = expectedFieldBranch.expectedField;
 
     if (expectedField === "address" && addressReady) {
       await this.clearVoiceListeningWindow({
