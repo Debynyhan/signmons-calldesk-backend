@@ -1875,71 +1875,20 @@ export class VoiceTurnService {
               twiml: this.buildAddressPromptForState(addressState, csrStrategy),
             });
           }
-          if (!addressState.locked) {
-            const confirmedAt = new Date().toISOString();
-            const nextAddressState = buildAddressLockedCandidateState({
-              state: addressState,
-              sourceEventId: currentEventId,
-            });
-            await this.conversationsService.updateVoiceAddressState({
-              tenantId: tenant.id,
-              conversationId,
-              addressState: nextAddressState,
-              confirmation: {
-                field: "address",
-                value: addressState.candidate,
-                confirmedAt,
-                sourceEventId: currentEventId ?? "",
-                channel: "VOICE",
-              },
-            });
-            this.loggingService.log(
-              {
-                event: "voice.field_confirmed",
-                field: "address",
-                tenantId: tenant.id,
-                conversationId,
-                callSid,
-                sourceEventId: currentEventId,
-              },
-              VoiceTurnService.name,
-            );
-          }
-          await this.clearVoiceListeningWindow({
+          return this.handleAddressConfirmedContinuation({
+            res,
             tenantId: tenant.id,
             conversationId,
+            callSid,
+            displayName,
+            currentEventId,
+            addressState,
+            nameState,
+            nameReady,
+            collectedData,
+            strategy: csrStrategy,
+            timingCollector,
           });
-          const issueCandidate = this.getVoiceIssueCandidate(collectedData);
-          if (issueCandidate?.value) {
-            return this.continueAfterSideQuestionWithIssueRouting({
-              res,
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              displayName,
-              sideQuestionReply: "Perfect, thanks for confirming that.",
-              expectedField: null,
-              nameReady,
-              addressReady: true,
-              nameState,
-              addressState: {
-                ...addressState,
-                locked: true,
-                status: "CANDIDATE",
-                sourceEventId: currentEventId,
-              },
-              collectedData,
-              currentEventId,
-              strategy: csrStrategy,
-              timingCollector,
-            });
-          }
-          return this.replyWithTwiml(
-            res,
-            this.buildSayGatherTwiml(
-              "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
-            ),
-          );
         }
         if (resolution.outcome === "REJECT") {
           const rejectedAddress = buildAddressRejectedState({
@@ -2028,71 +1977,20 @@ export class VoiceTurnService {
                 ),
               });
             }
-            if (!addressState.locked) {
-              const confirmedAt = new Date().toISOString();
-              const nextAddressState = buildAddressLockedCandidateState({
-                state: addressState,
-                sourceEventId: currentEventId,
-              });
-              await this.conversationsService.updateVoiceAddressState({
-                tenantId: tenant.id,
-                conversationId,
-                addressState: nextAddressState,
-                confirmation: {
-                  field: "address",
-                  value: addressState.candidate,
-                  confirmedAt,
-                  sourceEventId: currentEventId ?? "",
-                  channel: "VOICE",
-                },
-              });
-              this.loggingService.log(
-                {
-                  event: "voice.field_confirmed",
-                  field: "address",
-                  tenantId: tenant.id,
-                  conversationId,
-                  callSid,
-                  sourceEventId: currentEventId,
-                },
-                VoiceTurnService.name,
-              );
-            }
-            await this.clearVoiceListeningWindow({
+            return this.handleAddressConfirmedContinuation({
+              res,
               tenantId: tenant.id,
               conversationId,
+              callSid,
+              displayName,
+              currentEventId,
+              addressState,
+              nameState,
+              nameReady,
+              collectedData,
+              strategy: csrStrategy,
+              timingCollector,
             });
-            const issueCandidate = this.getVoiceIssueCandidate(collectedData);
-            if (issueCandidate?.value) {
-              return this.continueAfterSideQuestionWithIssueRouting({
-                res,
-                tenantId: tenant.id,
-                conversationId,
-                callSid,
-                displayName,
-                sideQuestionReply: "Perfect, thanks for confirming that.",
-                expectedField: null,
-                nameReady,
-                addressReady: true,
-                nameState,
-                addressState: {
-                  ...addressState,
-                  locked: true,
-                  status: "CANDIDATE",
-                  sourceEventId: currentEventId,
-                },
-                collectedData,
-                currentEventId,
-                strategy: csrStrategy,
-                timingCollector,
-              });
-            }
-            return this.replyWithTwiml(
-              res,
-              this.buildSayGatherTwiml(
-                "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
-              ),
-            );
           }
 
           const replacedAddress = buildAddressReplacementState({
@@ -4110,6 +4008,87 @@ export class VoiceTurnService {
     conversationId: string;
   }) {
     await this.conversationsService.clearVoiceListeningWindow?.(params);
+  }
+
+  private async handleAddressConfirmedContinuation(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    callSid: string;
+    displayName: string;
+    currentEventId: string | null;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
+    nameReady: boolean;
+    collectedData: Prisma.JsonValue | null;
+    strategy?: CsrStrategy;
+    timingCollector?: VoiceTurnTimingCollector;
+  }): Promise<string> {
+    let nextAddressState = params.addressState;
+    const confirmedCandidate = nextAddressState.candidate;
+    if (!nextAddressState.locked && confirmedCandidate) {
+      const confirmedAt = new Date().toISOString();
+      nextAddressState = buildAddressLockedCandidateState({
+        state: nextAddressState,
+        sourceEventId: params.currentEventId,
+      });
+      await this.conversationsService.updateVoiceAddressState({
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        addressState: nextAddressState,
+        confirmation: {
+          field: "address",
+          value: confirmedCandidate,
+          confirmedAt,
+          sourceEventId: params.currentEventId ?? "",
+          channel: "VOICE",
+        },
+      });
+      this.loggingService.log(
+        {
+          event: "voice.field_confirmed",
+          field: "address",
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          sourceEventId: params.currentEventId,
+        },
+        VoiceTurnService.name,
+      );
+    }
+
+    await this.clearVoiceListeningWindow({
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+    });
+
+    const issueCandidate = this.getVoiceIssueCandidate(params.collectedData);
+    if (issueCandidate?.value) {
+      return this.continueAfterSideQuestionWithIssueRouting({
+        res: params.res,
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        callSid: params.callSid,
+        displayName: params.displayName,
+        sideQuestionReply: "Perfect, thanks for confirming that.",
+        expectedField: null,
+        nameReady: params.nameReady,
+        addressReady: true,
+        nameState: params.nameState,
+        addressState: nextAddressState,
+        collectedData: params.collectedData,
+        currentEventId: params.currentEventId,
+        strategy: params.strategy,
+        timingCollector: params.timingCollector,
+      });
+    }
+
+    return this.replyWithTwiml(
+      params.res,
+      this.buildSayGatherTwiml(
+        "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
+      ),
+    );
   }
 
   private async markVoiceEventProcessed(params: {
