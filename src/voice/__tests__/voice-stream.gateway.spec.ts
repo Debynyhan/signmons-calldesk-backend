@@ -643,6 +643,48 @@ describe("VoiceStreamGateway provider selection", () => {
     );
   });
 
+  it("marks the conversation completed when websocket disconnects", async () => {
+    const gateway = new VoiceStreamGateway(
+      buildConfig({
+        voiceTtsProvider: "twilio",
+      }),
+      tenantsService as never,
+      conversationsService as never,
+      googleSpeechService as never,
+      googleTtsService as never,
+      voiceCallService as never,
+      voiceTurnService as never,
+      voiceFillerAudioService as never,
+      loggingService as never,
+    );
+    const client = { close: jest.fn() } as unknown as WebSocket;
+    const stream = new PassThrough();
+
+    (gateway as any).sessions.set(client, {
+      callSid: "CA123",
+      streamSid: "MZ123",
+      tenantId: "tenant-1",
+      tenant: { id: "tenant-1" },
+      streamUrl: `wss://example.ngrok.io${VOICE_STREAM_PATH}`,
+      speechStream: stream,
+      processing: false,
+      startedAtMs: Date.now(),
+      closed: false,
+    });
+    (gateway as any).callSessions.set("CA123", client);
+
+    (gateway as any).handleDisconnect(client);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(conversationsService.completeVoiceConversationByCallSid).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        callSid: "CA123",
+        source: "disconnect",
+      }),
+    );
+  });
+
   it("restarts Google STT stream after recoverable 408 timeout", async () => {
     const gateway = new VoiceStreamGateway(
       buildConfig({

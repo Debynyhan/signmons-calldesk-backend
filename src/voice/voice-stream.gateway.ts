@@ -15,7 +15,6 @@ import { VoiceCallService } from "./voice-call.service";
 import { VoiceTurnService } from "./voice-turn.service";
 import { VoiceFillerAudioService } from "./voice-filler-audio.service";
 import {
-  buildStreamUrl,
   buildStreamingTwiml,
   extractSayMessages,
   hasHangup,
@@ -24,48 +23,29 @@ import {
 import { runWithRequestContext } from "../common/context/request-context";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
+import { VoiceStreamCallLifecycleRuntime } from "./voice-stream-call-lifecycle.runtime";
+import { VoiceStreamSpeechRuntime } from "./voice-stream-speech.runtime";
+import { VoiceStreamStartRuntime } from "./voice-stream-start.runtime";
 import { VoiceStreamTurnRuntime } from "./voice-stream-turn.runtime";
+import {
+  VoiceStreamTransportRuntime,
+  type TwilioStreamMedia,
+  type TwilioStreamStart,
+  type TwilioStreamStop,
+} from "./voice-stream-transport.runtime";
 import type { VoiceStreamSession } from "./voice-stream.types";
-
-type TwilioStreamStart = {
-  event: "start";
-  start: {
-    callSid: string;
-    streamSid: string;
-    customParameters?: Record<string, string>;
-  };
-};
-
-type TwilioStreamMedia = {
-  event: "media";
-  media: {
-    payload: string;
-  };
-};
-
-type TwilioStreamStop = {
-  event: "stop";
-  stop: {
-    callSid?: string;
-    streamSid?: string;
-  };
-};
-
-type TwilioStreamMessage =
-  | TwilioStreamStart
-  | TwilioStreamMedia
-  | TwilioStreamStop;
 
 @WebSocketGateway({ path: VOICE_STREAM_PATH })
 export class VoiceStreamGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
-  private static readonly SPEECH_STREAM_RESTART_MAX = 3;
-  private static readonly SPEECH_STREAM_RESTART_WINDOW_MS = 60_000;
-
   private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
   private readonly callSessions = new Map<string, WebSocket>();
+  private readonly callLifecycleRuntime: VoiceStreamCallLifecycleRuntime;
+  private readonly speechRuntime: VoiceStreamSpeechRuntime;
+  private readonly startRuntime: VoiceStreamStartRuntime;
   private readonly turnRuntime: VoiceStreamTurnRuntime;
+  private readonly transportRuntime: VoiceStreamTransportRuntime;
 
   constructor(
     @Inject(appConfig.KEY)
@@ -80,12 +60,28 @@ export class VoiceStreamGateway
     private readonly voiceFillerAudioService: VoiceFillerAudioService,
     private readonly loggingService: LoggingService,
   ) {
+    this.callLifecycleRuntime = new VoiceStreamCallLifecycleRuntime(
+      this.conversationsService,
+      this.loggingService,
+    );
+    this.speechRuntime = new VoiceStreamSpeechRuntime(
+      this.googleSpeechService,
+      this.loggingService,
+    );
+    this.startRuntime = new VoiceStreamStartRuntime(
+      this.config,
+      this.tenantsService,
+      this.conversationsService,
+      this.googleSpeechService,
+      this.loggingService,
+    );
     this.turnRuntime = new VoiceStreamTurnRuntime(
       this.config,
       this.googleTtsService,
       this.voiceCallService,
       this.loggingService,
     );
+    this.transportRuntime = new VoiceStreamTransportRuntime(this.loggingService);
   }
 
   handleConnection(client: WebSocket) {
@@ -97,53 +93,16 @@ export class VoiceStreamGateway
   handleDisconnect(client: WebSocket) {
     const session = this.sessions.get(client);
     if (session) {
-      const endedAt = new Date();
-      const callEndedAt = endedAt.toISOString();
-      const hangupRequestedAt = session.hangupRequestedAtMs
-        ? new Date(session.hangupRequestedAtMs).toISOString()
-        : null;
-      const hangupToEndMs = session.hangupRequestedAtMs
-        ? Math.max(0, Date.now() - session.hangupRequestedAtMs)
-        : null;
-      this.loggingService.log(
-        {
-          event: "voice.stream.call_ended",
-          callSid: session.callSid,
-          streamSid: session.streamSid,
-          call_ended_at: callEndedAt,
-          hangup_requested_at: hangupRequestedAt,
-          hangup_to_end_ms: hangupToEndMs,
-          source: "disconnect",
-        },
-        VoiceStreamGateway.name,
-      );
-      void this.conversationsService
-        .completeVoiceConversationByCallSid({
-          tenantId: session.tenantId,
-          callSid: session.callSid,
-          source: "disconnect",
-          endedAt,
-          hangupRequestedAt,
-          hangupToEndMs,
-        })
-        .catch((error: unknown) => {
-          this.loggingService.warn(
-            {
-              event: "voice.stream.call_end_persist_failed",
-              callSid: session.callSid,
-              streamSid: session.streamSid,
-              source: "disconnect",
-              reason: error instanceof Error ? error.message : String(error),
-            },
-            VoiceStreamGateway.name,
-          );
-        });
+      this.callLifecycleRuntime.recordCallEnded({
+        session,
+        source: "disconnect",
+      });
     }
     this.cleanupSession(client);
   }
 
   private async handleMessage(client: WebSocket, data: RawData) {
-    const message = this.parseMessage(data);
+    const message = this.transportRuntime.parseMessage(data);
     if (!message) {
       return;
     }
@@ -162,65 +121,8 @@ export class VoiceStreamGateway
     }
   }
 
-  private parseMessage(data: RawData): TwilioStreamMessage | null {
-    const text = this.rawDataToString(data);
-    try {
-      return JSON.parse(text) as TwilioStreamMessage;
-    } catch (error) {
-      this.loggingService.warn(
-        {
-          event: "voice.stream.invalid_message",
-          payload: text,
-          reason: error instanceof Error ? error.message : String(error),
-        },
-        VoiceStreamGateway.name,
-      );
-      return null;
-    }
-  }
-
-  private rawDataToString(data: RawData): string {
-    if (typeof data === "string") {
-      return data;
-    }
-    if (Buffer.isBuffer(data)) {
-      return data.toString("utf8");
-    }
-    if (Array.isArray(data)) {
-      return Buffer.concat(data).toString("utf8");
-    }
-    if (data instanceof ArrayBuffer) {
-      return Buffer.from(data).toString("utf8");
-    }
-    return "";
-  }
-
   private async handleStart(client: WebSocket, message: TwilioStreamStart) {
     if (!this.config.voiceStreamingEnabled) {
-      client.close();
-      return;
-    }
-    if (this.config.voiceSttProvider !== "google") {
-      this.loggingService.warn(
-        { event: "voice.stream.stt_provider_disabled" },
-        VoiceStreamGateway.name,
-      );
-      client.close();
-      return;
-    }
-    if (!this.googleSpeechService.isEnabled()) {
-      this.loggingService.warn(
-        { event: "voice.stream.speech_disabled" },
-        VoiceStreamGateway.name,
-      );
-      client.close();
-      return;
-    }
-    if (!this.config.twilioWebhookBaseUrl) {
-      this.loggingService.warn(
-        { event: "voice.stream.missing_base_url" },
-        VoiceStreamGateway.name,
-      );
       client.close();
       return;
     }
@@ -241,57 +143,16 @@ export class VoiceStreamGateway
       }
     }
 
-    const params = message.start.customParameters ?? {};
-    const tenantId = params.tenantId ?? this.config.demoTenantId;
-    if (!tenantId) {
-      this.loggingService.warn(
-        { event: "voice.stream.missing_tenant", callSid },
-        VoiceStreamGateway.name,
-      );
-      client.close();
-      return;
-    }
-    const tenant = await this.tenantsService.getTenantById(tenantId);
-    if (!tenant) {
-      this.loggingService.warn(
-        { event: "voice.stream.tenant_not_found", callSid, tenantId },
-        VoiceStreamGateway.name,
-      );
-      client.close();
-      return;
-    }
-
-    const leadId = params.leadId;
-    await this.conversationsService.ensureVoiceConsentConversation({
-      tenantId: tenant.id,
-      callSid,
-      requestId: leadId,
-    });
-
-    const speechStream =
-      this.googleSpeechService.createStreamingRecognizeStream();
-    if (!speechStream) {
-      client.close();
-      return;
-    }
-
-    const streamUrl = buildStreamUrl(
-      this.config.twilioWebhookBaseUrl,
-      VOICE_STREAM_PATH,
-    );
-    const session: VoiceStreamSession = {
+    const session = await this.startRuntime.prepareStartSession({
       callSid,
       streamSid,
-      tenantId: tenant.id,
-      tenant,
-      leadId,
-      streamUrl,
-      speechStream,
-      processing: false,
-      startedAtMs: Date.now(),
-      speechRestartCount: 0,
-      closed: false,
-    };
+      customParameters: message.start.customParameters,
+    });
+    if (!session) {
+      client.close();
+      return;
+    }
+
     this.sessions.set(client, session);
     this.callSessions.set(callSid, client);
     this.loggingService.log(
@@ -299,13 +160,13 @@ export class VoiceStreamGateway
         event: "voice.stream.started",
         callSid,
         streamSid,
-        tenantId: tenant.id,
-        streamUrl,
+        tenantId: session.tenantId,
+        streamUrl: session.streamUrl,
       },
       VoiceStreamGateway.name,
     );
 
-    this.attachSpeechStreamHandlers(client, session, speechStream);
+    this.attachSpeechStreamHandlers(client, session, session.speechStream);
   }
 
   private handleMedia(client: WebSocket, message: TwilioStreamMedia) {
@@ -313,7 +174,7 @@ export class VoiceStreamGateway
     if (!session) {
       return;
     }
-    if (session.closed || !this.isWritableStream(session.speechStream)) {
+    if (session.closed || !this.speechRuntime.isWritableStream(session.speechStream)) {
       return;
     }
     const payload = message.media.payload;
@@ -330,47 +191,12 @@ export class VoiceStreamGateway
     if (!session) {
       return;
     }
-    const endedAt = new Date();
-    const callEndedAt = endedAt.toISOString();
-    const hangupRequestedAt = session.hangupRequestedAtMs
-      ? new Date(session.hangupRequestedAtMs).toISOString()
-      : null;
-    const hangupToEndMs = session.hangupRequestedAtMs
-      ? Math.max(0, Date.now() - session.hangupRequestedAtMs)
-      : null;
-    this.loggingService.log(
-      {
-        event: "voice.stream.call_ended",
-        callSid: message.stop.callSid ?? session.callSid,
-        streamSid: message.stop.streamSid ?? session.streamSid,
-        call_ended_at: callEndedAt,
-        hangup_requested_at: hangupRequestedAt,
-        hangup_to_end_ms: hangupToEndMs,
-        source: "stop",
-      },
-        VoiceStreamGateway.name,
-      );
-    void this.conversationsService
-      .completeVoiceConversationByCallSid({
-        tenantId: session.tenantId,
-        callSid: session.callSid,
-        source: "stop",
-        endedAt,
-        hangupRequestedAt,
-        hangupToEndMs,
-      })
-      .catch((error: unknown) => {
-        this.loggingService.warn(
-          {
-            event: "voice.stream.call_end_persist_failed",
-            callSid: session.callSid,
-            streamSid: session.streamSid,
-            source: "stop",
-            reason: error instanceof Error ? error.message : String(error),
-          },
-          VoiceStreamGateway.name,
-        );
-      });
+    this.callLifecycleRuntime.recordCallEnded({
+      session,
+      source: "stop",
+      callSid: message.stop.callSid,
+      streamSid: message.stop.streamSid,
+    });
     this.cleanupSession(client);
   }
 
@@ -379,136 +205,19 @@ export class VoiceStreamGateway
     session: VoiceStreamSession,
     speechStream: NodeJS.ReadWriteStream,
   ) {
-    speechStream.on("data", (data) => {
-      this.handleSpeechData(
-        session,
-        data as protos.google.cloud.speech.v1.IStreamingRecognizeResponse,
-      );
-    });
-    speechStream.on("error", (error) => {
-      void this.handleSpeechStreamError(client, session, error);
-    });
-  }
-
-  private async handleSpeechStreamError(
-    client: WebSocket,
-    session: VoiceStreamSession,
-    error: unknown,
-  ): Promise<void> {
-    if (session.closed) {
-      return;
-    }
-    const reason = error instanceof Error ? error.message : String(error);
-    if (this.isRecoverableSpeechStreamError(error)) {
-      const restarted = this.tryRestartSpeechStream(client, session, reason);
-      if (restarted) {
-        return;
-      }
-    }
-    this.loggingService.warn(
-      {
-        event: "voice.stream.speech_error",
-        callSid: session.callSid,
-        streamSid: session.streamSid,
-        reason,
+    this.speechRuntime.attachSpeechStreamHandlers(client, session, speechStream, {
+      onData: (activeSession, data) => {
+        this.handleSpeechData(activeSession, data);
       },
-      VoiceStreamGateway.name,
-    );
-    this.cleanupSession(client);
-    try {
-      client.close();
-    } catch {
-      // Best effort socket close.
-    }
-  }
-
-  private isRecoverableSpeechStreamError(error: unknown): boolean {
-    const codeValue = (error as { code?: unknown })?.code;
-    const code = typeof codeValue === "number" ? codeValue : null;
-    const detailsValue = (error as { details?: unknown })?.details;
-    const details = typeof detailsValue === "string" ? detailsValue : "";
-    const message = error instanceof Error ? error.message : String(error);
-    const combined = `${details} ${message}`.toLowerCase();
-    if (code === 4 || code === 14) {
-      return true;
-    }
-    if (combined.includes("408:request timeout")) {
-      return true;
-    }
-    if (code === 2 && (combined.includes("408") || combined.includes("timeout"))) {
-      return true;
-    }
-    return false;
-  }
-
-  private tryRestartSpeechStream(
-    client: WebSocket,
-    session: VoiceStreamSession,
-    reason: string,
-  ): boolean {
-    if (session.closed) {
-      return false;
-    }
-    if (session.restartingSpeechStream) {
-      return true;
-    }
-    const nowMs = Date.now();
-    if (
-      !session.lastSpeechRestartAtMs ||
-      nowMs - session.lastSpeechRestartAtMs >
-        VoiceStreamGateway.SPEECH_STREAM_RESTART_WINDOW_MS
-    ) {
-      session.speechRestartCount = 0;
-    }
-    if (session.speechRestartCount >= VoiceStreamGateway.SPEECH_STREAM_RESTART_MAX) {
-      this.loggingService.warn(
-        {
-          event: "voice.stream.speech_restart_exhausted",
-          callSid: session.callSid,
-          streamSid: session.streamSid,
-          restartCount: session.speechRestartCount,
-          reason,
-        },
-        VoiceStreamGateway.name,
-      );
-      return false;
-    }
-
-    session.restartingSpeechStream = true;
-    try {
-      const nextSpeechStream =
-        this.googleSpeechService.createStreamingRecognizeStream();
-      if (!nextSpeechStream) {
-        this.loggingService.warn(
-          {
-            event: "voice.stream.speech_restart_failed",
-            callSid: session.callSid,
-            streamSid: session.streamSid,
-            reason,
-          },
-          VoiceStreamGateway.name,
-        );
-        return false;
-      }
-      this.closeSpeechStream(session.speechStream);
-      session.speechStream = nextSpeechStream;
-      session.speechRestartCount += 1;
-      session.lastSpeechRestartAtMs = nowMs;
-      this.attachSpeechStreamHandlers(client, session, nextSpeechStream);
-      this.loggingService.log(
-        {
-          event: "voice.stream.speech_restarted",
-          callSid: session.callSid,
-          streamSid: session.streamSid,
-          restartCount: session.speechRestartCount,
-          reason,
-        },
-        VoiceStreamGateway.name,
-      );
-      return true;
-    } finally {
-      session.restartingSpeechStream = false;
-    }
+      onFatal: (fatalClient) => {
+        this.cleanupSession(fatalClient);
+        try {
+          fatalClient.close();
+        } catch {
+          // Best effort socket close.
+        }
+      },
+    });
   }
 
   private handleSpeechData(
@@ -855,23 +564,11 @@ export class VoiceStreamGateway
     const session = this.sessions.get(client);
     if (session) {
       session.closed = true;
-      this.closeSpeechStream(session.speechStream);
+      this.speechRuntime.closeSpeechStream(session.speechStream);
       if (this.callSessions.get(session.callSid) === client) {
         this.callSessions.delete(session.callSid);
       }
       this.sessions.delete(client);
-    }
-  }
-
-  private closeSpeechStream(stream: NodeJS.ReadWriteStream) {
-    stream.removeAllListeners("data");
-    stream.removeAllListeners("error");
-    // Keep a terminal error handler so late stream errors cannot crash Node.
-    stream.on("error", () => undefined);
-    try {
-      stream.end();
-    } catch {
-      // Stream may already be ended/destroyed.
     }
   }
 
@@ -880,19 +577,6 @@ export class VoiceStreamGateway
     closingText: string,
   ): void {
     this.turnRuntime.scheduleForcedHangupIfNeeded(session, closingText);
-  }
-
-  private isWritableStream(stream: NodeJS.ReadWriteStream): boolean {
-    const writable = (stream as NodeJS.WritableStream).writable;
-    const writableOk = typeof writable === "boolean" ? writable : true;
-    const writableEndedValue = (stream as { writableEnded?: unknown })
-      .writableEnded;
-    const writableEnded =
-      typeof writableEndedValue === "boolean" ? writableEndedValue : false;
-    const destroyedValue = (stream as { destroyed?: unknown }).destroyed;
-    const destroyed =
-      typeof destroyedValue === "boolean" ? destroyedValue : false;
-    return writableOk && !writableEnded && !destroyed;
   }
 
   private shouldUseGoogleTts(): boolean {
