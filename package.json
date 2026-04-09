@@ -12,6 +12,7 @@
     "start:prod": "node dist/main",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "jest",
+    "test:voice:replay": "jest voice/quality/__tests__/voice-quality.replay.spec.ts voice/intake/__tests__/voice-intake.replay.spec.ts voice/intake/__tests__/voice-turn-planner.replay.spec.ts --runInBand",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "prisma:generate": "prisma generate",
     "voice:audit": "ts-node --transpile-only -r tsconfig-paths/register scripts/voice-quality-audit.ts"
