@@ -19,6 +19,7 @@ import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
 import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
 import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
+import { VoiceUrgencySlotService } from "./voice-urgency-slot.service";
 import { PaymentsService } from "../payments/payments.service";
 import {
   buildIssueSlotPrompt,
@@ -110,6 +111,7 @@ export class VoiceTurnService {
     private readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
     private readonly voiceSmsHandoffService: VoiceSmsHandoffService,
     private readonly voiceSmsPhoneSlotService: VoiceSmsPhoneSlotService,
+    private readonly voiceUrgencySlotService: VoiceUrgencySlotService,
     private readonly paymentsService: PaymentsService,
   ) {}
 
@@ -491,34 +493,27 @@ export class VoiceTurnService {
         twiml: this.buildCallbackOfferTwiml(csrStrategy),
       });
     }
-    if (expectedField === "comfort_risk") {
-      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
-      const isYes = binaryIntent === "YES";
-      const isNo = binaryIntent === "NO";
-      if (isYes || isNo) {
-        await this.conversationsService.updateVoiceUrgencyConfirmation({
+    if (
+      expectedField === "comfort_risk" ||
+      expectedField === "urgency_confirm"
+    ) {
+      const urgencyOutcome = await this.voiceUrgencySlotService.handleExpectedField(
+        {
+          expectedField,
+          binaryIntent: this.resolveBinaryUtterance(normalizedSpeech),
           tenantId: tenant.id,
           conversationId,
-          urgencyConfirmation: {
-            askedAt: new Date().toISOString(),
-            response: isYes ? "YES" : "NO",
-            sourceEventId: currentEventId ?? null,
-          },
-        });
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        const preface = isYes
-          ? "Thanks. We'll treat this as urgent."
-          : "Okay, we'll keep it standard.";
+          sourceEventId: currentEventId ?? null,
+        },
+      );
+      if (urgencyOutcome.kind === "answered") {
         return this.continueAfterSideQuestionWithIssueRouting({
           res,
           tenantId: tenant.id,
           conversationId,
           callSid,
           displayName,
-          sideQuestionReply: preface,
+          sideQuestionReply: urgencyOutcome.preface,
           expectedField: null,
           nameReady,
           addressReady,
@@ -530,64 +525,17 @@ export class VoiceTurnService {
           timingCollector,
         });
       }
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "confirmation",
-        targetField: "urgency_confirm",
-        sourceEventId: currentEventId,
-        twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
-      });
-    }
-    if (expectedField === "urgency_confirm") {
-      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
-      const isYes = binaryIntent === "YES";
-      const isNo = binaryIntent === "NO";
-      if (isYes || isNo) {
-        await this.conversationsService.updateVoiceUrgencyConfirmation({
-          tenantId: tenant.id,
-          conversationId,
-          urgencyConfirmation: {
-            askedAt: new Date().toISOString(),
-            response: isYes ? "YES" : "NO",
-            sourceEventId: currentEventId ?? null,
-          },
-        });
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        const preface = isYes
-          ? "Thanks. We'll treat this as urgent."
-          : "Okay, we'll keep it standard.";
-        return this.continueAfterSideQuestionWithIssueRouting({
+      if (urgencyOutcome.kind === "reprompt") {
+        return this.replyWithListeningWindow({
           res,
           tenantId: tenant.id,
           conversationId,
-          callSid,
-          displayName,
-          sideQuestionReply: preface,
-          expectedField: null,
-          nameReady,
-          addressReady,
-          nameState,
-          addressState,
-          collectedData,
-          currentEventId,
-          strategy: csrStrategy,
-          timingCollector,
+          field: "confirmation",
+          targetField: "urgency_confirm",
+          sourceEventId: currentEventId,
+          twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
         });
       }
-      return this.replyWithListeningWindow({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        field: "confirmation",
-        targetField: "urgency_confirm",
-        sourceEventId: currentEventId,
-        twiml: this.buildUrgencyConfirmTwiml(csrStrategy),
-      });
     }
     if (this.isSlowDownRequest(normalizedSpeech)) {
       if (expectedField === "name") {
