@@ -25,6 +25,7 @@ import {
   buildIssueSlotPrompt,
   ISSUE_SLOT_SMS_DEFER_MESSAGE,
 } from "./intake/issue-slot.policy";
+import { reduceBookingCallbackSlot } from "./intake/voice-booking-callback.reducer";
 import { reduceIssueSlot } from "./intake/voice-intake.reducer";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
 import {
@@ -417,72 +418,63 @@ export class VoiceTurnService {
       });
       expectedField = null;
     }
-    if (expectedField === "booking") {
-      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
-      const isYes =
-        binaryIntent === "YES" ||
-        this.isBookingIntent(normalizedSpeech);
-      const isNo = binaryIntent === "NO";
-      if (isYes) {
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        expectedField = null;
-      } else if (isNo) {
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml(
-            "No problem. Do you have any other questions?",
-          ),
-        );
-      } else {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "confirmation",
-          targetField: "booking",
-          sourceEventId: currentEventId,
-          twiml: this.buildBookingPromptTwiml(csrStrategy),
-        });
-      }
-    }
-    if (expectedField === "callback") {
-      const binaryIntent = this.resolveBinaryUtterance(normalizedSpeech);
-      const isYes = binaryIntent === "YES";
-      const isNo = binaryIntent === "NO";
-      if (isYes) {
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        return this.replyWithHumanFallback({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          reason: "callback_requested",
-          messageOverride: "We'll call you back shortly.",
-        });
-      }
-      if (isNo) {
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        return this.replyWithTwiml(
-          res,
-          this.buildSayGatherTwiml(
-            "No problem. I can keep helping here. How can I help?",
-          ),
-        );
-      }
+    const bookingCallbackAction = reduceBookingCallbackSlot({
+      expectedField:
+        expectedField === "booking" || expectedField === "callback"
+          ? expectedField
+          : null,
+      binaryIntent: this.resolveBinaryUtterance(normalizedSpeech),
+      hasBookingIntent: this.isBookingIntent(normalizedSpeech),
+    });
+    if (bookingCallbackAction.type === "CLEAR_AND_CONTINUE") {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      expectedField = null;
+    } else if (bookingCallbackAction.type === "BOOKING_DECLINED") {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      return this.replyWithTwiml(
+        res,
+        this.buildSayGatherTwiml("No problem. Do you have any other questions?"),
+      );
+    } else if (bookingCallbackAction.type === "REPROMPT_BOOKING") {
+      return this.replyWithListeningWindow({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        field: "confirmation",
+        targetField: "booking",
+        sourceEventId: currentEventId,
+        twiml: this.buildBookingPromptTwiml(csrStrategy),
+      });
+    } else if (bookingCallbackAction.type === "CALLBACK_REQUESTED") {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      return this.replyWithHumanFallback({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        displayName,
+        reason: "callback_requested",
+        messageOverride: "We'll call you back shortly.",
+      });
+    } else if (bookingCallbackAction.type === "CALLBACK_DECLINED") {
+      await this.clearVoiceListeningWindow({
+        tenantId: tenant.id,
+        conversationId,
+      });
+      return this.replyWithTwiml(
+        res,
+        this.buildSayGatherTwiml("No problem. I can keep helping here. How can I help?"),
+      );
+    } else if (bookingCallbackAction.type === "REPROMPT_CALLBACK") {
       return this.replyWithListeningWindow({
         res,
         tenantId: tenant.id,
