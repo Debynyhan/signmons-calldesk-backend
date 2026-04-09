@@ -36,6 +36,12 @@ import {
   shouldRepromptForLowConfidenceName,
 } from "./intake/voice-name-candidate.policy";
 import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
+import {
+  normalizeConfirmationUtterance,
+  resolveConfirmation,
+  stripConfirmationPrefix,
+  type VoiceConfirmationResolution,
+} from "./intake/voice-field-confirmation.policy";
 import { reduceBookingCallbackSlot } from "./intake/voice-booking-callback.reducer";
 import { reduceIssueSlot } from "./intake/voice-intake.reducer";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
@@ -44,16 +50,6 @@ import {
   setRequestContextData,
 } from "../common/context/request-context";
 
-type ConfirmationOutcome =
-  | "CONFIRM"
-  | "REJECT"
-  | "REPLACE_CANDIDATE"
-  | "UNKNOWN";
-
-type ConfirmationResolution = {
-  outcome: ConfirmationOutcome;
-  candidate: string | null;
-};
 type VoiceListeningField =
   | "name"
   | "address"
@@ -4178,49 +4174,13 @@ export class VoiceTurnService {
     utterance: string,
     currentCandidate: string | null,
     fieldType: "name" | "address",
-  ): ConfirmationResolution {
-    const normalized = this.normalizeConfirmationUtterance(utterance);
-    const confirmPhrases = [
-      "yes",
-      "yeah",
-      "yep",
-      "yup",
-      "yah",
-      "ya",
-      "yuh",
-      "yellow",
-      "yello",
-      "correct",
-      "that's right",
-      "that is right",
-      "right",
-      "ok",
-      "okay",
-      "affirmative",
-    ];
-    const rejectPhrases = [
-      "no",
-      "nope",
-      "incorrect",
-      "that's wrong",
-      "that is wrong",
-      "not right",
-      "negative",
-    ];
-    if (confirmPhrases.some((phrase) => normalized === phrase)) {
-      return { outcome: "CONFIRM", candidate: null };
-    }
-    if (rejectPhrases.some((phrase) => normalized === phrase)) {
-      return { outcome: "REJECT", candidate: null };
-    }
-    const candidate = this.extractReplacementCandidate(utterance, fieldType);
-    if (candidate) {
-      return { outcome: "REPLACE_CANDIDATE", candidate };
-    }
-    if (currentCandidate) {
-      return { outcome: "UNKNOWN", candidate: null };
-    }
-    return { outcome: "UNKNOWN", candidate: null };
+  ): VoiceConfirmationResolution {
+    return resolveConfirmation({
+      utterance,
+      currentCandidate,
+      fieldType,
+      sanitizer: this.sanitizationService,
+    });
   }
 
   private isSoftConfirmationEligible(
@@ -4262,11 +4222,7 @@ export class VoiceTurnService {
   }
 
   private normalizeConfirmationUtterance(value: string): string {
-    return value
-      .toLowerCase()
-      .replace(/[^a-z0-9'\s]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    return normalizeConfirmationUtterance(value);
   }
 
   private isSmsNumberConfirmation(normalizedUtterance: string): boolean {
@@ -4334,84 +4290,8 @@ export class VoiceTurnService {
     return typeof data.callerPhone === "string" ? data.callerPhone : null;
   }
 
-  private extractReplacementCandidate(
-    utterance: string,
-    fieldType: "name" | "address",
-  ): string | null {
-    const cleaned = this.sanitizationService.sanitizeText(utterance);
-    const stripped = this.stripConfirmationPrefix(cleaned);
-    if (!stripped) {
-      return null;
-    }
-    if (fieldType === "name") {
-      const candidate = normalizeNameCandidate(
-        stripped,
-        this.sanitizationService,
-      );
-      if (
-        !candidate ||
-        !isValidNameCandidate(candidate) ||
-        !isLikelyNameCandidate(candidate)
-      ) {
-        return null;
-      }
-      return candidate;
-    }
-    const candidate = this.sanitizationService.normalizeWhitespace(
-      this.normalizeAddressCandidate(stripped),
-    );
-    if (!candidate || this.isIncompleteAddress(candidate)) {
-      return null;
-    }
-    return candidate;
-  }
-
   private stripConfirmationPrefix(value: string): string {
-    const cleaned = this.sanitizationService.normalizeWhitespace(value);
-    const lowered = cleaned.toLowerCase();
-    const prefixes = [
-      "yes",
-      "yeah",
-      "yep",
-      "yup",
-      "yah",
-      "ya",
-      "yuh",
-      "yellow",
-      "yello",
-      "correct",
-      "that's right",
-      "that is right",
-      "right",
-      "ok",
-      "okay",
-      "affirmative",
-      "no",
-      "nope",
-      "incorrect",
-      "that's wrong",
-      "that is wrong",
-      "not right",
-      "negative",
-    ];
-    for (const prefix of prefixes) {
-      if (lowered === prefix) {
-        return "";
-      }
-      if (
-        lowered.startsWith(`${prefix} `) ||
-        lowered.startsWith(`${prefix},`) ||
-        lowered.startsWith(`${prefix}.`) ||
-        lowered.startsWith(`${prefix}!`) ||
-        lowered.startsWith(`${prefix}?`)
-      ) {
-        const remainder = cleaned
-          .slice(prefix.length)
-          .replace(/^[\s,!.?]+/, "");
-        return remainder.replace(/^(?:it's|it is|its|that is|that's)\s+/i, "");
-      }
-    }
-    return cleaned;
+    return stripConfirmationPrefix(value, this.sanitizationService);
   }
 
   private async buildSideQuestionReply(
