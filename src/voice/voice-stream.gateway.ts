@@ -14,18 +14,13 @@ import { ConversationsService } from "../conversations/conversations.service";
 import { VoiceCallService } from "./voice-call.service";
 import { VoiceTurnService } from "./voice-turn.service";
 import { VoiceFillerAudioService } from "./voice-filler-audio.service";
-import {
-  buildStreamingTwiml,
-  extractSayMessages,
-  hasHangup,
-  VOICE_STREAM_PATH,
-} from "./voice-streaming.utils";
-import { runWithRequestContext } from "../common/context/request-context";
+import { VOICE_STREAM_PATH } from "./voice-streaming.utils";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { VoiceStreamCallLifecycleRuntime } from "./voice-stream-call-lifecycle.runtime";
 import { VoiceStreamSpeechRuntime } from "./voice-stream-speech.runtime";
 import { VoiceStreamStartRuntime } from "./voice-stream-start.runtime";
+import { VoiceStreamTurnExecutionRuntime } from "./voice-stream-turn-execution.runtime";
 import { VoiceStreamTurnRuntime } from "./voice-stream-turn.runtime";
 import {
   VoiceStreamTransportRuntime,
@@ -44,6 +39,7 @@ export class VoiceStreamGateway
   private readonly callLifecycleRuntime: VoiceStreamCallLifecycleRuntime;
   private readonly speechRuntime: VoiceStreamSpeechRuntime;
   private readonly startRuntime: VoiceStreamStartRuntime;
+  private readonly turnExecutionRuntime: VoiceStreamTurnExecutionRuntime;
   private readonly turnRuntime: VoiceStreamTurnRuntime;
   private readonly transportRuntime: VoiceStreamTransportRuntime;
 
@@ -80,6 +76,28 @@ export class VoiceStreamGateway
       this.googleTtsService,
       this.voiceCallService,
       this.loggingService,
+    );
+    this.turnExecutionRuntime = new VoiceStreamTurnExecutionRuntime(
+      this.config,
+      this.conversationsService,
+      this.voiceCallService,
+      this.voiceTurnService,
+      this.voiceFillerAudioService,
+      this.loggingService,
+      {
+        isFillerTranscript: (transcript) => this.isFillerTranscript(transcript),
+        buildNoSayFallbackText: (transcript) =>
+          this.buildNoSayFallbackText(transcript),
+        normalizeTranscriptForDeduplication: (value) =>
+          this.normalizeTranscriptForDeduplication(value),
+        scheduleForcedHangupIfNeeded: (session, closingText) =>
+          this.scheduleForcedHangupIfNeeded(session, closingText),
+        shouldUseGoogleTtsForText: (text, options) =>
+          this.shouldUseGoogleTtsForText(text, options),
+        computeTotalTurnMs: (params) => this.computeTotalTurnMs(params),
+        getTurnLatencyBreaches: (params) => this.getTurnLatencyBreaches(params),
+        getGoogleTtsPlayback: async (text) => this.getGoogleTtsPlayback(text),
+      },
     );
     this.transportRuntime = new VoiceStreamTransportRuntime(this.loggingService);
   }
@@ -224,36 +242,7 @@ export class VoiceStreamGateway
     session: VoiceStreamSession,
     data: protos.google.cloud.speech.v1.IStreamingRecognizeResponse,
   ) {
-    const result = data.results?.[0];
-    const alternative = result?.alternatives?.[0];
-    const transcript = alternative?.transcript?.trim();
-    if (!transcript) {
-      return;
-    }
-    if (!result?.isFinal) {
-      return;
-    }
-    if (this.isFillerTranscript(transcript)) {
-      return;
-    }
-    const normalizedTranscript =
-      this.normalizeTranscriptForDeduplication(transcript);
-    const now = Date.now();
-    if (
-      normalizedTranscript &&
-      session.lastTranscript === normalizedTranscript &&
-      session.lastTranscriptAt &&
-      now - session.lastTranscriptAt < 3000
-    ) {
-      return;
-    }
-    session.lastTranscript = normalizedTranscript || transcript;
-    session.lastTranscriptAt = now;
-    const confidence = alternative?.confidence ?? undefined;
-    const sttFinalMs = session.lastMediaAtMs
-      ? Math.max(0, now - session.lastMediaAtMs)
-      : Math.max(0, now - session.startedAtMs);
-    void this.handleFinalTranscript(session, transcript, confidence, sttFinalMs);
+    this.turnExecutionRuntime.handleSpeechData(session, data);
   }
 
   private async handleFinalTranscript(
@@ -263,289 +252,13 @@ export class VoiceStreamGateway
     sttFinalMs?: number,
     queuedAtMs?: number,
   ) {
-    if (session.processing) {
-      session.pendingTranscript = {
-        transcript,
-        confidence,
-        sttFinalMs,
-        queuedAtMs: Date.now(),
-      };
-      return;
-    }
-    session.processing = true;
-
-    // Fire a filler clip immediately to eliminate dead-air while AI processes.
-    // Fire-and-forget: if it fails or no URL is ready, the call continues normally.
-    const fillerUrl = this.voiceFillerAudioService.getFillerUrl();
-    if (fillerUrl && !session.closed) {
-      const fillerTwiml = buildStreamingTwiml({
-        streamUrl: session.streamUrl,
-        streamParams: { tenantId: session.tenantId, leadId: session.leadId },
-        playUrl: fillerUrl,
-        keepAliveSec: this.config.voiceStreamingKeepAliveSec,
-        track: this.config.voiceStreamingTrack,
-      });
-      void this.voiceCallService.updateCallTwiml(session.callSid, fillerTwiml);
-    }
-
-    const queueDelayMs =
-      typeof queuedAtMs === "number"
-        ? Math.max(0, Date.now() - queuedAtMs)
-        : null;
-    const timingCollector = { aiMs: 0, aiCalls: 0 };
-    const turnStartedAt = Date.now();
-    let turnLogicMs = 0;
-    let ttsMs = 0;
-    let twilioUpdateMs = 0;
-    const logTurnTiming = (params: {
-      reason: string;
-      twilioUpdated: boolean;
-      usedGoogleTts?: boolean;
-      ttsCacheHit?: boolean;
-      ttsPolicy?: "google_play" | "twilio_say";
-      hangup?: boolean;
-      isFirstResponse?: boolean;
-    }) => {
-      const sttFinalMsValue =
-        typeof sttFinalMs === "number" ? Math.max(0, sttFinalMs) : null;
-      const queueDelayMsValue =
-        typeof queueDelayMs === "number" ? Math.max(0, queueDelayMs) : null;
-      const totalTurnMs = this.computeTotalTurnMs({
-        sttFinalMs: sttFinalMsValue,
-        queueDelayMs: queueDelayMsValue,
-        turnLogicMs,
-        ttsMs,
-        twilioUpdateMs,
-      });
-      const latencyBreaches = this.getTurnLatencyBreaches({
-        sttFinalMs: sttFinalMsValue,
-        aiMs: timingCollector.aiMs,
-        ttsMs,
-        twilioUpdateMs,
-        totalTurnMs,
-        isFirstResponse: params.isFirstResponse ?? false,
-      });
-      this.loggingService.log(
-        {
-          event: "voice.stream.turn_timing",
-          tenantId: session.tenantId,
-          callSid: session.callSid,
-          streamSid: session.streamSid,
-          sttFinalMs: sttFinalMsValue,
-          turnLogicMs,
-          aiMs: timingCollector.aiMs,
-          aiCalls: timingCollector.aiCalls,
-          ttsMs,
-          twilioUpdateMs,
-          transcriptChars: transcript.length,
-          queueDelayMs: queueDelayMsValue,
-          reason: params.reason,
-          twilioUpdated: params.twilioUpdated,
-          usedGoogleTts: params.usedGoogleTts ?? false,
-          ttsCacheHit: params.ttsCacheHit ?? false,
-          ttsPolicy: params.ttsPolicy ?? "twilio_say",
-          hangup: params.hangup ?? false,
-          totalTurnMs,
-          latencyBreaches,
-        },
-        VoiceStreamGateway.name,
-      );
-      if (latencyBreaches.length > 0) {
-        this.loggingService.warn(
-          {
-            event: "voice.stream.turn_sla_warning",
-            tenantId: session.tenantId,
-            callSid: session.callSid,
-            streamSid: session.streamSid,
-            reason: params.reason,
-            totalTurnMs,
-            sttFinalMs: sttFinalMsValue,
-            aiMs: timingCollector.aiMs,
-            ttsMs,
-            twilioUpdateMs,
-            breaches: latencyBreaches,
-            firstResponse: params.isFirstResponse ?? false,
-          },
-          VoiceStreamGateway.name,
-        );
-      }
-      void this.conversationsService
-        .appendVoiceTurnTiming({
-          tenantId: session.tenantId,
-          callSid: session.callSid,
-          timing: {
-            recordedAt: new Date().toISOString(),
-            sttFinalMs: sttFinalMsValue,
-            queueDelayMs: queueDelayMsValue,
-            turnLogicMs,
-            aiMs: timingCollector.aiMs,
-            aiCalls: timingCollector.aiCalls,
-            ttsMs,
-            twilioUpdateMs,
-            transcriptChars: transcript.length,
-            reason: params.reason,
-            twilioUpdated: params.twilioUpdated,
-            usedGoogleTts: params.usedGoogleTts ?? false,
-            ttsCacheHit: params.ttsCacheHit ?? false,
-            ttsPolicy: params.ttsPolicy ?? "twilio_say",
-            hangup: params.hangup ?? false,
-            totalTurnMs,
-            latencyBreaches,
-          },
-        })
-        .catch((error: unknown) => {
-          this.loggingService.warn(
-            {
-              event: "voice.stream.turn_timing_persist_failed",
-              tenantId: session.tenantId,
-              callSid: session.callSid,
-              streamSid: session.streamSid,
-              reason: error instanceof Error ? error.message : String(error),
-            },
-            VoiceStreamGateway.name,
-          );
-        });
-    };
-    try {
-      const twiml = await runWithRequestContext(
-        {
-          tenantId: session.tenantId,
-          callSid: session.callSid,
-          channel: "VOICE",
-          requestId: session.leadId,
-        },
-        () =>
-          this.voiceTurnService.handleStreamingTurn({
-            tenant: session.tenant,
-            callSid: session.callSid,
-            speechResult: transcript,
-            confidence,
-            requestId: session.leadId,
-            timingCollector,
-          }),
-      );
-      turnLogicMs = Math.max(0, Date.now() - turnStartedAt);
-
-      const hangup = hasHangup(twiml);
-      const messages = extractSayMessages(twiml);
-      const hadNoSayMessages = messages.length === 0;
-      const sayText = hadNoSayMessages
-        ? this.buildNoSayFallbackText(transcript)
-        : messages.join(" ");
-      if (hadNoSayMessages) {
-        this.loggingService.warn(
-          {
-            event: "voice.stream.no_say_fallback",
-            tenantId: session.tenantId,
-            callSid: session.callSid,
-            streamSid: session.streamSid,
-            transcriptChars: transcript.length,
-            hangupRequested: hangup,
-          },
-          VoiceStreamGateway.name,
-        );
-      }
-      if (hangup) {
-        session.hangupRequestedAtMs = Date.now();
-        this.loggingService.log(
-          {
-            event: "voice.stream.hangup_requested",
-            tenantId: session.tenantId,
-            callSid: session.callSid,
-            streamSid: session.streamSid,
-            hangup_requested_at: new Date(
-              session.hangupRequestedAtMs,
-            ).toISOString(),
-          },
-          VoiceStreamGateway.name,
-        );
-      }
-      const useGoogleTts =
-        !hadNoSayMessages &&
-        this.shouldUseGoogleTtsForText(sayText, { hangup });
-      let ttsCacheHit = false;
-      let playUrlResult: { url: string; objectPath: string } | null = null;
-      if (useGoogleTts) {
-        const ttsStartedAt = Date.now();
-        const ttsResult = await this.getGoogleTtsPlayback(sayText);
-        playUrlResult = ttsResult?.playback ?? null;
-        ttsCacheHit = ttsResult?.cacheHit ?? false;
-        ttsMs = Math.max(0, Date.now() - ttsStartedAt);
-      }
-      const now = Date.now();
-      const isFirstResponse = typeof session.lastResponseAt !== "number";
-      const responseTwiml = buildStreamingTwiml({
-        streamUrl: session.streamUrl,
-        streamParams: {
-          tenantId: session.tenantId,
-          leadId: session.leadId,
-        },
-        playUrl: playUrlResult?.url,
-        sayText: playUrlResult?.url ? undefined : sayText,
-        keepAliveSec: this.config.voiceStreamingKeepAliveSec,
-        hangup,
-        track: this.config.voiceStreamingTrack,
-      });
-
-      const twilioUpdateStartedAt = Date.now();
-      const twilioUpdated = await this.voiceCallService.updateCallTwiml(
-        session.callSid,
-        responseTwiml,
-      );
-      twilioUpdateMs = Math.max(0, Date.now() - twilioUpdateStartedAt);
-      session.lastResponseText = sayText;
-      session.lastResponseAt = now;
-      if (hangup) {
-        this.scheduleForcedHangupIfNeeded(session, sayText);
-      }
-      logTurnTiming({
-        reason: hadNoSayMessages
-          ? twilioUpdated
-            ? "no_say_fallback_updated"
-            : "no_say_fallback_update_failed"
-          : twilioUpdated
-            ? "twiml_updated"
-            : "twiml_update_failed",
-        twilioUpdated,
-        usedGoogleTts: Boolean(playUrlResult?.url),
-        ttsCacheHit,
-        ttsPolicy: playUrlResult?.url ? "google_play" : "twilio_say",
-        hangup,
-        isFirstResponse,
-      });
-    } catch (error) {
-      turnLogicMs = turnLogicMs || Math.max(0, Date.now() - turnStartedAt);
-      this.loggingService.warn(
-        {
-          event: "voice.stream.turn_failed",
-          tenantId: session.tenantId,
-          callSid: session.callSid,
-          streamSid: session.streamSid,
-          sttFinalMs: sttFinalMs ?? null,
-          queueDelayMs,
-          turnLogicMs,
-          aiMs: timingCollector.aiMs,
-          aiCalls: timingCollector.aiCalls,
-          ttsMs,
-          twilioUpdateMs,
-          reason: error instanceof Error ? error.message : String(error),
-        },
-        VoiceStreamGateway.name,
-      );
-    } finally {
-      session.processing = false;
-      const pending = session.pendingTranscript;
-      session.pendingTranscript = undefined;
-      if (pending && !session.closed) {
-        void this.handleFinalTranscript(
-          session,
-          pending.transcript,
-          pending.confidence,
-          pending.sttFinalMs,
-          pending.queuedAtMs,
-        );
-      }
-    }
+    await this.turnExecutionRuntime.handleFinalTranscript(
+      session,
+      transcript,
+      confidence,
+      sttFinalMs,
+      queuedAtMs,
+    );
   }
 
   private isFillerTranscript(transcript: string): boolean {
