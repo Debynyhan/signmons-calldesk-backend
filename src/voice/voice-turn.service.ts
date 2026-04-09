@@ -37,6 +37,15 @@ import {
 } from "./intake/voice-name-candidate.policy";
 import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
 import {
+  buildNameFollowUpPrompt,
+  clearNameSpellPrompt,
+  lockNameForAddressProgression as reduceLockNameForAddressProgression,
+  markLowConfidenceNameReprompt as reduceMarkLowConfidenceNameReprompt,
+  markNameAttemptIfNeeded as reduceMarkNameAttemptIfNeeded,
+  markNameSpellPrompted as reduceMarkNameSpellPrompted,
+  storeProvisionalNameCandidate as reduceStoreProvisionalNameCandidate,
+} from "./intake/voice-name-slot.reducer";
+import {
   normalizeConfirmationUtterance,
   resolveConfirmation,
   stripConfirmationPrefix,
@@ -994,23 +1003,14 @@ export class VoiceTurnService {
       const turnIndex = voiceTurnCount;
       let workingNameState: typeof nameState = nameState;
       const lockNameForAddressProgression = async () => {
-        if (workingNameState.locked) {
+        const nextNameState = reduceLockNameForAddressProgression({
+          state: workingNameState,
+          sourceEventId: currentEventId,
+          nowIso: new Date().toISOString(),
+        });
+        if (nextNameState === workingNameState) {
           return;
         }
-        const fallbackTimestamp = new Date().toISOString();
-        const nextNameState: typeof nameState = {
-          ...workingNameState,
-          status: workingNameState.candidate.value ? "CANDIDATE" : "MISSING",
-          locked: true,
-          attemptCount: Math.max(1, workingNameState.attemptCount),
-          candidate: {
-            value: workingNameState.candidate.value,
-            sourceEventId:
-              workingNameState.candidate.sourceEventId ?? currentEventId,
-            createdAt:
-              workingNameState.candidate.createdAt ?? fallbackTimestamp,
-          },
-        };
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
@@ -1029,14 +1029,12 @@ export class VoiceTurnService {
         ) {
           return null;
         }
-        const nextNameState: typeof nameState = {
-          ...workingNameState,
-          status: candidate ? "CANDIDATE" : "MISSING",
-          locked: false,
-          spellPromptedAt: Date.now(),
-          spellPromptedTurnIndex: turnIndex,
-          spellPromptCount: (workingNameState.spellPromptCount ?? 0) + 1,
-        };
+        const nextNameState = reduceMarkLowConfidenceNameReprompt({
+          state: workingNameState,
+          candidate,
+          turnIndex,
+          nowMs: Date.now(),
+        });
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
@@ -1088,13 +1086,10 @@ export class VoiceTurnService {
         });
       };
       const recordNameAttemptIfNeeded = async () => {
-        if (workingNameState.attemptCount > 0) {
+        const nextNameState = reduceMarkNameAttemptIfNeeded(workingNameState);
+        if (nextNameState === workingNameState) {
           return;
         }
-        const nextNameState: typeof nameState = {
-          ...workingNameState,
-          attemptCount: 1,
-        };
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
@@ -1124,41 +1119,13 @@ export class VoiceTurnService {
           spellPromptCount?: number;
         },
       ) => {
-        const baseNameState = workingNameState;
-        const nextNameState: typeof nameState = {
-          ...baseNameState,
-          candidate: {
-            value: candidate,
-            sourceEventId: currentEventId,
-            createdAt: new Date().toISOString(),
-          },
-          status: "CANDIDATE",
-          attemptCount: Math.max(1, baseNameState.attemptCount),
-          corrections:
-            typeof options?.corrections === "number"
-              ? options.corrections
-              : (baseNameState.corrections ?? 0),
-          lastConfidence:
-            typeof options?.lastConfidence === "number"
-              ? options.lastConfidence
-              : (baseNameState.lastConfidence ?? null),
-          firstNameSpelled:
-            typeof options?.firstNameSpelled === "string"
-              ? options.firstNameSpelled
-              : (baseNameState.firstNameSpelled ?? null),
-          spellPromptedAt:
-            options && "spellPromptedAt" in options
-              ? (options.spellPromptedAt ?? null)
-              : (baseNameState.spellPromptedAt ?? null),
-          spellPromptedTurnIndex:
-            options && "spellPromptedTurnIndex" in options
-              ? (options.spellPromptedTurnIndex ?? null)
-              : (baseNameState.spellPromptedTurnIndex ?? null),
-          spellPromptCount:
-            typeof options?.spellPromptCount === "number"
-              ? options.spellPromptCount
-              : (baseNameState.spellPromptCount ?? 0),
-        };
+        const nextNameState = reduceStoreProvisionalNameCandidate({
+          state: workingNameState,
+          candidate,
+          sourceEventId: currentEventId,
+          createdAtIso: new Date().toISOString(),
+          options,
+        });
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
@@ -1167,22 +1134,15 @@ export class VoiceTurnService {
         workingNameState = nextNameState;
         return nextNameState;
       };
-      const buildNameFollowUp = (issueSummary?: string | null) => {
-        const trimmedIssue = issueSummary?.trim().replace(/[.?!]+$/, "") ?? "";
-        const issueAck = trimmedIssue ? `I heard ${trimmedIssue}. ` : "";
-        return `${issueAck}What's your full name?`.replace(/\s+/g, " ").trim();
-      };
       const promptForNameSpelling = async (
         candidate: string,
         baseNameState: typeof nameState,
       ) => {
-        const nextPromptCount = (baseNameState.spellPromptCount ?? 0) + 1;
-        const promptState: typeof nameState = {
-          ...baseNameState,
-          spellPromptedAt: Date.now(),
-          spellPromptedTurnIndex: turnIndex,
-          spellPromptCount: nextPromptCount,
-        };
+        const promptState = reduceMarkNameSpellPrompted({
+          state: baseNameState,
+          turnIndex,
+          nowMs: Date.now(),
+        });
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
@@ -1308,15 +1268,15 @@ export class VoiceTurnService {
         );
         const promptCount = nameState.spellPromptCount ?? 0;
         if (promptCount < 2) {
+          const promptState = reduceMarkNameSpellPrompted({
+            state: nameState,
+            turnIndex,
+            nowMs: Date.now(),
+          });
           await this.conversationsService.updateVoiceNameState({
             tenantId: tenant.id,
             conversationId,
-            nameState: {
-              ...nameState,
-              spellPromptedAt: Date.now(),
-              spellPromptedTurnIndex: turnIndex,
-              spellPromptCount: promptCount + 1,
-            },
+            nameState: promptState,
           });
           this.loggingService.log(
             {
@@ -1336,11 +1296,7 @@ export class VoiceTurnService {
         await this.conversationsService.updateVoiceNameState({
           tenantId: tenant.id,
           conversationId,
-          nameState: {
-            ...nameState,
-            spellPromptedAt: null,
-            spellPromptedTurnIndex: null,
-          },
+          nameState: clearNameSpellPrompt(nameState),
         });
         return replyWithAddressPrompt();
       }
@@ -1390,7 +1346,7 @@ export class VoiceTurnService {
               issueSummary,
             );
           }
-          const followUp = buildNameFollowUp(
+          const followUp = buildNameFollowUpPrompt(
             this.buildIssueAcknowledgement(normalizedSpeech),
           );
           return replyWithNameTwiml(
@@ -1445,7 +1401,7 @@ export class VoiceTurnService {
             },
           });
         }
-        const followUp = buildNameFollowUp(
+        const followUp = buildNameFollowUpPrompt(
           this.buildIssueAcknowledgement(normalizedSpeech),
         );
         if (nameState.attemptCount >= 1) {
