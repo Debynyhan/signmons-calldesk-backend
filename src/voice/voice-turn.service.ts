@@ -1696,29 +1696,22 @@ export class VoiceTurnService {
           });
         }
         if (missingParts.houseNumber || missingParts.street) {
-          return this.replyWithListeningWindow({
+          return this.replyWithAddressPromptWindow({
             res,
             tenantId: tenant.id,
             conversationId,
-            field: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAddressPromptForState(
-              nextAddressState,
-              csrStrategy,
-            ),
+            addressState: nextAddressState,
+            strategy: csrStrategy,
           });
         }
-        return this.replyWithListeningWindow({
+        return this.replyWithAddressConfirmationWindow({
           res,
           tenantId: tenant.id,
           conversationId,
-          field: "confirmation",
-          targetField: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildAddressConfirmationTwiml(
-            nextAddressState.candidate ?? "",
-            csrStrategy,
-          ),
+          candidate: nextAddressState.candidate ?? "",
+          strategy: csrStrategy,
         });
       }
 
@@ -1743,17 +1736,13 @@ export class VoiceTurnService {
         if (routeResponse) {
           return routeResponse;
         }
-        return this.replyWithListeningWindow({
+        return this.replyWithAddressConfirmationWindow({
           res,
           tenantId: tenant.id,
           conversationId,
-          field: "confirmation",
-          targetField: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildAddressConfirmationTwiml(
-            addressState.candidate,
-            csrStrategy,
-          ),
+          candidate: addressState.candidate,
+          strategy: csrStrategy,
         });
       }
 
@@ -1783,17 +1772,13 @@ export class VoiceTurnService {
             conversationId,
             addressState: nextAddressState,
           });
-          return this.replyWithListeningWindow({
+          return this.replyWithAddressConfirmationWindow({
             res,
             tenantId: tenant.id,
             conversationId,
-            field: "confirmation",
-            targetField: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAddressConfirmationTwiml(
-              mergedCandidate,
-              csrStrategy,
-            ),
+            candidate: mergedCandidate,
+            strategy: csrStrategy,
           });
         }
 
@@ -1883,16 +1868,13 @@ export class VoiceTurnService {
               timingCollector,
             });
           }
-          return this.replyWithListeningWindow({
+          return this.replyWithAddressPromptWindow({
             res,
             tenantId: tenant.id,
             conversationId,
-            field: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAddressPromptForState(
-              nextAddressState,
-              csrStrategy,
-            ),
+            addressState: nextAddressState,
+            strategy: csrStrategy,
           });
         }
         if (
@@ -1983,17 +1965,13 @@ export class VoiceTurnService {
           if (routeResponse) {
             return routeResponse;
           }
-          return this.replyWithListeningWindow({
+          return this.replyWithAddressConfirmationWindow({
             res,
             tenantId: tenant.id,
             conversationId,
-            field: "confirmation",
-            targetField: "address",
             sourceEventId: currentEventId,
-            twiml: this.buildAddressConfirmationTwiml(
-              resolution.candidate,
-              csrStrategy,
-            ),
+            candidate: resolution.candidate,
+            strategy: csrStrategy,
           });
         }
         return this.replyWithListeningWindow({
@@ -2156,13 +2134,13 @@ export class VoiceTurnService {
             timingCollector,
           });
         }
-        return this.replyWithListeningWindow({
+        return this.replyWithAddressPromptWindow({
           res,
           tenantId: tenant.id,
           conversationId,
-          field: "address",
           sourceEventId: currentEventId,
-          twiml: this.buildAddressPromptForState(nextAddressState, csrStrategy),
+          addressState: nextAddressState,
+          strategy: csrStrategy,
         });
       }
 
@@ -2191,17 +2169,13 @@ export class VoiceTurnService {
           timingCollector,
         });
       }
-      return this.replyWithListeningWindow({
+      return this.replyWithAddressConfirmationWindow({
         res,
         tenantId: tenant.id,
         conversationId,
-        field: "confirmation",
-        targetField: "address",
         sourceEventId: currentEventId,
-        twiml: this.buildAddressConfirmationTwiml(
-          candidateAddress,
-          csrStrategy,
-        ),
+        candidate: candidateAddress,
+        strategy: csrStrategy,
       });
     }
 
@@ -4039,19 +4013,59 @@ export class VoiceTurnService {
       });
     }
     if (missingStreetOrNumber) {
-      return this.replyWithListeningWindow({
+      return this.replyWithAddressPromptWindow({
         res: params.res,
         tenantId: params.tenantId,
         conversationId: params.conversationId,
-        field: "address",
         sourceEventId: params.currentEventId,
-        twiml: this.buildAddressPromptForState(
-          params.addressState,
-          params.strategy,
-        ),
+        addressState: params.addressState,
+        strategy: params.strategy,
       });
     }
     return null;
+  }
+
+  private async replyWithAddressPromptWindow(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    sourceEventId: string | null;
+    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
+    strategy?: CsrStrategy;
+  }): Promise<string> {
+    return this.replyWithListeningWindow({
+      res: params.res,
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      field: "address",
+      sourceEventId: params.sourceEventId,
+      twiml: this.buildAddressPromptForState(
+        params.addressState,
+        params.strategy,
+      ),
+    });
+  }
+
+  private async replyWithAddressConfirmationWindow(params: {
+    res?: Response;
+    tenantId: string;
+    conversationId: string;
+    sourceEventId: string | null;
+    candidate: string;
+    strategy?: CsrStrategy;
+  }): Promise<string> {
+    return this.replyWithListeningWindow({
+      res: params.res,
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      field: "confirmation",
+      targetField: "address",
+      sourceEventId: params.sourceEventId,
+      twiml: this.buildAddressConfirmationTwiml(
+        params.candidate,
+        params.strategy,
+      ),
+    });
   }
 
   private async markVoiceEventProcessed(params: {
