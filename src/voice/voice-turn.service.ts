@@ -18,6 +18,7 @@ import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
 import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
 import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
+import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
 import { PaymentsService } from "../payments/payments.service";
 import {
   buildIssueSlotPrompt,
@@ -108,6 +109,7 @@ export class VoiceTurnService {
     private readonly voicePromptComposer: VoicePromptComposerService,
     private readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
     private readonly voiceSmsHandoffService: VoiceSmsHandoffService,
+    private readonly voiceSmsPhoneSlotService: VoiceSmsPhoneSlotService,
     private readonly paymentsService: PaymentsService,
   ) {}
 
@@ -1592,179 +1594,45 @@ export class VoiceTurnService {
     if (expectedField === "sms_phone") {
       const smsHandoff =
         this.conversationsService.getVoiceSmsHandoff(collectedData);
-      if (!smsHandoff) {
-        await this.clearVoiceListeningWindow({
+      const callerPhone = this.getCallerPhoneFromCollectedData(collectedData);
+      const fallbackPhone = phoneState.value ?? callerPhone;
+      const normalized = this.normalizeConfirmationUtterance(normalizedSpeech);
+      const smsPhoneOutcome = await this.voiceSmsPhoneSlotService.handleExpectedField(
+        {
           tenantId: tenant.id,
           conversationId,
-        });
+          callSid,
+          smsHandoff,
+          phoneState,
+          fallbackPhone,
+          isSameNumber: this.isSmsNumberConfirmation(normalized),
+          parsedPhone: this.extractSmsPhoneCandidate(normalizedSpeech),
+          sourceEventId: currentEventId,
+          loggerContext: VoiceTurnService.name,
+        },
+      );
+      if (smsPhoneOutcome.kind === "not_waiting") {
         expectedField = null;
+      } else if (smsPhoneOutcome.kind === "handoff") {
+        return this.replyWithSmsHandoff({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          displayName,
+          reason: smsPhoneOutcome.reason,
+          messageOverride: smsPhoneOutcome.messageOverride,
+        });
+      } else if (smsPhoneOutcome.kind === "reprompt") {
+        return this.replyWithListeningWindow({
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          field: "sms_phone",
+          sourceEventId: smsPhoneOutcome.sourceEventId,
+          twiml: this.buildAskSmsNumberTwiml(csrStrategy),
+        });
       } else {
-        const callerPhone = this.getCallerPhoneFromCollectedData(collectedData);
-        const fallbackPhone = phoneState.value ?? callerPhone;
-        const normalized =
-          this.normalizeConfirmationUtterance(normalizedSpeech);
-        const isSameNumber = this.isSmsNumberConfirmation(normalized);
-        const parsedPhone = this.extractSmsPhoneCandidate(normalizedSpeech);
-        if (isSameNumber && fallbackPhone) {
-          await this.conversationsService.updateVoiceSmsPhoneState({
-            tenantId: tenant.id,
-            conversationId,
-            phoneState: {
-              ...phoneState,
-              value: fallbackPhone,
-              source: phoneState.source ?? "twilio_ani",
-              confirmed: true,
-              confirmedAt: new Date().toISOString(),
-            },
-          });
-          await this.conversationsService.clearVoiceSmsHandoff({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          await this.clearVoiceListeningWindow({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          this.loggingService.log(
-            {
-              event: "voice.sms_phone_confirmed",
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              source: "twilio_ani",
-            },
-            VoiceTurnService.name,
-          );
-          return this.replyWithSmsHandoff({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: smsHandoff.reason,
-            messageOverride: smsHandoff.messageOverride ?? undefined,
-          });
-        }
-        if (parsedPhone) {
-          await this.conversationsService.updateVoiceSmsPhoneState({
-            tenantId: tenant.id,
-            conversationId,
-            phoneState: {
-              ...phoneState,
-              value: parsedPhone,
-              source: "user_spoken",
-              confirmed: true,
-              confirmedAt: new Date().toISOString(),
-            },
-          });
-          await this.conversationsService.clearVoiceSmsHandoff({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          await this.clearVoiceListeningWindow({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          this.loggingService.log(
-            {
-              event: "voice.sms_phone_confirmed",
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              source: "user_spoken",
-            },
-            VoiceTurnService.name,
-          );
-          return this.replyWithSmsHandoff({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: smsHandoff.reason,
-            messageOverride: smsHandoff.messageOverride ?? undefined,
-          });
-        }
-
-        const nextAttempt = phoneState.attemptCount + 1;
-        if (nextAttempt < 2) {
-          await this.conversationsService.updateVoiceSmsPhoneState({
-            tenantId: tenant.id,
-            conversationId,
-            phoneState: {
-              ...phoneState,
-              attemptCount: nextAttempt,
-              lastPromptedAt: new Date().toISOString(),
-            },
-          });
-          this.loggingService.warn(
-            {
-              event: "voice.sms_phone_parse_failed",
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              attemptCount: nextAttempt,
-            },
-            VoiceTurnService.name,
-          );
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "sms_phone",
-            sourceEventId: currentEventId,
-            twiml: this.buildAskSmsNumberTwiml(csrStrategy),
-          });
-        }
-
-        if (fallbackPhone) {
-          await this.conversationsService.updateVoiceSmsPhoneState({
-            tenantId: tenant.id,
-            conversationId,
-            phoneState: {
-              ...phoneState,
-              value: fallbackPhone,
-              source: phoneState.source ?? "twilio_ani",
-              confirmed: true,
-              confirmedAt: new Date().toISOString(),
-            },
-          });
-          await this.conversationsService.clearVoiceSmsHandoff({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          await this.clearVoiceListeningWindow({
-            tenantId: tenant.id,
-            conversationId,
-          });
-          this.loggingService.warn(
-            {
-              event: "voice.sms_phone_defaulted",
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-            },
-            VoiceTurnService.name,
-          );
-          return this.replyWithSmsHandoff({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: smsHandoff.reason,
-            messageOverride: smsHandoff.messageOverride ?? undefined,
-          });
-        }
-
-        await this.conversationsService.clearVoiceSmsHandoff({
-          tenantId: tenant.id,
-          conversationId,
-        });
-        await this.clearVoiceListeningWindow({
-          tenantId: tenant.id,
-          conversationId,
-        });
         return this.replyWithHumanFallback({
           res,
           tenantId: tenant.id,

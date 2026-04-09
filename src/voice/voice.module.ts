@@ -17,6 +17,7 @@ import { VoiceFillerAudioService } from "./voice-filler-audio.service";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
 import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
 import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
+import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
 import { PaymentsModule } from "../payments/payments.module";
 
 @Module({
@@ -39,6 +40,7 @@ import { PaymentsModule } from "../payments/payments.module";
     VoicePromptComposerService,
     VoiceHandoffPolicyService,
     VoiceSmsHandoffService,
+    VoiceSmsPhoneSlotService,
     VoiceConsentAudioService,
     VoiceFillerAudioService,
   ],
