@@ -35,6 +35,7 @@ import {
   shouldPromptForNameSpelling,
   shouldRepromptForLowConfidenceName,
 } from "./intake/voice-name-candidate.policy";
+import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
 import { reduceBookingCallbackSlot } from "./intake/voice-booking-callback.reducer";
 import { reduceIssueSlot } from "./intake/voice-intake.reducer";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
@@ -326,8 +327,7 @@ export class VoiceTurnService {
 
     const collectedData =
       updatedConversation?.collectedData ?? conversation.collectedData;
-    let nameState =
-      this.conversationsService.getVoiceNameState(collectedData);
+    let nameState = this.conversationsService.getVoiceNameState(collectedData);
     const phoneState =
       this.conversationsService.getVoiceSmsPhoneState(collectedData);
     const addressState =
@@ -449,7 +449,9 @@ export class VoiceTurnService {
       });
       return this.replyWithTwiml(
         res,
-        this.buildSayGatherTwiml("No problem. Do you have any other questions?"),
+        this.buildSayGatherTwiml(
+          "No problem. Do you have any other questions?",
+        ),
       );
     } else if (bookingCallbackAction.type === "REPROMPT_BOOKING") {
       return this.replyWithListeningWindow({
@@ -482,7 +484,9 @@ export class VoiceTurnService {
       });
       return this.replyWithTwiml(
         res,
-        this.buildSayGatherTwiml("No problem. I can keep helping here. How can I help?"),
+        this.buildSayGatherTwiml(
+          "No problem. I can keep helping here. How can I help?",
+        ),
       );
     } else if (bookingCallbackAction.type === "REPROMPT_CALLBACK") {
       return this.replyWithListeningWindow({
@@ -499,15 +503,14 @@ export class VoiceTurnService {
       expectedField === "comfort_risk" ||
       expectedField === "urgency_confirm"
     ) {
-      const urgencyOutcome = await this.voiceUrgencySlotService.handleExpectedField(
-        {
+      const urgencyOutcome =
+        await this.voiceUrgencySlotService.handleExpectedField({
           expectedField,
           binaryIntent: this.resolveBinaryUtterance(normalizedSpeech),
           tenantId: tenant.id,
           conversationId,
           sourceEventId: currentEventId ?? null,
-        },
-      );
+        });
       if (urgencyOutcome.kind === "answered") {
         return this.continueAfterSideQuestionWithIssueRouting({
           res,
@@ -603,14 +606,17 @@ export class VoiceTurnService {
       nameState.attemptCount === 0 &&
       !nameState.candidate.value;
     if (shouldCaptureOpeningNameFromMultiSlot) {
-      const deterministicNameCandidate =
-        extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService);
+      const deterministicNameCandidate = extractNameCandidateDeterministic(
+        normalizedSpeech,
+        this.sanitizationService,
+      );
       const hasDeterministicName =
         deterministicNameCandidate &&
         isValidNameCandidate(deterministicNameCandidate) &&
         isLikelyNameCandidate(deterministicNameCandidate);
       if (hasDeterministicName && deterministicNameCandidate) {
-        const currentName = nameState.candidate.value?.trim().toLowerCase() ?? "";
+        const currentName =
+          nameState.candidate.value?.trim().toLowerCase() ?? "";
         const incomingName = deterministicNameCandidate.trim().toLowerCase();
         if (currentName !== incomingName || !nameState.locked) {
           const nextNameState: typeof nameState = {
@@ -686,7 +692,8 @@ export class VoiceTurnService {
     const urgencyConfirmation =
       this.conversationsService.getVoiceUrgencyConfirmation(collectedData);
     const emergencyIssueContext =
-      existingIssueCandidate?.value ?? (hasIssueCandidate ? issueCandidate : "");
+      existingIssueCandidate?.value ??
+      (hasIssueCandidate ? issueCandidate : "");
     const emergencyRelevant = this.isComfortRiskRelevant(
       existingIssueCandidate?.value ??
         (hasIssueCandidate ? issueCandidate : ""),
@@ -697,7 +704,9 @@ export class VoiceTurnService {
         expectedField,
         nameReady,
         addressReady,
-        issueCaptured: Boolean(existingIssueCandidate?.value || hasIssueCandidate),
+        issueCaptured: Boolean(
+          existingIssueCandidate?.value || hasIssueCandidate,
+        ),
         emergencyRelevant,
         emergencyAsked: Boolean(urgencyConfirmation.askedAt),
         emergencyAnswered: Boolean(urgencyConfirmation.response),
@@ -1059,10 +1068,7 @@ export class VoiceTurnService {
           twiml: this.buildSayGatherTwiml(
             this.applyCsrStrategy(
               csrStrategy,
-              buildNameClarificationPrompt(
-                candidate,
-                this.sanitizationService,
-              ),
+              buildNameClarificationPrompt(candidate, this.sanitizationService),
             ),
           ),
         });
@@ -1230,8 +1236,10 @@ export class VoiceTurnService {
         const preface = issueAck ? `${thanks} ${issueAck}` : thanks;
         return replyWithAddressPrompt(preface);
       };
-      const spellingResponseCandidate =
-        normalizeNameCandidate(normalizedSpeech, this.sanitizationService);
+      const spellingResponseCandidate = normalizeNameCandidate(
+        normalizedSpeech,
+        this.sanitizationService,
+      );
       const shouldHandleSpellingResponse =
         Boolean(workingNameState.spellPromptedAt) &&
         (typeof workingNameState.spellPromptedTurnIndex !== "number" ||
@@ -1270,7 +1278,10 @@ export class VoiceTurnService {
         }
         if (parsed.reason === "no_letters") {
           const fallbackCandidate =
-            extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService) ??
+            extractNameCandidateDeterministic(
+              normalizedSpeech,
+              this.sanitizationService,
+            ) ??
             normalizeNameCandidate(normalizedSpeech, this.sanitizationService);
           if (
             fallbackCandidate &&
@@ -1349,8 +1360,10 @@ export class VoiceTurnService {
             ),
           );
         }
-        const openingCandidate =
-          extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService);
+        const openingCandidate = extractNameCandidateDeterministic(
+          normalizedSpeech,
+          this.sanitizationService,
+        );
         const hasOpeningName =
           openingCandidate &&
           isValidNameCandidate(openingCandidate) &&
@@ -1482,14 +1495,19 @@ export class VoiceTurnService {
         return replyWithAddressPrompt();
       }
 
-      const deterministicCandidate =
-        extractNameCandidateDeterministic(normalizedSpeech, this.sanitizationService);
+      const deterministicCandidate = extractNameCandidateDeterministic(
+        normalizedSpeech,
+        this.sanitizationService,
+      );
       const extracted =
         deterministicCandidate ??
         (await this.trackAiCall(timingCollector, () =>
           this.aiService.extractNameCandidate(tenant.id, normalizedSpeech),
         ));
-      const candidateName = normalizeNameCandidate(extracted ?? "", this.sanitizationService);
+      const candidateName = normalizeNameCandidate(
+        extracted ?? "",
+        this.sanitizationService,
+      );
       const validatedCandidate =
         isValidNameCandidate(candidateName) &&
         isLikelyNameCandidate(candidateName)
@@ -1570,8 +1588,8 @@ export class VoiceTurnService {
       const callerPhone = this.getCallerPhoneFromCollectedData(collectedData);
       const fallbackPhone = phoneState.value ?? callerPhone;
       const normalized = this.normalizeConfirmationUtterance(normalizedSpeech);
-      const smsPhoneOutcome = await this.voiceSmsPhoneSlotService.handleExpectedField(
-        {
+      const smsPhoneOutcome =
+        await this.voiceSmsPhoneSlotService.handleExpectedField({
           tenantId: tenant.id,
           conversationId,
           callSid,
@@ -1582,8 +1600,7 @@ export class VoiceTurnService {
           parsedPhone: this.extractSmsPhoneCandidate(normalizedSpeech),
           sourceEventId: currentEventId,
           loggerContext: VoiceTurnService.name,
-        },
-      );
+        });
       if (smsPhoneOutcome.kind === "not_waiting") {
         expectedField = null;
       } else if (smsPhoneOutcome.kind === "handoff") {
@@ -1797,9 +1814,8 @@ export class VoiceTurnService {
       }
 
       if (addressState.candidate) {
-        const localityCorrection = this.extractAddressLocalityCorrection(
-          normalizedSpeech,
-        );
+        const localityCorrection =
+          this.extractAddressLocalityCorrection(normalizedSpeech);
         if (localityCorrection) {
           const mergedParts = this.mergeAddressParts(
             addressState,
@@ -2052,7 +2068,10 @@ export class VoiceTurnService {
                 conversationId,
                 field: "address",
                 sourceEventId: currentEventId,
-                twiml: this.buildAddressPromptForState(addressState, csrStrategy),
+                twiml: this.buildAddressPromptForState(
+                  addressState,
+                  csrStrategy,
+                ),
               });
             }
             if (!addressState.locked) {
@@ -2270,8 +2289,8 @@ export class VoiceTurnService {
       );
       const hasDeterministicSignal = Boolean(
         hasDeterministicLineSignal ||
-          directParts.houseNumber ||
-          directParts.street,
+        directParts.houseNumber ||
+        directParts.street,
       );
       let extracted: Awaited<
         ReturnType<AiService["extractAddressCandidate"]>
@@ -2306,7 +2325,8 @@ export class VoiceTurnService {
         ...extractedParts,
         ...directParts,
       });
-      const structuredCandidate = this.buildAddressCandidateFromParts(mergedParts);
+      const structuredCandidate =
+        this.buildAddressCandidateFromParts(mergedParts);
       const candidateAddress =
         structuredCandidate ||
         normalizedAddress ||
@@ -2529,7 +2549,9 @@ export class VoiceTurnService {
             feePolicy,
             includeFees,
             isEmergency: this.isUrgencyEmergency(collectedData),
-            callerFirstName: this.getVoiceNameCandidate(nameState)?.split(" ").filter(Boolean)[0],
+            callerFirstName: this.getVoiceNameCandidate(nameState)
+              ?.split(" ")
+              .filter(Boolean)[0],
           });
           return this.replyWithSmsHandoff({
             res,
@@ -2561,7 +2583,9 @@ export class VoiceTurnService {
             feePolicy,
             includeFees,
             isEmergency: this.isUrgencyEmergency(collectedData),
-            callerFirstName: this.getVoiceNameCandidate(nameState)?.split(" ").filter(Boolean)[0],
+            callerFirstName: this.getVoiceNameCandidate(nameState)
+              ?.split(" ")
+              .filter(Boolean)[0],
           });
           return this.replyWithSmsHandoff({
             res,
@@ -2919,7 +2943,9 @@ export class VoiceTurnService {
       loggerContext: VoiceTurnService.name,
     });
     if (handoffPreparation.kind === "prompt_confirm_ani") {
-      const lastFour = handoffPreparation.fallbackPhone.replace(/\D/g, "").slice(-4);
+      const lastFour = handoffPreparation.fallbackPhone
+        .replace(/\D/g, "")
+        .slice(-4);
       return this.replyWithListeningWindow({
         res: params.res,
         tenantId: params.tenantId,
@@ -2956,7 +2982,9 @@ export class VoiceTurnService {
           callSid: params.callSid,
           toPhone: handoffPreparation.resolvedSmsPhone,
           displayName: params.displayName,
-          isEmergency: this.isUrgencyEmergency(handoffPreparation.collectedData),
+          isEmergency: this.isUrgencyEmergency(
+            handoffPreparation.collectedData,
+          ),
         });
       } catch (error) {
         this.loggingService.warn(
@@ -3139,7 +3167,9 @@ export class VoiceTurnService {
         feePolicy,
         includeFees,
         isEmergency: this.isUrgencyEmergency(params.collectedData),
-        callerFirstName: this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0],
+        callerFirstName: this.getVoiceNameCandidate(params.nameState)
+          ?.split(" ")
+          .filter(Boolean)[0],
       });
       return this.replyWithSmsHandoff({
         res: params.res,
@@ -3373,12 +3403,51 @@ export class VoiceTurnService {
     // echo broken STT verbatim (e.g. "your furnace is doing cold here when she doing warmer").
     const words = summary.split(/\s+/).filter(Boolean);
     const fillerWords = new Set([
-      "is", "are", "was", "were", "be", "been", "being",
-      "it", "its", "it's", "the", "a", "an", "and", "or", "but",
-      "in", "on", "at", "to", "for", "of", "with", "by", "from",
-      "here", "there", "when", "while", "she", "he", "they", "we",
-      "doing", "going", "getting", "just", "so", "that", "this",
-      "i", "my", "me", "you", "your",
+      "is",
+      "are",
+      "was",
+      "were",
+      "be",
+      "been",
+      "being",
+      "it",
+      "its",
+      "it's",
+      "the",
+      "a",
+      "an",
+      "and",
+      "or",
+      "but",
+      "in",
+      "on",
+      "at",
+      "to",
+      "for",
+      "of",
+      "with",
+      "by",
+      "from",
+      "here",
+      "there",
+      "when",
+      "while",
+      "she",
+      "he",
+      "they",
+      "we",
+      "doing",
+      "going",
+      "getting",
+      "just",
+      "so",
+      "that",
+      "this",
+      "i",
+      "my",
+      "me",
+      "you",
+      "your",
     ]);
     const fillerCount = words.filter((w) =>
       fillerWords.has(w.toLowerCase()),
@@ -3387,7 +3456,11 @@ export class VoiceTurnService {
     if (fillerRatio > 0.55 && words.length > 4) {
       // Too garbled — derive a clean category label from the original value instead
       const lowerValue = value.toLowerCase();
-      if (/\b(furnace|heat|heating|no heat|blowing cold|cold air)\b/.test(lowerValue)) {
+      if (
+        /\b(furnace|heat|heating|no heat|blowing cold|cold air)\b/.test(
+          lowerValue,
+        )
+      ) {
         return "your furnace issue";
       }
       if (/\b(ac|air conditioning|cooling|no cool)\b/.test(lowerValue)) {
@@ -3533,7 +3606,11 @@ export class VoiceTurnService {
             feePolicy,
             includeFees: params.includeFees,
             isEmergency: params.isEmergency,
-            callerFirstName: params.nameState ? this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0] : undefined,
+            callerFirstName: params.nameState
+              ? this.getVoiceNameCandidate(params.nameState)
+                  ?.split(" ")
+                  .filter(Boolean)[0]
+              : undefined,
           });
           return this.replyWithSmsHandoff({
             res: params.res,
@@ -3562,7 +3639,11 @@ export class VoiceTurnService {
             feePolicy,
             includeFees: params.includeFees,
             isEmergency: params.isEmergency,
-            callerFirstName: params.nameState ? this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0] : undefined,
+            callerFirstName: params.nameState
+              ? this.getVoiceNameCandidate(params.nameState)
+                  ?.split(" ")
+                  .filter(Boolean)[0]
+              : undefined,
           });
           return this.replyWithSmsHandoff({
             res: params.res,
@@ -3629,7 +3710,8 @@ export class VoiceTurnService {
     const hasIssuePhrase =
       /\b(issue|problem|heating|cooling|furnace|ac|air conditioning|no heat|no ac|cold air|leak|electrical|plumbing)\b/.test(
         normalized,
-      ) && /\b(sound|seem|dealing with|experiencing|having|might be)\b/.test(
+      ) &&
+      /\b(sound|seem|dealing with|experiencing|having|might be)\b/.test(
         normalized,
       );
     if (!hasIssuePhrase) {
@@ -3906,7 +3988,10 @@ export class VoiceTurnService {
     if (/\d/.test(normalized)) {
       return false;
     }
-    const normalizedCandidate = normalizeNameCandidate(normalized, this.sanitizationService);
+    const normalizedCandidate = normalizeNameCandidate(
+      normalized,
+      this.sanitizationService,
+    );
     if (
       isValidNameCandidate(normalizedCandidate) &&
       isLikelyNameCandidate(normalizedCandidate)
@@ -4259,7 +4344,10 @@ export class VoiceTurnService {
       return null;
     }
     if (fieldType === "name") {
-      const candidate = normalizeNameCandidate(stripped, this.sanitizationService);
+      const candidate = normalizeNameCandidate(
+        stripped,
+        this.sanitizationService,
+      );
       if (
         !candidate ||
         !isValidNameCandidate(candidate) ||
@@ -4547,7 +4635,9 @@ export class VoiceTurnService {
           feePolicy,
           includeFees,
           isEmergency: this.isUrgencyEmergency(params.collectedData),
-          callerFirstName: this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0],
+          callerFirstName: this.getVoiceNameCandidate(params.nameState)
+            ?.split(" ")
+            .filter(Boolean)[0],
         });
         return this.replyWithSmsHandoff({
           res: params.res,
@@ -4627,7 +4717,10 @@ export class VoiceTurnService {
         isQuestion: this.isLikelyQuestion(params.transcript ?? ""),
       },
     );
-    this.issuePromptAttemptsByCall.set(params.callSid, decision.nextState.askCount);
+    this.issuePromptAttemptsByCall.set(
+      params.callSid,
+      decision.nextState.askCount,
+    );
 
     if (
       decision.action.type === "ALREADY_CAPTURED" ||
@@ -4659,7 +4752,9 @@ export class VoiceTurnService {
         feePolicy,
         includeFees,
         isEmergency: this.isUrgencyEmergency(params.collectedData),
-        callerFirstName: this.getVoiceNameCandidate(params.nameState)?.split(" ").filter(Boolean)[0],
+        callerFirstName: this.getVoiceNameCandidate(params.nameState)
+          ?.split(" ")
+          .filter(Boolean)[0],
       });
       return this.replyWithSmsHandoff({
         res: params.res,
@@ -4822,7 +4917,9 @@ export class VoiceTurnService {
     if (!normalized) {
       return false;
     }
-    if (extractNameCandidateDeterministic(transcript, this.sanitizationService)) {
+    if (
+      extractNameCandidateDeterministic(transcript, this.sanitizationService)
+    ) {
       return false;
     }
     if (this.isLikelyIssueCandidate(this.normalizeIssueCandidate(normalized))) {
@@ -4997,89 +5094,49 @@ export class VoiceTurnService {
   }
 
   private isLikelyAddressCandidate(candidate: string): boolean {
-    if (!candidate) {
-      return false;
-    }
-    const normalized = candidate.toLowerCase();
-    const hasStreetSuffix =
-      /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
-        normalized,
-      );
-    const hasZip = /\b\d{5}(?:-\d{4})?\b/.test(normalized);
-    const hasDigit = /\d/.test(normalized);
-    if (hasZip) {
-      return true;
-    }
-    if (hasDigit && hasStreetSuffix) {
-      return true;
-    }
-    if (!hasDigit && hasStreetSuffix) {
-      const tokens = normalized.split(/\s+/).filter(Boolean);
-      return tokens.length >= 2;
-    }
-    return false;
+    return voiceAddressCandidatePolicy.isLikelyAddressCandidate(candidate);
   }
 
   private isLikelyHouseNumberOnly(value: string): boolean {
-    if (!value) {
-      return false;
-    }
-    const compact = value.replace(/\s+/g, "");
-    return /^[0-9]{1,6}[A-Za-z]?$/.test(compact);
+    return voiceAddressCandidatePolicy.isLikelyHouseNumberOnly(value);
   }
 
   private isLikelyStreetOnly(value: string): boolean {
-    if (!value) {
-      return false;
-    }
-    if (/\d/.test(value)) {
-      return false;
-    }
-    return /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/i.test(
-      value,
-    );
+    return voiceAddressCandidatePolicy.isLikelyStreetOnly(value);
   }
 
   private normalizeAddressCandidate(value: string): string {
-    const cleaned = this.sanitizationService.sanitizeText(value);
-    return this.sanitizationService.normalizeWhitespace(cleaned);
+    return voiceAddressCandidatePolicy.normalizeAddressCandidate(
+      value,
+      this.sanitizationService,
+    );
   }
 
   private stripAddressLeadIn(value: string): string {
-    if (!value) {
-      return "";
-    }
-    const trimmed = this.sanitizationService.normalizeWhitespace(value);
-    const withoutAddressPrefix = trimmed.replace(
-      /^(?:my\s+address\s+is|the\s+address\s+is|address\s+is|service\s+address\s+is)\s+/i,
-      "",
+    return voiceAddressCandidatePolicy.stripAddressLeadIn(
+      value,
+      this.sanitizationService,
     );
-    return withoutAddressPrefix.replace(/^(?:it is|it's)\s+/i, "").trim();
   }
 
   private isEquivalentAddressCandidate(
     leftValue: string,
     rightValue: string,
   ): boolean {
-    const normalize = (value: string) =>
-      this.normalizeAddressCandidate(value)
-        .toLowerCase()
-        .replace(/[\s,.-]+/g, " ")
-        .trim();
-    const left = normalize(leftValue);
-    const right = normalize(rightValue);
-    return Boolean(left && right && left === right);
+    return voiceAddressCandidatePolicy.isEquivalentAddressCandidate(
+      leftValue,
+      rightValue,
+      this.sanitizationService,
+    );
   }
 
   private normalizeAddressComponent(
     value: string | null | undefined,
   ): string | null {
-    if (!value) {
-      return null;
-    }
-    const cleaned = this.sanitizationService.sanitizeText(value);
-    const normalized = this.sanitizationService.normalizeWhitespace(cleaned);
-    return normalized || null;
+    return voiceAddressCandidatePolicy.normalizeAddressComponent(
+      value,
+      this.sanitizationService,
+    );
   }
 
   private compactAddressParts(parts: {
@@ -5095,29 +5152,7 @@ export class VoiceTurnService {
     state?: string | null;
     zip?: string | null;
   } {
-    const compact: {
-      houseNumber?: string | null;
-      street?: string | null;
-      city?: string | null;
-      state?: string | null;
-      zip?: string | null;
-    } = {};
-    if (parts.houseNumber) {
-      compact.houseNumber = parts.houseNumber;
-    }
-    if (parts.street) {
-      compact.street = parts.street;
-    }
-    if (parts.city) {
-      compact.city = parts.city;
-    }
-    if (parts.state) {
-      compact.state = parts.state;
-    }
-    if (parts.zip) {
-      compact.zip = parts.zip;
-    }
-    return compact;
+    return voiceAddressCandidatePolicy.compactAddressParts(parts);
   }
 
   private mergeAddressParts(
@@ -5130,13 +5165,7 @@ export class VoiceTurnService {
       zip?: string | null;
     },
   ) {
-    return {
-      houseNumber: extracted.houseNumber ?? current.houseNumber ?? null,
-      street: extracted.street ?? current.street ?? null,
-      city: extracted.city ?? current.city ?? null,
-      state: extracted.state ?? current.state ?? null,
-      zip: extracted.zip ?? current.zip ?? null,
-    };
+    return voiceAddressCandidatePolicy.mergeAddressParts(current, extracted);
   }
 
   private buildAddressCandidateFromParts(parts: {
@@ -5146,12 +5175,7 @@ export class VoiceTurnService {
     state?: string | null;
     zip?: string | null;
   }): string | null {
-    const line1 = [parts.houseNumber, parts.street].filter(Boolean).join(" ");
-    const locality = [parts.city, parts.state, parts.zip]
-      .filter(Boolean)
-      .join(" ");
-    const combined = [line1, locality].filter(Boolean).join(", ");
-    return combined || null;
+    return voiceAddressCandidatePolicy.buildAddressCandidateFromParts(parts);
   }
 
   private extractAddressPartsFromCandidate(candidate: string): {
@@ -5161,130 +5185,16 @@ export class VoiceTurnService {
     state?: string | null;
     zip?: string | null;
   } {
-    const normalized = this.normalizeAddressCandidate(candidate);
-    if (!normalized) {
-      return {};
-    }
-    const tokens = normalized.replace(/,/g, " , ").split(/\s+/).filter(Boolean);
-    if (!tokens.length) {
-      return {};
-    }
-    const normalizedTokens = tokens.map((token) =>
-      this.stripLocalityToken(token.toLowerCase()),
+    return voiceAddressCandidatePolicy.extractAddressPartsFromCandidate(
+      candidate,
+      this.sanitizationService,
     );
-    let zipIndex = normalizedTokens.findIndex((token) =>
-      /^\d{5}(?:-\d{4})?$/.test(token),
-    );
-    if (zipIndex === 0 && tokens.length === 1) {
-      zipIndex = -1;
-    }
-    const zip = zipIndex >= 0 ? tokens[zipIndex] : null;
-    let stateIndex = -1;
-    if (zipIndex > 0 && this.isStateToken(normalizedTokens[zipIndex - 1])) {
-      stateIndex = zipIndex - 1;
-    } else {
-      stateIndex = normalizedTokens.findIndex((token) =>
-        this.isStateToken(token),
-      );
-    }
-    const stateToken = stateIndex >= 0 ? normalizedTokens[stateIndex] : null;
-    const state = stateToken ? this.normalizeStateToken(stateToken) : null;
-    const commaIndex = tokens.indexOf(",");
-    const houseIndex = normalizedTokens.findIndex(
-      (token, index) => /\d/.test(token) && index !== zipIndex,
-    );
-    const houseNumber = houseIndex >= 0 ? tokens[houseIndex] : null;
-
-    const suffixes = new Set([
-      "st",
-      "street",
-      "ave",
-      "avenue",
-      "rd",
-      "road",
-      "dr",
-      "drive",
-      "blvd",
-      "boulevard",
-      "ln",
-      "lane",
-      "ct",
-      "court",
-      "way",
-      "pkwy",
-      "parkway",
-      "pl",
-      "place",
-      "cir",
-      "circle",
-    ]);
-
-    let streetTokens: string[] = [];
-    if (houseIndex >= 0) {
-      const stopCandidates = [commaIndex, stateIndex, zipIndex].filter(
-        (index) => index >= 0,
-      );
-      const stopIndex = stopCandidates.length
-        ? Math.min(...stopCandidates)
-        : tokens.length;
-      if (houseIndex + 1 < stopIndex) {
-        streetTokens = tokens.slice(houseIndex + 1, stopIndex);
-      }
-    }
-    if (!streetTokens.length) {
-      const suffixIndex = tokens.findIndex((token) =>
-        suffixes.has(token.toLowerCase()),
-      );
-      if (suffixIndex >= 0) {
-        streetTokens = tokens.slice(0, suffixIndex + 1);
-      }
-    }
-    const street = streetTokens.length ? streetTokens.join(" ") : null;
-
-    let cityTokens: string[] = [];
-    if (commaIndex >= 0) {
-      const endCandidates = [stateIndex, zipIndex].filter(
-        (index) => index >= 0,
-      );
-      const endIndex = endCandidates.length
-        ? Math.min(...endCandidates)
-        : tokens.length;
-      if (commaIndex + 1 < endIndex) {
-        cityTokens = tokens.slice(commaIndex + 1, endIndex);
-      }
-    } else if (streetTokens.length) {
-      const startIndex = streetTokens.length + (houseIndex >= 0 ? 1 : 0);
-      const endCandidates = [stateIndex, zipIndex].filter(
-        (index) => index >= 0,
-      );
-      const endIndex = endCandidates.length
-        ? Math.min(...endCandidates)
-        : tokens.length;
-      if (startIndex < endIndex) {
-        cityTokens = tokens.slice(startIndex, endIndex);
-      }
-    }
-    const city = cityTokens.length ? cityTokens.join(" ") : null;
-
-    return {
-      ...(houseNumber ? { houseNumber } : {}),
-      ...(street ? { street } : {}),
-      ...(city ? { city } : {}),
-      ...(state ? { state } : {}),
-      ...(zip ? { zip } : {}),
-    };
   }
 
   private hasStructuredAddressParts(
     addressState: ReturnType<ConversationsService["getVoiceAddressState"]>,
   ): boolean {
-    return Boolean(
-      addressState.houseNumber ||
-      addressState.street ||
-      addressState.city ||
-      addressState.state ||
-      addressState.zip,
-    );
+    return voiceAddressCandidatePolicy.hasStructuredAddressParts(addressState);
   }
 
   private getAddressMissingParts(
@@ -5294,13 +5204,7 @@ export class VoiceTurnService {
     street: boolean;
     locality: boolean;
   } {
-    const hasZip = Boolean(addressState.zip);
-    const hasCityAndState = Boolean(addressState.city && addressState.state);
-    return {
-      houseNumber: !addressState.houseNumber,
-      street: !addressState.street,
-      locality: !(hasZip || hasCityAndState),
-    };
+    return voiceAddressCandidatePolicy.getAddressMissingParts(addressState);
   }
 
   private parseLocalityParts(value: string): {
@@ -5308,28 +5212,10 @@ export class VoiceTurnService {
     state: string | null;
     zip: string | null;
   } {
-    const cleaned = this.normalizeAddressComponent(value);
-    if (!cleaned) {
-      return { city: null, state: null, zip: null };
-    }
-    const tokens = cleaned.split(/\s+/).filter(Boolean);
-    const normalizedTokens = tokens.map((token) =>
-      this.stripLocalityToken(token.toLowerCase()),
+    return voiceAddressCandidatePolicy.parseLocalityParts(
+      value,
+      this.sanitizationService,
     );
-    const zipIndex = normalizedTokens.findIndex((token) =>
-      /^\d{5}(?:-\d{4})?$/.test(token),
-    );
-    const stateIndex = normalizedTokens.findIndex((token) =>
-      this.isStateToken(token),
-    );
-    const zip = zipIndex >= 0 ? tokens[zipIndex] : null;
-    const stateToken = stateIndex >= 0 ? normalizedTokens[stateIndex] : null;
-    const state = stateToken ? this.normalizeStateToken(stateToken) : null;
-    const cityTokens = tokens.filter(
-      (_token, index) => index !== zipIndex && index !== stateIndex,
-    );
-    const city = cityTokens.length ? cityTokens.join(" ") : null;
-    return { city, state, zip };
   }
 
   private extractAddressLocalityCorrection(value: string): {
@@ -5337,71 +5223,14 @@ export class VoiceTurnService {
     state?: string | null;
     zip?: string | null;
   } | null {
-    const normalized = this.normalizeAddressCandidate(value);
-    if (!normalized) {
-      return null;
-    }
-    const stripped = this.stripAddressLeadIn(normalized);
-    const lowered = stripped.toLowerCase();
-    const hasStreetSuffix =
-      /\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
-        lowered,
-      );
-    const hasHouseAndTail = /^\d+\s+\S+/.test(stripped);
-    if (hasStreetSuffix || hasHouseAndTail) {
-      // Full address/correction candidates are handled by confirmation resolution.
-      return null;
-    }
-    if (
-      /^(yes|yeah|yep|yup|yah|ya|yuh|yellow|yello|correct|that's right|that is right|right|ok|okay|affirmative|no|nope|negative)$/i.test(
-        stripped,
-      )
-    ) {
-      return null;
-    }
-    const parsed = this.parseLocalityParts(stripped);
-    const confirmationWords = new Set([
-      "yes",
-      "yeah",
-      "yep",
-      "yup",
-      "yah",
-      "ya",
-      "yuh",
-      "yellow",
-      "yello",
-      "correct",
-      "right",
-      "ok",
-      "okay",
-      "affirmative",
-      "no",
-      "nope",
-      "negative",
-    ]);
-    const cityToken = parsed.city?.trim().toLowerCase() ?? "";
-    const city =
-      cityToken && !confirmationWords.has(cityToken) ? parsed.city : null;
-    const hasSignal = Boolean(parsed.zip || parsed.state || (city && parsed.state));
-    if (!hasSignal) {
-      return null;
-    }
-    return {
-      ...(city ? { city } : {}),
-      ...(parsed.state ? { state: parsed.state } : {}),
-      ...(parsed.zip ? { zip: parsed.zip } : {}),
-    };
+    return voiceAddressCandidatePolicy.extractAddressLocalityCorrection(
+      value,
+      this.sanitizationService,
+    );
   }
 
   private normalizeStateToken(token: string): string {
-    if (!token) {
-      return "";
-    }
-    const cleaned = token.replace(/\s+/g, "");
-    if (cleaned.length === 2) {
-      return cleaned.toUpperCase();
-    }
-    return this.toTitleCase(cleaned.toLowerCase());
+    return voiceAddressCandidatePolicy.normalizeStateToken(token);
   }
 
   private buildAskHouseNumberTwiml(
@@ -5485,235 +5314,41 @@ export class VoiceTurnService {
   }
 
   private isIncompleteAddress(candidate: string): boolean {
-    const normalized = candidate.replace(/\s+/g, " ").trim();
-    if (normalized.length < 6) {
-      return true;
-    }
-    const hasDigit = /\d/.test(normalized);
-    const hasAlpha = /[A-Za-z]/.test(normalized);
-    if (!hasDigit) {
-      return true;
-    }
-    if (!hasAlpha) {
-      return true;
-    }
-    if (/^\d+$/.test(normalized) || /^[A-Za-z\s]+$/.test(normalized)) {
-      return true;
-    }
-    if (!/^\d+\s+\S+/.test(normalized)) {
-      return true;
-    }
-    if (/\s[A-Za-z]\s*$/.test(normalized)) {
-      return true;
-    }
-    if (/\.\.\.|\u2026/.test(normalized)) {
-      return true;
-    }
-    const abbrevMatch = normalized.match(
-      /\s([A-Za-z]{1,2})\s+(st|rd|dr|ave|blvd|ln|ct)\s*$/i,
-    );
-    if (abbrevMatch && abbrevMatch[1].length <= 2) {
-      return true;
-    }
-    return false;
+    return voiceAddressCandidatePolicy.isIncompleteAddress(candidate);
   }
 
   private isMissingLocality(candidate: string): boolean {
-    const normalized = candidate.replace(/\s+/g, " ").trim().toLowerCase();
-    if (!normalized) {
-      return true;
-    }
-    const tokens = normalized
-      .split(" ")
-      .filter(Boolean)
-      .map((token) => this.stripLocalityToken(token));
-    const zipIndex = this.findZipTokenIndex(tokens);
-    if (zipIndex >= 0) {
-      return false;
-    }
-    const stateIndex = this.findStateTokenIndex(tokens);
-    if (stateIndex === null || stateIndex < 0) {
-      return true;
-    }
-    const cityTokens = tokens.slice(
-      Math.max(0, stateIndex - 3),
-      stateIndex,
-    );
-    return !cityTokens.some((token) => this.isCityToken(token));
+    return voiceAddressCandidatePolicy.isMissingLocality(candidate);
   }
 
   private findZipTokenIndex(tokens: string[]): number {
-    for (let i = tokens.length - 1; i >= 0; i -= 1) {
-      if (/^\d{5}(?:-\d{4})?$/.test(tokens[i])) {
-        return i;
-      }
-    }
-    return -1;
+    return voiceAddressCandidatePolicy.findZipTokenIndex(tokens);
   }
 
   private findStateTokenIndex(tokens: string[]): number | null {
-    for (let i = tokens.length - 1; i >= 0; i -= 1) {
-      if (this.isStateToken(tokens[i])) {
-        return i;
-      }
-    }
-    return null;
+    return voiceAddressCandidatePolicy.findStateTokenIndex(tokens);
   }
 
   private isStateToken(token: string): boolean {
-    const states = new Set([
-      "al",
-      "ak",
-      "az",
-      "ar",
-      "ca",
-      "co",
-      "ct",
-      "de",
-      "fl",
-      "ga",
-      "hi",
-      "id",
-      "il",
-      "in",
-      "ia",
-      "ks",
-      "ky",
-      "la",
-      "me",
-      "md",
-      "ma",
-      "mi",
-      "mn",
-      "ms",
-      "mo",
-      "mt",
-      "ne",
-      "nv",
-      "nh",
-      "nj",
-      "nm",
-      "ny",
-      "nc",
-      "nd",
-      "oh",
-      "ok",
-      "or",
-      "pa",
-      "ri",
-      "sc",
-      "sd",
-      "tn",
-      "tx",
-      "ut",
-      "vt",
-      "va",
-      "wa",
-      "wv",
-      "wi",
-      "wy",
-      "alabama",
-      "alaska",
-      "arizona",
-      "arkansas",
-      "california",
-      "colorado",
-      "connecticut",
-      "delaware",
-      "florida",
-      "georgia",
-      "hawaii",
-      "idaho",
-      "illinois",
-      "indiana",
-      "iowa",
-      "kansas",
-      "kentucky",
-      "louisiana",
-      "maine",
-      "maryland",
-      "massachusetts",
-      "michigan",
-      "minnesota",
-      "mississippi",
-      "missouri",
-      "montana",
-      "nebraska",
-      "nevada",
-      "newhampshire",
-      "newjersey",
-      "newmexico",
-      "newyork",
-      "northcarolina",
-      "northdakota",
-      "ohio",
-      "oklahoma",
-      "oregon",
-      "pennsylvania",
-      "rhodeisland",
-      "southcarolina",
-      "southdakota",
-      "tennessee",
-      "texas",
-      "utah",
-      "vermont",
-      "virginia",
-      "washington",
-      "westvirginia",
-      "wisconsin",
-      "wyoming",
-    ]);
-    return states.has(token.replace(/\s+/g, ""));
+    return voiceAddressCandidatePolicy.isStateToken(token);
   }
 
   private isCityToken(token: string): boolean {
-    if (!token || /^\d+$/.test(token)) {
-      return false;
-    }
-    const streetSuffixes = new Set([
-      "st",
-      "street",
-      "rd",
-      "road",
-      "dr",
-      "drive",
-      "ave",
-      "avenue",
-      "blvd",
-      "boulevard",
-      "ln",
-      "lane",
-      "ct",
-      "court",
-      "way",
-      "pkwy",
-      "parkway",
-      "pl",
-      "place",
-      "cir",
-      "circle",
-    ]);
-    return !streetSuffixes.has(token);
+    return voiceAddressCandidatePolicy.isCityToken(token);
   }
 
   private stripLocalityToken(token: string): string {
-    return token.replace(/[^a-z0-9-]/gi, "");
+    return voiceAddressCandidatePolicy.stripLocalityToken(token);
   }
 
   private mergeAddressWithLocality(
     candidate: string,
     locality: string,
   ): string {
-    const normalized = locality.replace(/\s+/g, " ").trim();
-    if (!normalized) {
-      return candidate;
-    }
-    const lowerCandidate = candidate.toLowerCase();
-    const lowerLocality = normalized.toLowerCase();
-    if (lowerCandidate.includes(lowerLocality)) {
-      return candidate;
-    }
-    return `${candidate} ${normalized}`.replace(/\s+/g, " ").trim();
+    return voiceAddressCandidatePolicy.mergeAddressWithLocality(
+      candidate,
+      locality,
+    );
   }
 
   private toTitleCase(value: string): string {
