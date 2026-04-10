@@ -63,6 +63,7 @@ import {
   isVoiceIssueReconfirmationPrompt,
   shouldVoiceGatherMore,
 } from "./intake/voice-issue-reply.policy";
+import { shouldIgnoreVoiceStreamingTranscript } from "./intake/voice-streaming-transcript.policy";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
 import {
   getRequestContext,
@@ -188,11 +189,31 @@ export class VoiceTurnService {
           collectedData,
           expectedField,
         ) =>
-          this.shouldIgnoreStreamingTranscript(
+          shouldIgnoreVoiceStreamingTranscript({
             transcript,
-            collectedData,
-            expectedField as VoiceExpectedField | null,
-          ),
+            expectedField: expectedField as VoiceExpectedField | null,
+            isConfirmationWindow:
+              this.getVoiceListeningWindow(collectedData)?.field ===
+              "confirmation",
+            isSlowDownRequest: (value) => this.isSlowDownRequest(value),
+            isFrustrationRequest: (value) => this.isFrustrationRequest(value),
+            isHumanTransferRequest: (value) =>
+              this.isHumanTransferRequest(value),
+            isSmsDifferentNumberRequest: (value) =>
+              this.isSmsDifferentNumberRequest(value),
+            isHangupRequest: (value) => this.isHangupRequest(value),
+            resolveBinaryUtterance: (value) => this.resolveBinaryUtterance(value),
+            normalizeNameCandidate: (value) =>
+              normalizeNameCandidate(value, this.sanitizationService),
+            isValidNameCandidate: (value) => isValidNameCandidate(value),
+            isLikelyNameCandidate: (value) => isLikelyNameCandidate(value),
+            normalizeIssueCandidate: (value) => this.normalizeIssueCandidate(value),
+            isLikelyIssueCandidate: (value) => this.isLikelyIssueCandidate(value),
+            normalizeConfirmationUtterance: (value) =>
+              this.normalizeConfirmationUtterance(value),
+            isSmsNumberConfirmation: (value) =>
+              this.isSmsNumberConfirmation(value),
+          }),
         isDuplicateTranscript: (collectedData, transcript, now) =>
           this.isDuplicateTranscript(collectedData, transcript, now),
         normalizeConfidence: (value) => this.normalizeConfidence(value),
@@ -3162,80 +3183,6 @@ export class VoiceTurnService {
     return typeof data.voiceLastEventId === "string"
       ? data.voiceLastEventId
       : null;
-  }
-
-  private shouldIgnoreStreamingTranscript(
-    transcript: string,
-    collectedData: unknown,
-    expectedField?: VoiceExpectedField | null,
-  ): boolean {
-    const normalized = transcript.toLowerCase().trim();
-    if (!normalized) {
-      return true;
-    }
-    const listeningWindow = this.getVoiceListeningWindow(collectedData);
-    const isConfirmationWindow = listeningWindow?.field === "confirmation";
-    if (
-      this.isSlowDownRequest(normalized) ||
-      this.isFrustrationRequest(normalized) ||
-      this.isHumanTransferRequest(normalized) ||
-      this.isSmsDifferentNumberRequest(normalized) ||
-      this.isHangupRequest(normalized)
-    ) {
-      return false;
-    }
-    if (isConfirmationWindow) {
-      return false;
-    }
-    // Keep yes/no utterances so late-confirmation replies are not dropped.
-    if (this.resolveBinaryUtterance(normalized)) {
-      return false;
-    }
-    if (/\d/.test(normalized)) {
-      return false;
-    }
-    const normalizedCandidate = normalizeNameCandidate(
-      normalized,
-      this.sanitizationService,
-    );
-    if (
-      isValidNameCandidate(normalizedCandidate) &&
-      isLikelyNameCandidate(normalizedCandidate)
-    ) {
-      return false;
-    }
-    if (this.isLikelyIssueCandidate(this.normalizeIssueCandidate(normalized))) {
-      return false;
-    }
-    const confirmation = this.normalizeConfirmationUtterance(normalized);
-    if (this.isSmsNumberConfirmation(confirmation)) {
-      return false;
-    }
-    if (
-      /(thank you for calling|this call may be recorded|this call may be transcribed|by continuing)/.test(
-        normalized,
-      )
-    ) {
-      return true;
-    }
-    if (
-      expectedField === "address" &&
-      !/\d/.test(normalized) &&
-      !/\b(st|street|ave|avenue|rd|road|dr|drive|blvd|boulevard|ln|lane|ct|court|way|pkwy|parkway|pl|place|cir|circle)\b/.test(
-        normalized,
-      )
-    ) {
-      return true;
-    }
-    if (/^(my address is|the address is|address is)$/.test(normalized)) {
-      return true;
-    }
-    if (normalized.length <= 3) {
-      return true;
-    }
-    return /\b(hold on|hang on|one sec|one second|just a sec|give me a sec|wait|um|uh|hmm|okay|ok|yeah|yep|right|sure|thanks|thank you)\b/.test(
-      normalized,
-    );
   }
 
   private isListeningWindowExpired(
