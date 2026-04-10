@@ -95,6 +95,7 @@ import { VoiceTurnAddressConfirmedRuntime } from "./voice-turn-address-confirmed
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
+import { VoiceTurnHandoffRuntime } from "./voice-turn-handoff.runtime";
 
 type VoiceListeningField =
   | "name"
@@ -168,6 +169,7 @@ export class VoiceTurnService {
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
+  private readonly turnHandoffRuntime: VoiceTurnHandoffRuntime;
 
   constructor(
     @Inject(appConfig.KEY)
@@ -655,6 +657,40 @@ export class VoiceTurnService {
         this.applyCsrStrategy(strategy, message),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
       loggerContext: VoiceTurnService.name,
+    });
+    this.turnHandoffRuntime = new VoiceTurnHandoffRuntime({
+      clearIssuePromptAttempts: (callSid) =>
+        this.clearIssuePromptAttempts(callSid),
+      prepareSmsHandoff: (params) =>
+        this.voiceSmsHandoffService.prepare({
+          ...params,
+          loggerContext: VoiceTurnService.name,
+        }),
+      replyWithListeningWindow: (params) =>
+        this.replyWithListeningWindow(params),
+      buildSayGatherTwiml: (message, options) =>
+        this.buildSayGatherTwiml(message, options),
+      buildAskSmsNumberTwiml: () => this.buildAskSmsNumberTwiml(),
+      sendVoiceHandoffIntakeLink: (params) =>
+        this.paymentsService.sendVoiceHandoffIntakeLink(params),
+      isUrgencyEmergency: (collectedData) =>
+        this.isUrgencyEmergency(collectedData),
+      resolveSmsHandoffClosingMessage: (params) =>
+        this.voiceHandoffPolicy.resolveSmsHandoffClosingMessage({
+          tenantId: params.tenantId,
+          isEmergency: this.isUrgencyEmergency(params.collectedData),
+          messageOverride: params.messageOverride,
+          callerFirstName: params.callerFirstName,
+        }),
+      buildClosingTwiml: (displayName, message) =>
+        this.voicePromptComposer.buildClosingTwiml(displayName, message),
+      applyCsrStrategy: (strategy, message) =>
+        this.applyCsrStrategy(strategy, message),
+      replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+      buildNoHandoffTwiml: () => this.unroutableTwiml(),
+      log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
+      warn: (payload) =>
+        this.loggingService.warn(payload, VoiceTurnService.name),
     });
     this.turnAiTriageRuntime = new VoiceTurnAiTriageRuntime({
       getVoiceIssueCandidate: (collectedData) =>
@@ -1455,29 +1491,8 @@ export class VoiceTurnService {
     return this.voiceHandoffPolicy.buildSmsHandoffMessageForContext(params);
   }
 
-  private async resolveSmsHandoffClosingMessage(params: {
-    tenantId: string;
-    collectedData: unknown;
-    messageOverride?: string;
-    callerFirstName?: string;
-  }): Promise<string> {
-    return this.voiceHandoffPolicy.resolveSmsHandoffClosingMessage({
-      tenantId: params.tenantId,
-      isEmergency: this.isUrgencyEmergency(params.collectedData),
-      messageOverride: params.messageOverride,
-      callerFirstName: params.callerFirstName,
-    });
-  }
-
-  private buildClosingTwiml(displayName: string, message: string): string {
-    return this.voicePromptComposer.buildClosingTwiml(displayName, message);
-  }
-
   private isHumanFallbackMessage(message: string): boolean {
-    return (
-      message.trim() === "Thanks. We'll follow up shortly." ||
-      message.trim() === "We'll follow up shortly."
-    );
+    return this.turnHandoffRuntime.isHumanFallbackMessage(message);
   }
 
   private logVoiceOutcome(params: {
@@ -1487,17 +1502,7 @@ export class VoiceTurnService {
     callSid?: string;
     reason: string;
   }) {
-    this.loggingService.log(
-      {
-        event: "voice.outcome",
-        outcome: params.outcome,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        callSid: params.callSid,
-        reason: params.reason,
-      },
-      VoiceTurnService.name,
-    );
+    this.turnHandoffRuntime.logVoiceOutcome(params);
   }
 
   private async replyWithSmsHandoff(params: {
@@ -1509,81 +1514,7 @@ export class VoiceTurnService {
     reason: string;
     messageOverride?: string;
   }) {
-    this.clearIssuePromptAttempts(params.callSid);
-    const handoffPreparation = await this.voiceSmsHandoffService.prepare({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      reason: params.reason,
-      messageOverride: params.messageOverride,
-      loggerContext: VoiceTurnService.name,
-    });
-    if (handoffPreparation.kind === "prompt_confirm_ani") {
-      const lastFour = handoffPreparation.fallbackPhone
-        .replace(/\D/g, "")
-        .slice(-4);
-      return this.replyWithListeningWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        field: "sms_phone",
-        sourceEventId: handoffPreparation.sourceEventId,
-        twiml: this.buildSayGatherTwiml(
-          `I'll send your confirmation to the number ending in ${lastFour}. Does that work, or would you prefer a different number?`,
-        ),
-      });
-    }
-    if (handoffPreparation.kind === "prompt_ask_sms_phone") {
-      return this.replyWithListeningWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        field: "sms_phone",
-        sourceEventId: handoffPreparation.sourceEventId,
-        twiml: this.buildAskSmsNumberTwiml(),
-      });
-    }
-    this.logVoiceOutcome({
-      outcome: "sms_handoff",
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      reason: params.reason,
-    });
-    if (handoffPreparation.resolvedSmsPhone) {
-      try {
-        await this.paymentsService.sendVoiceHandoffIntakeLink({
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          toPhone: handoffPreparation.resolvedSmsPhone,
-          displayName: params.displayName,
-          isEmergency: this.isUrgencyEmergency(
-            handoffPreparation.collectedData,
-          ),
-        });
-      } catch (error) {
-        this.loggingService.warn(
-          {
-            event: "voice.sms_intake_link_send_failed",
-            tenantId: params.tenantId,
-            conversationId: params.conversationId,
-            callSid: params.callSid,
-            reason: error instanceof Error ? error.message : String(error),
-          },
-          VoiceTurnService.name,
-        );
-      }
-    }
-    const closingMessage = await this.resolveSmsHandoffClosingMessage({
-      tenantId: params.tenantId,
-      collectedData: handoffPreparation.collectedData,
-      messageOverride: params.messageOverride,
-    });
-    return this.replyWithTwiml(
-      params.res,
-      this.buildClosingTwiml(params.displayName, closingMessage),
-    );
+    return this.turnHandoffRuntime.replyWithSmsHandoff(params);
   }
 
   public async replyWithHumanFallback(params: {
@@ -1595,19 +1526,7 @@ export class VoiceTurnService {
     reason: string;
     messageOverride?: string;
   }) {
-    this.logVoiceOutcome({
-      outcome: "human_fallback",
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      reason: params.reason,
-    });
-    this.clearIssuePromptAttempts(params.callSid);
-    const message = params.messageOverride ?? "We'll follow up shortly.";
-    return this.replyWithTwiml(
-      params.res,
-      this.buildClosingTwiml(params.displayName ?? "", message),
-    );
+    return this.turnHandoffRuntime.replyWithHumanFallback(params);
   }
 
   public async replyWithNoHandoff(params: {
@@ -1618,18 +1537,7 @@ export class VoiceTurnService {
     callSid?: string;
     twimlOverride?: string;
   }) {
-    this.logVoiceOutcome({
-      outcome: "no_handoff",
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      reason: params.reason,
-    });
-    this.clearIssuePromptAttempts(params.callSid);
-    return this.replyWithTwiml(
-      params.res,
-      params.twimlOverride ?? this.unroutableTwiml(),
-    );
+    return this.turnHandoffRuntime.replyWithNoHandoff(params);
   }
 
   private async handleMissingLocalityPrompt(params: {
@@ -2513,20 +2421,7 @@ export class VoiceTurnService {
     message: string;
     strategy?: CsrStrategy;
   }) {
-    const bookingMessage = `${params.message} Would you like to book a visit?`
-      .replace(/\s+/g, " ")
-      .trim();
-    return this.replyWithListeningWindow({
-      res: params.res,
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      field: "confirmation",
-      targetField: "booking",
-      sourceEventId: params.sourceEventId,
-      twiml: this.buildSayGatherTwiml(
-        this.applyCsrStrategy(params.strategy, bookingMessage),
-      ),
-    });
+    return this.turnHandoffRuntime.replyWithBookingOffer(params);
   }
 
   private async trackAiCall<T>(
