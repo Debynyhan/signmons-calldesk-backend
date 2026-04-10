@@ -33,7 +33,6 @@ import {
 } from "./intake/voice-name-candidate.policy";
 import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
 import {
-  clearNameSpellPrompt,
   lockNameForAddressProgression as reduceLockNameForAddressProgression,
   markLowConfidenceNameReprompt as reduceMarkLowConfidenceNameReprompt,
   markNameAttemptIfNeeded as reduceMarkNameAttemptIfNeeded,
@@ -96,6 +95,7 @@ import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
 import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
 import { VoiceTurnNameCaptureRuntime } from "./voice-turn-name-capture.runtime";
+import { VoiceTurnNameSpellingRuntime } from "./voice-turn-name-spelling.runtime";
 import { VoiceTurnAddressExtractionRuntime } from "./voice-turn-address-extraction.runtime";
 import { VoiceTurnAddressRoutingRuntime } from "./voice-turn-address-routing.runtime";
 import { VoiceTurnAddressCompletenessRuntime } from "./voice-turn-address-completeness.runtime";
@@ -166,6 +166,7 @@ export class VoiceTurnService {
   private readonly turnAiTriageRuntime: VoiceTurnAiTriageRuntime;
   private readonly turnNameOpeningRuntime: VoiceTurnNameOpeningRuntime;
   private readonly turnNameCaptureRuntime: VoiceTurnNameCaptureRuntime;
+  private readonly turnNameSpellingRuntime: VoiceTurnNameSpellingRuntime;
   private readonly turnAddressExtractionRuntime: VoiceTurnAddressExtractionRuntime;
   private readonly turnAddressRoutingRuntime: VoiceTurnAddressRoutingRuntime;
   private readonly turnAddressCompletenessRuntime: VoiceTurnAddressCompletenessRuntime;
@@ -441,6 +442,18 @@ export class VoiceTurnService {
       buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
+    });
+    this.turnNameSpellingRuntime = new VoiceTurnNameSpellingRuntime({
+      parseSpelledNameParts: (transcript) => parseSpelledNameParts(transcript),
+      extractNameCandidateDeterministic: (transcript) =>
+        extractNameCandidateDeterministic(transcript, this.sanitizationService),
+      normalizeNameCandidate: (value) =>
+        normalizeNameCandidate(value, this.sanitizationService),
+      isValidNameCandidate: (value) => isValidNameCandidate(value),
+      isLikelyNameCandidate: (value) => isLikelyNameCandidate(value),
+      updateVoiceNameState: (params) =>
+        this.conversationsService.updateVoiceNameState(params),
+      log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
     });
     this.turnAddressExtractionRuntime = new VoiceTurnAddressExtractionRuntime({
       sanitizer: this.sanitizationService,
@@ -1229,113 +1242,22 @@ export class VoiceTurnService {
         const preface = issueAck ? `${thanks} ${issueAck}` : thanks;
         return replyWithAddressPrompt(preface);
       };
-      const spellingResponseCandidate = normalizeNameCandidate(
+      const spellingResponse = await this.turnNameSpellingRuntime.handle({
         normalizedSpeech,
-        this.sanitizationService,
-      );
-      const shouldHandleSpellingResponse =
-        Boolean(workingNameState.spellPromptedAt) &&
-        (typeof workingNameState.spellPromptedTurnIndex !== "number" ||
-          turnIndex > workingNameState.spellPromptedTurnIndex ||
-          (spellingResponseCandidate &&
-            isValidNameCandidate(spellingResponseCandidate) &&
-            isLikelyNameCandidate(spellingResponseCandidate)));
-
-      if (shouldHandleSpellingResponse) {
-        const parsed = parseSpelledNameParts(normalizedSpeech);
-        if (parsed.firstName) {
-          const candidate = parsed.lastName
-            ? `${parsed.firstName} ${parsed.lastName}`
-            : parsed.firstName;
-          await storeProvisionalName(candidate, {
-            lastConfidence: 0.95,
-            corrections: nameState.corrections ?? 0,
-            firstNameSpelled: parsed.firstName,
-            spellPromptedAt: null,
-            spellPromptedTurnIndex: null,
-            spellPromptCount: nameState.spellPromptCount ?? 1,
-          });
-          this.loggingService.log(
-            {
-              event: "nameCapture.spellParsed",
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              parsed: parsed.firstName,
-              letterCount: parsed.letterCount,
-              turnIndex,
-            },
-            VoiceTurnService.name,
-          );
-          return acknowledgeNameAndMoveOn(candidate);
-        }
-        if (parsed.reason === "no_letters") {
-          const fallbackCandidate =
-            extractNameCandidateDeterministic(
-              normalizedSpeech,
-              this.sanitizationService,
-            ) ??
-            normalizeNameCandidate(normalizedSpeech, this.sanitizationService);
-          if (
-            fallbackCandidate &&
-            isValidNameCandidate(fallbackCandidate) &&
-            isLikelyNameCandidate(fallbackCandidate)
-          ) {
-            await storeProvisionalName(fallbackCandidate, {
-              lastConfidence: confidence ?? null,
-              corrections: nameState.corrections ?? 0,
-              spellPromptedAt: null,
-              spellPromptedTurnIndex: null,
-              spellPromptCount: nameState.spellPromptCount ?? 1,
-            });
-            return acknowledgeNameAndMoveOn(fallbackCandidate);
-          }
-        }
-        this.loggingService.log(
-          {
-            event: "nameCapture.spellParseFailed",
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            reason: parsed.reason ?? "unknown",
-            letterCount: parsed.letterCount,
-            turnIndex,
-          },
-          VoiceTurnService.name,
-        );
-        const promptCount = nameState.spellPromptCount ?? 0;
-        if (promptCount < 2) {
-          const promptState = reduceMarkNameSpellPrompted({
-            state: nameState,
-            turnIndex,
-            nowMs: Date.now(),
-          });
-          await this.conversationsService.updateVoiceNameState({
-            tenantId: tenant.id,
-            conversationId,
-            nameState: promptState,
-          });
-          this.loggingService.log(
-            {
-              event: "nameCapture.spellPrompted",
-              tenantId: tenant.id,
-              conversationId,
-              callSid,
-              candidate: nameState.candidate.value ?? null,
-              lastConfidence: nameState.lastConfidence ?? null,
-              corrections: nameState.corrections ?? 0,
-              turnIndex,
-            },
-            VoiceTurnService.name,
-          );
-          return replyWithNameTwiml(this.buildSpellNameTwiml(csrStrategy));
-        }
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: clearNameSpellPrompt(nameState),
-        });
-        return replyWithAddressPrompt();
+        nameState: workingNameState,
+        confidence,
+        turnIndex,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        storeProvisionalName,
+        acknowledgeNameAndMoveOn,
+        replyWithNameTwiml,
+        replyWithAddressPrompt,
+        buildSpellNameTwiml: () => this.buildSpellNameTwiml(csrStrategy),
+      });
+      if (spellingResponse) {
+        return spellingResponse;
       }
 
       const openingTurnReply = await this.turnNameOpeningRuntime.handle({
