@@ -24,7 +24,10 @@ export type VoiceTurnPlannerInput = {
 
 export type VoiceTurnPlannerAction =
   | { type: "NONE" }
-  | { type: "WAIT_FOR_EXPECTED_FIELD"; field: Exclude<VoiceTurnPlannerExpectedField, null> }
+  | {
+      type: "WAIT_FOR_EXPECTED_FIELD";
+      field: Exclude<VoiceTurnPlannerExpectedField, null>;
+    }
   | { type: "ASK_NAME" }
   | { type: "ASK_ADDRESS" }
   | { type: "ASK_ISSUE" }

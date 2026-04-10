@@ -28,20 +28,11 @@ import {
   isValidNameCandidate,
   normalizeNameCandidate,
   parseSpelledNameParts,
-  shouldPromptForNameSpelling,
   shouldRepromptForLowConfidenceName,
+  shouldPromptForNameSpelling,
 } from "./intake/voice-name-candidate.policy";
 import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
-import {
-  lockNameForAddressProgression as reduceLockNameForAddressProgression,
-  markLowConfidenceNameReprompt as reduceMarkLowConfidenceNameReprompt,
-  markNameAttemptIfNeeded as reduceMarkNameAttemptIfNeeded,
-  markNameSpellPrompted as reduceMarkNameSpellPrompted,
-  storeProvisionalNameCandidate as reduceStoreProvisionalNameCandidate,
-} from "./intake/voice-name-slot.reducer";
-import {
-  buildAddressLockedCandidateState,
-} from "./intake/voice-address-slot.reducer";
+import { buildAddressLockedCandidateState } from "./intake/voice-address-slot.reducer";
 import {
   normalizeConfirmationUtterance,
   resolveConfirmation,
@@ -95,6 +86,7 @@ import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
 import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
 import { VoiceTurnNameCaptureRuntime } from "./voice-turn-name-capture.runtime";
+import { VoiceTurnNameFlowRuntime } from "./voice-turn-name-flow.runtime";
 import { VoiceTurnNameSpellingRuntime } from "./voice-turn-name-spelling.runtime";
 import { VoiceTurnAddressExtractionRuntime } from "./voice-turn-address-extraction.runtime";
 import { VoiceTurnAddressRoutingRuntime } from "./voice-turn-address-routing.runtime";
@@ -166,6 +158,7 @@ export class VoiceTurnService {
   private readonly turnAiTriageRuntime: VoiceTurnAiTriageRuntime;
   private readonly turnNameOpeningRuntime: VoiceTurnNameOpeningRuntime;
   private readonly turnNameCaptureRuntime: VoiceTurnNameCaptureRuntime;
+  private readonly turnNameFlowRuntime: VoiceTurnNameFlowRuntime;
   private readonly turnNameSpellingRuntime: VoiceTurnNameSpellingRuntime;
   private readonly turnAddressExtractionRuntime: VoiceTurnAddressExtractionRuntime;
   private readonly turnAddressRoutingRuntime: VoiceTurnAddressRoutingRuntime;
@@ -222,13 +215,16 @@ export class VoiceTurnService {
             isSmsDifferentNumberRequest: (value) =>
               this.isSmsDifferentNumberRequest(value),
             isHangupRequest: (value) => this.isHangupRequest(value),
-            resolveBinaryUtterance: (value) => this.resolveBinaryUtterance(value),
+            resolveBinaryUtterance: (value) =>
+              this.resolveBinaryUtterance(value),
             normalizeNameCandidate: (value) =>
               normalizeNameCandidate(value, this.sanitizationService),
             isValidNameCandidate: (value) => isValidNameCandidate(value),
             isLikelyNameCandidate: (value) => isLikelyNameCandidate(value),
-            normalizeIssueCandidate: (value) => this.normalizeIssueCandidate(value),
-            isLikelyIssueCandidate: (value) => this.isLikelyIssueCandidate(value),
+            normalizeIssueCandidate: (value) =>
+              this.normalizeIssueCandidate(value),
+            isLikelyIssueCandidate: (value) =>
+              this.isLikelyIssueCandidate(value),
             normalizeConfirmationUtterance: (value) =>
               this.normalizeConfirmationUtterance(value),
             isSmsNumberConfirmation: (value) =>
@@ -279,7 +275,8 @@ export class VoiceTurnService {
       buildListeningWindowReprompt: (params) =>
         this.buildListeningWindowReprompt(params),
       markVoiceEventProcessed: (params) => this.markVoiceEventProcessed(params),
-      getExpectedListeningField: (window) => this.getExpectedListeningField(window),
+      getExpectedListeningField: (window) =>
+        this.getExpectedListeningField(window),
       isVoiceFieldReady: (locked, confirmed) =>
         this.isVoiceFieldReady(locked, confirmed),
     });
@@ -291,7 +288,8 @@ export class VoiceTurnService {
         this.clearVoiceListeningWindow(params),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
       buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
-      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      replyWithListeningWindow: (params) =>
+        this.replyWithListeningWindow(params),
       buildBookingPromptTwiml: (strategy) =>
         this.buildBookingPromptTwiml(strategy),
       replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
@@ -314,14 +312,14 @@ export class VoiceTurnService {
       isSmsNumberConfirmation: (transcript) =>
         isVoiceSmsNumberConfirmation(transcript),
       extractSmsPhoneCandidate: (transcript) =>
-        extractVoiceSmsPhoneCandidate(
-          transcript,
-          (value) => this.sanitizationService.normalizePhoneE164(value),
+        extractVoiceSmsPhoneCandidate(transcript, (value) =>
+          this.sanitizationService.normalizePhoneE164(value),
         ),
       handleExpectedSmsPhoneField: (params) =>
         this.voiceSmsPhoneSlotService.handleExpectedField(params),
       replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
-      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      replyWithListeningWindow: (params) =>
+        this.replyWithListeningWindow(params),
       buildAskSmsNumberTwiml: (strategy) =>
         this.buildAskSmsNumberTwiml(strategy),
       replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
@@ -330,7 +328,8 @@ export class VoiceTurnService {
     this.turnInterruptRuntime = new VoiceTurnInterruptRuntime(
       {
         isSlowDownRequest: (transcript) => this.isSlowDownRequest(transcript),
-        replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+        replyWithListeningWindow: (params) =>
+          this.replyWithListeningWindow(params),
         buildTakeYourTimeTwiml: (field, strategy) =>
           this.buildTakeYourTimeTwiml(field, strategy),
         replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
@@ -358,36 +357,40 @@ export class VoiceTurnService {
           this.buildAskSmsNumberTwiml(strategy),
       },
     );
-    this.turnSideQuestionHelperRuntime = new VoiceTurnSideQuestionHelperRuntime({
-      normalizeWhitespace: (value) =>
-        this.sanitizationService.normalizeWhitespace(value),
-      stripConfirmationPrefix: (value) => this.stripConfirmationPrefix(value),
-      isLikelyQuestion: (value) => this.isLikelyQuestion(value),
-      getTenantFeePolicySafe: (tenantId) => this.getTenantFeePolicySafe(tenantId),
-      getTenantFeeConfig: (policy) =>
-        this.getTenantFeeConfig(policy as PrismaTenantFeePolicy | null),
-      formatFeeAmount: (value) => this.formatFeeAmount(value),
-      getTenantDisplayNameById: async (tenantId) => {
-        try {
-          const tenant = await this.tenantsService.getTenantContext(tenantId);
-          return tenant.displayName;
-        } catch {
-          return null;
-        }
+    this.turnSideQuestionHelperRuntime = new VoiceTurnSideQuestionHelperRuntime(
+      {
+        normalizeWhitespace: (value) =>
+          this.sanitizationService.normalizeWhitespace(value),
+        stripConfirmationPrefix: (value) => this.stripConfirmationPrefix(value),
+        isLikelyQuestion: (value) => this.isLikelyQuestion(value),
+        getTenantFeePolicySafe: (tenantId) =>
+          this.getTenantFeePolicySafe(tenantId),
+        getTenantFeeConfig: (policy) =>
+          this.getTenantFeeConfig(policy as PrismaTenantFeePolicy | null),
+        formatFeeAmount: (value) => this.formatFeeAmount(value),
+        getTenantDisplayNameById: async (tenantId) => {
+          try {
+            const tenant = await this.tenantsService.getTenantContext(tenantId);
+            return tenant.displayName;
+          } catch {
+            return null;
+          }
+        },
+        buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
+        prependPrefaceToGatherTwiml: (preface, twiml) =>
+          this.prependPrefaceToGatherTwiml(preface, twiml),
+        replyWithListeningWindow: (params) =>
+          this.replyWithListeningWindow(params),
+        buildAddressPromptForState: (addressState, strategy) =>
+          this.buildAddressPromptForState(addressState, strategy),
+        buildAskSmsNumberTwiml: (strategy) =>
+          this.buildAskSmsNumberTwiml(strategy),
+        buildBookingPromptTwiml: (strategy) =>
+          this.buildBookingPromptTwiml(strategy),
+        buildCallbackOfferTwiml: (strategy) =>
+          this.buildCallbackOfferTwiml(strategy),
       },
-      buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
-      prependPrefaceToGatherTwiml: (preface, twiml) =>
-        this.prependPrefaceToGatherTwiml(preface, twiml),
-      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
-      buildAddressPromptForState: (addressState, strategy) =>
-        this.buildAddressPromptForState(addressState, strategy),
-      buildAskSmsNumberTwiml: (strategy) =>
-        this.buildAskSmsNumberTwiml(strategy),
-      buildBookingPromptTwiml: (strategy) =>
-        this.buildBookingPromptTwiml(strategy),
-      buildCallbackOfferTwiml: (strategy) =>
-        this.buildCallbackOfferTwiml(strategy),
-    });
+    );
     this.turnNameOpeningRuntime = new VoiceTurnNameOpeningRuntime({
       isOpeningGreetingOnly: (transcript) =>
         this.isOpeningGreetingOnly(transcript),
@@ -399,7 +402,8 @@ export class VoiceTurnService {
         this.clearIssuePromptAttempts(callSid),
       updateVoiceIssueCandidate: (params) =>
         this.conversationsService.updateVoiceIssueCandidate(params),
-      buildIssueAcknowledgement: (value) => this.buildIssueAcknowledgement(value),
+      buildIssueAcknowledgement: (value) =>
+        this.buildIssueAcknowledgement(value),
       buildSideQuestionReply: (tenantId, transcript) =>
         this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
           tenantId,
@@ -417,7 +421,8 @@ export class VoiceTurnService {
         this.getVoiceIssueCandidate(collectedData),
       updateVoiceIssueCandidate: (params) =>
         this.conversationsService.updateVoiceIssueCandidate(params),
-      buildIssueAcknowledgement: (value) => this.buildIssueAcknowledgement(value),
+      buildIssueAcknowledgement: (value) =>
+        this.buildIssueAcknowledgement(value),
       buildSideQuestionReply: (tenantId, transcript) =>
         this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
           tenantId,
@@ -442,6 +447,27 @@ export class VoiceTurnService {
       buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
+    });
+    this.turnNameFlowRuntime = new VoiceTurnNameFlowRuntime({
+      updateVoiceNameState: (params) =>
+        this.conversationsService.updateVoiceNameState(params),
+      shouldRepromptForLowConfidenceName: (state, candidate) =>
+        shouldRepromptForLowConfidenceName(
+          state,
+          candidate,
+          this.sanitizationService,
+        ),
+      buildNameClarificationPrompt: (candidate) =>
+        buildNameClarificationPrompt(candidate, this.sanitizationService),
+      shouldPromptForNameSpelling: (state, candidate) =>
+        shouldPromptForNameSpelling(state, candidate, this.sanitizationService),
+      applyCsrStrategy: (strategy, message) =>
+        this.applyCsrStrategy(strategy, message),
+      buildSayGatherTwiml: (message, options) =>
+        this.buildSayGatherTwiml(message, options),
+      replyWithListeningWindow: (params) =>
+        this.replyWithListeningWindow(params),
+      log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
     });
     this.turnNameSpellingRuntime = new VoiceTurnNameSpellingRuntime({
       parseSpelledNameParts: (transcript) => parseSpelledNameParts(transcript),
@@ -499,7 +525,8 @@ export class VoiceTurnService {
             utterance,
             confidence,
           ),
-        replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+        replyWithListeningWindow: (params) =>
+          this.replyWithListeningWindow(params),
         buildAddressSoftConfirmationTwiml: (candidate, strategy) =>
           this.buildAddressSoftConfirmationTwiml(candidate, strategy),
         resolveConfirmation: (utterance, currentCandidate, fieldType) =>
@@ -519,7 +546,8 @@ export class VoiceTurnService {
       sanitizer: this.sanitizationService,
       deferAddressToSmsAuthority: (params) =>
         this.deferAddressToSmsAuthority(params),
-      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      replyWithListeningWindow: (params) =>
+        this.replyWithListeningWindow(params),
       buildSayGatherTwiml: (message, options) =>
         this.buildSayGatherTwiml(message, options),
       buildAddressPromptForState: (addressState, strategy) =>
@@ -566,7 +594,8 @@ export class VoiceTurnService {
           }),
         isUrgencyEmergency: (collectedData) =>
           this.isUrgencyEmergency(collectedData),
-        getVoiceNameCandidate: (nameState) => this.getVoiceNameCandidate(nameState),
+        getVoiceNameCandidate: (nameState) =>
+          this.getVoiceNameCandidate(nameState),
         replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
         replyWithIssueCaptureRecovery: (params) =>
           this.replyWithIssueCaptureRecovery(params),
@@ -577,18 +606,21 @@ export class VoiceTurnService {
       getVoiceIssueCandidate: (collectedData) =>
         this.getVoiceIssueCandidate(collectedData),
       normalizeIssueCandidate: (value) => this.normalizeIssueCandidate(value),
-      buildFallbackIssueCandidate: (value) => this.buildFallbackIssueCandidate(value),
+      buildFallbackIssueCandidate: (value) =>
+        this.buildFallbackIssueCandidate(value),
       isLikelyIssueCandidate: (value) => this.isLikelyIssueCandidate(value),
       getIssuePromptAttempts: (callSid) =>
         this.issuePromptAttemptsByCall.get(callSid) ?? 0,
       setIssuePromptAttempts: (callSid, count) =>
         this.issuePromptAttemptsByCall.set(callSid, count),
-      clearIssuePromptAttempts: (callSid) => this.clearIssuePromptAttempts(callSid),
+      clearIssuePromptAttempts: (callSid) =>
+        this.clearIssuePromptAttempts(callSid),
       isLikelyQuestion: (value) => this.isLikelyQuestion(value),
       updateVoiceIssueCandidate: (params) =>
         this.conversationsService.updateVoiceIssueCandidate(params),
       shouldDiscloseFees: (params) => this.shouldDiscloseFees(params),
-      getTenantFeePolicySafe: (tenantId) => this.getTenantFeePolicySafe(tenantId),
+      getTenantFeePolicySafe: (tenantId) =>
+        this.getTenantFeePolicySafe(tenantId),
       buildSmsHandoffMessageForContext: (params) =>
         this.buildSmsHandoffMessageForContext({
           feePolicy: params.feePolicy as PrismaTenantFeePolicy | null,
@@ -598,7 +630,8 @@ export class VoiceTurnService {
         }),
       isUrgencyEmergency: (collectedData) =>
         this.isUrgencyEmergency(collectedData),
-      getVoiceNameCandidate: (nameState) => this.getVoiceNameCandidate(nameState),
+      getVoiceNameCandidate: (nameState) =>
+        this.getVoiceNameCandidate(nameState),
       replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
       log: (payload, context) => this.loggingService.log(payload, context),
       buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
@@ -645,7 +678,8 @@ export class VoiceTurnService {
         }),
       isUrgencyEmergency: (collectedData) =>
         this.isUrgencyEmergency(collectedData),
-      getVoiceNameCandidate: (nameState) => this.getVoiceNameCandidate(nameState),
+      getVoiceNameCandidate: (nameState) =>
+        this.getVoiceNameCandidate(nameState),
       replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
       normalizeConfirmationUtterance: (value) =>
         this.normalizeConfirmationUtterance(value),
@@ -665,7 +699,8 @@ export class VoiceTurnService {
     this.turnSideQuestionRuntime = new VoiceTurnSideQuestionRuntime({
       resolveBinaryUtterance: (transcript) =>
         this.resolveBinaryUtterance(transcript),
-      isFrustrationRequest: (transcript) => this.isFrustrationRequest(transcript),
+      isFrustrationRequest: (transcript) =>
+        this.isFrustrationRequest(transcript),
       clearVoiceListeningWindow: (params) =>
         this.clearVoiceListeningWindow(params),
       replyWithSideQuestionAndContinue: (params) =>
@@ -677,7 +712,8 @@ export class VoiceTurnService {
       buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
       prependPrefaceToGatherTwiml: (preface, twiml) =>
         this.prependPrefaceToGatherTwiml(preface, twiml),
-      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      replyWithListeningWindow: (params) =>
+        this.replyWithListeningWindow(params),
       buildAddressPromptForState: (addressState, strategy) =>
         this.buildAddressPromptForState(addressState, strategy),
       replyWithIssueCaptureRecovery: (params) =>
@@ -693,7 +729,8 @@ export class VoiceTurnService {
         this.conversationsService.updateVoiceUrgencyConfirmation(params),
       buildUrgencyConfirmTwiml: (strategy, context) =>
         this.buildUrgencyConfirmTwiml(strategy, context),
-      getVoiceNameCandidate: (nameState) => this.getVoiceNameCandidate(nameState),
+      getVoiceNameCandidate: (nameState) =>
+        this.getVoiceNameCandidate(nameState),
     });
   }
 
@@ -798,7 +835,6 @@ export class VoiceTurnService {
       phoneState: contextPhoneState,
       addressState: contextAddressState,
       csrStrategy: contextStrategy,
-      listeningWindow,
       expectedField: contextExpectedField,
       nameReady: contextNameReady,
       addressReady: contextAddressReady,
@@ -1040,220 +1076,31 @@ export class VoiceTurnService {
         nameState.attemptCount === 0 &&
         !nameState.candidate.value &&
         !existingIssueCandidate?.value;
-      const buildAddressPrompt = (preface?: string) => {
-        const base = "Please say the service address.";
-        if (preface && preface.trim()) {
-          return this.applyCsrStrategy(
-            csrStrategy,
-            `${preface.trim()} ${base}`,
-          );
-        }
-        return this.applyCsrStrategy(csrStrategy, base);
-      };
       const turnIndex = voiceTurnCount;
-      let workingNameState: typeof nameState = nameState;
-      const lockNameForAddressProgression = async () => {
-        const nextNameState = reduceLockNameForAddressProgression({
-          state: workingNameState,
-          sourceEventId: currentEventId,
-          nowIso: new Date().toISOString(),
-        });
-        if (nextNameState === workingNameState) {
-          return;
-        }
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: nextNameState,
-        });
-        workingNameState = nextNameState;
-      };
-      const repromptLowConfidenceNameForAddress = async () => {
-        const candidate = workingNameState.candidate.value;
-        if (
-          !shouldRepromptForLowConfidenceName(
-            workingNameState,
-            candidate,
-            this.sanitizationService,
-          )
-        ) {
-          return null;
-        }
-        const nextNameState = reduceMarkLowConfidenceNameReprompt({
-          state: workingNameState,
-          candidate,
-          turnIndex,
-          nowMs: Date.now(),
-        });
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: nextNameState,
-        });
-        workingNameState = nextNameState;
-        this.loggingService.log(
-          {
-            event: "nameCapture.lowConfidenceReprompt",
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            candidate,
-            confidence: workingNameState.lastConfidence ?? null,
-            turnIndex,
-          },
-          VoiceTurnService.name,
-        );
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml: this.buildSayGatherTwiml(
-            this.applyCsrStrategy(
-              csrStrategy,
-              buildNameClarificationPrompt(candidate, this.sanitizationService),
-            ),
-          ),
-        });
-      };
-      const replyWithAddressPrompt = async (preface?: string) => {
-        const clarification = await repromptLowConfidenceNameForAddress();
-        if (clarification) {
-          return clarification;
-        }
-        await lockNameForAddressProgression();
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "address",
-          sourceEventId: currentEventId,
-          timeoutSec: 8,
-          twiml: this.buildSayGatherTwiml(buildAddressPrompt(preface), {
-            timeout: 8,
-          }),
-        });
-      };
-      const recordNameAttemptIfNeeded = async () => {
-        const nextNameState = reduceMarkNameAttemptIfNeeded(workingNameState);
-        if (nextNameState === workingNameState) {
-          return;
-        }
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: nextNameState,
-        });
-        workingNameState = nextNameState;
-      };
-      const replyWithNameTwiml = async (twiml: string) => {
-        await recordNameAttemptIfNeeded();
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "name",
-          sourceEventId: currentEventId,
-          twiml,
-        });
-      };
-      const storeProvisionalName = async (
-        candidate: string,
-        options?: {
-          lastConfidence?: number | null;
-          corrections?: number;
-          firstNameSpelled?: string | null;
-          spellPromptedAt?: number | null;
-          spellPromptedTurnIndex?: number | null;
-          spellPromptCount?: number;
-        },
-      ) => {
-        const nextNameState = reduceStoreProvisionalNameCandidate({
-          state: workingNameState,
-          candidate,
-          sourceEventId: currentEventId,
-          createdAtIso: new Date().toISOString(),
-          options,
-        });
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: nextNameState,
-        });
-        workingNameState = nextNameState;
-        return nextNameState;
-      };
-      const promptForNameSpelling = async (
-        candidate: string,
-        baseNameState: typeof nameState,
-      ) => {
-        const promptState = reduceMarkNameSpellPrompted({
-          state: baseNameState,
-          turnIndex,
-          nowMs: Date.now(),
-        });
-        await this.conversationsService.updateVoiceNameState({
-          tenantId: tenant.id,
-          conversationId,
-          nameState: promptState,
-        });
-        workingNameState = promptState;
-        this.loggingService.log(
-          {
-            event: "nameCapture.spellPrompted",
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            candidate,
-            lastConfidence: promptState.lastConfidence ?? null,
-            corrections: promptState.corrections ?? 0,
-            turnIndex,
-          },
-          VoiceTurnService.name,
-        );
-        return replyWithNameTwiml(this.buildSpellNameTwiml(csrStrategy));
-      };
-      const maybePromptForSpelling = async (
-        candidate: string,
-        nextNameState: typeof nameState,
-        issueSummary?: string | null,
-      ) => {
-        if (
-          shouldPromptForNameSpelling(
-            nextNameState,
-            candidate,
-            this.sanitizationService,
-          )
-        ) {
-          return promptForNameSpelling(candidate, nextNameState);
-        }
-        return acknowledgeNameAndMoveOn(candidate, issueSummary ?? null);
-      };
-      const acknowledgeNameAndMoveOn = async (
-        candidate: string,
-        issueSummary?: string | null,
-      ) => {
-        const firstName = candidate.split(" ").filter(Boolean)[0] ?? "";
-        const thanks = firstName ? `Thanks, ${firstName}.` : "Thanks.";
-        const resolvedIssue = issueSummary ?? existingIssueSummary ?? null;
-        const trimmedIssue = resolvedIssue?.trim().replace(/[.?!]+$/, "") ?? "";
-        const issueAck = trimmedIssue ? `I heard ${trimmedIssue}.` : "";
-        const preface = issueAck ? `${thanks} ${issueAck}` : thanks;
-        return replyWithAddressPrompt(preface);
-      };
+      const nameFlowSession = this.turnNameFlowRuntime.createSession({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        currentEventId,
+        strategy: csrStrategy,
+        turnIndex,
+        nameState,
+        existingIssueSummary,
+        buildSpellNameTwiml: () => this.buildSpellNameTwiml(csrStrategy),
+      });
       const spellingResponse = await this.turnNameSpellingRuntime.handle({
         normalizedSpeech,
-        nameState: workingNameState,
+        nameState: nameFlowSession.getNameState(),
         confidence,
         turnIndex,
         tenantId: tenant.id,
         conversationId,
         callSid,
-        storeProvisionalName,
-        acknowledgeNameAndMoveOn,
-        replyWithNameTwiml,
-        replyWithAddressPrompt,
+        storeProvisionalName: nameFlowSession.storeProvisionalName,
+        acknowledgeNameAndMoveOn: nameFlowSession.acknowledgeNameAndMoveOn,
+        replyWithNameTwiml: nameFlowSession.replyWithNameTwiml,
+        replyWithAddressPrompt: () => nameFlowSession.replyWithAddressPrompt(),
         buildSpellNameTwiml: () => this.buildSpellNameTwiml(csrStrategy),
       });
       if (spellingResponse) {
@@ -1272,9 +1119,9 @@ export class VoiceTurnService {
         nameState,
         confidence,
         strategy: csrStrategy,
-        storeProvisionalName,
-        maybePromptForSpelling,
-        replyWithNameTwiml,
+        storeProvisionalName: nameFlowSession.storeProvisionalName,
+        maybePromptForSpelling: nameFlowSession.maybePromptForSpelling,
+        replyWithNameTwiml: nameFlowSession.replyWithNameTwiml,
       });
       if (openingTurnReply) {
         return openingTurnReply;
@@ -1294,13 +1141,13 @@ export class VoiceTurnService {
         confidence,
         strategy: csrStrategy,
         timingCollector,
-        recordNameAttemptIfNeeded,
-        replyWithAddressPrompt,
-        replyWithNameTwiml,
-        storeProvisionalName,
-        promptForNameSpelling,
-        maybePromptForSpelling,
-        acknowledgeNameAndMoveOn,
+        recordNameAttemptIfNeeded: nameFlowSession.recordNameAttemptIfNeeded,
+        replyWithAddressPrompt: nameFlowSession.replyWithAddressPrompt,
+        replyWithNameTwiml: nameFlowSession.replyWithNameTwiml,
+        storeProvisionalName: nameFlowSession.storeProvisionalName,
+        promptForNameSpelling: nameFlowSession.promptForNameSpelling,
+        maybePromptForSpelling: nameFlowSession.maybePromptForSpelling,
+        acknowledgeNameAndMoveOn: nameFlowSession.acknowledgeNameAndMoveOn,
       });
     }
 
@@ -1986,9 +1833,8 @@ export class VoiceTurnService {
   }
 
   private isComfortRiskRelevant(value: string): boolean {
-    return isVoiceComfortRiskRelevant(
-      value,
-      (input) => this.normalizeIssueCandidate(input),
+    return isVoiceComfortRiskRelevant(value, (input) =>
+      this.normalizeIssueCandidate(input),
     );
   }
 
@@ -2001,9 +1847,8 @@ export class VoiceTurnService {
   }
 
   private isLikelyIssueCandidate(value: string): boolean {
-    return isLikelyVoiceIssueCandidate(
-      value,
-      (input) => this.normalizeIssueCandidate(input),
+    return isLikelyVoiceIssueCandidate(value, (input) =>
+      this.normalizeIssueCandidate(input),
     );
   }
 
@@ -2676,7 +2521,8 @@ export class VoiceTurnService {
         addressReady: params.addressReady,
         nameState: params.nameState,
         addressState: params.addressState,
-        collectedData: (params.collectedData as Prisma.JsonValue | null) ?? null,
+        collectedData:
+          (params.collectedData as Prisma.JsonValue | null) ?? null,
         currentEventId: params.currentEventId,
         strategy: params.strategy,
         timingCollector: params.timingCollector,
