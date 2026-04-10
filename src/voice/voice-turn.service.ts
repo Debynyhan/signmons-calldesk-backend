@@ -72,12 +72,6 @@ import {
   shouldClearVoiceListeningWindow,
 } from "./intake/voice-listening-window.policy";
 import {
-  capVoiceAiReply,
-  isVoiceIssueCollectionPrompt,
-  isVoiceIssueReconfirmationPrompt,
-  shouldVoiceGatherMore,
-} from "./intake/voice-issue-reply.policy";
-import {
   extractVoiceSmsPhoneCandidate,
   getVoiceCallerPhoneFromCollectedData,
   isVoiceSmsNumberConfirmation,
@@ -107,6 +101,7 @@ import { VoiceTurnEarlyRoutingRuntime } from "./voice-turn-early-routing.runtime
 import { VoiceTurnExpectedFieldRuntime } from "./voice-turn-expected-field.runtime";
 import { VoiceTurnIssueRecoveryRuntime } from "./voice-turn-issue-recovery.runtime";
 import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
+import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -170,6 +165,7 @@ export class VoiceTurnService {
   private readonly turnExpectedFieldRuntime: VoiceTurnExpectedFieldRuntime;
   private readonly turnIssueRecoveryRuntime: VoiceTurnIssueRecoveryRuntime;
   private readonly turnInterruptRuntime: VoiceTurnInterruptRuntime;
+  private readonly turnAiTriageRuntime: VoiceTurnAiTriageRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
@@ -448,6 +444,61 @@ export class VoiceTurnService {
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+      loggerContext: VoiceTurnService.name,
+    });
+    this.turnAiTriageRuntime = new VoiceTurnAiTriageRuntime({
+      getVoiceIssueCandidate: (collectedData) =>
+        this.getVoiceIssueCandidate(collectedData),
+      clearIssuePromptAttempts: (callSid) =>
+        this.clearIssuePromptAttempts(callSid),
+      normalizeIssueCandidate: (value) => this.normalizeIssueCandidate(value),
+      isLikelyIssueCandidate: (value) => this.isLikelyIssueCandidate(value),
+      updateVoiceIssueCandidate: (params) =>
+        this.conversationsService.updateVoiceIssueCandidate(params),
+      replyWithIssueCaptureRecovery: (params) =>
+        this.replyWithIssueCaptureRecovery(params),
+      isIssueRepeatComplaint: (value) => this.isIssueRepeatComplaint(value),
+      triage: (params) =>
+        this.trackAiCall(params.timingCollector, () =>
+          this.aiService.triage(
+            params.tenantId,
+            params.callSid,
+            params.triageInput,
+            {
+              conversationId: params.conversationId,
+              channel: CommunicationChannel.VOICE,
+            },
+          ),
+        ),
+      buildSmsHandoffMessage: (callerFirstName) =>
+        this.buildSmsHandoffMessage(callerFirstName),
+      shouldDiscloseFees: (params) => this.shouldDiscloseFees(params),
+      getTenantFeePolicySafe: (tenantId) =>
+        this.getTenantFeePolicySafe(tenantId),
+      buildSmsHandoffMessageForContext: (params) =>
+        this.buildSmsHandoffMessageForContext({
+          feePolicy: params.feePolicy as PrismaTenantFeePolicy | null,
+          includeFees: params.includeFees,
+          isEmergency: params.isEmergency,
+          callerFirstName: params.callerFirstName,
+        }),
+      isUrgencyEmergency: (collectedData) =>
+        this.isUrgencyEmergency(collectedData),
+      getVoiceNameCandidate: (nameState) => this.getVoiceNameCandidate(nameState),
+      replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
+      normalizeConfirmationUtterance: (value) =>
+        this.normalizeConfirmationUtterance(value),
+      replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      isHumanFallbackMessage: (message) => this.isHumanFallbackMessage(message),
+      replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
+      isLikelyQuestion: (transcript) => this.isLikelyQuestion(transcript),
+      isBookingIntent: (transcript) => this.isBookingIntent(transcript),
+      replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
+      logVoiceOutcome: (params) => this.logVoiceOutcome(params),
+      buildTwiml: (message) => this.buildTwiml(message),
+      replyWithNoHandoff: (params) => this.replyWithNoHandoff(params),
+      warn: (payload, context) => this.loggingService.warn(payload, context),
       loggerContext: VoiceTurnService.name,
     });
     this.turnSideQuestionRuntime = new VoiceTurnSideQuestionRuntime({
@@ -1835,233 +1886,23 @@ export class VoiceTurnService {
       });
     }
 
-    const persistedIssueCandidate = this.getVoiceIssueCandidate(collectedData);
-    let effectiveIssueCandidate = persistedIssueCandidate?.value ?? null;
-    let capturedIssueFromCurrentTurn = false;
-    if (effectiveIssueCandidate) {
-      this.clearIssuePromptAttempts(callSid);
-    }
-    if (!effectiveIssueCandidate && nameReady && addressReady) {
-      const issueFromTurn = this.normalizeIssueCandidate(normalizedSpeech);
-      if (this.isLikelyIssueCandidate(issueFromTurn)) {
-        this.clearIssuePromptAttempts(callSid);
-        await this.conversationsService.updateVoiceIssueCandidate({
-          tenantId: tenant.id,
-          conversationId,
-          issue: {
-            value: issueFromTurn,
-            sourceEventId: currentEventId ?? "",
-            createdAt: new Date().toISOString(),
-          },
-        });
-        effectiveIssueCandidate = issueFromTurn;
-        capturedIssueFromCurrentTurn = true;
-      } else if (turnPlan.type === "ASK_ISSUE") {
-        return this.replyWithIssueCaptureRecovery({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          nameState,
-          addressState,
-          collectedData,
-          strategy: csrStrategy,
-          reason: "missing_issue_after_address",
-          promptPrefix: this.isIssueRepeatComplaint(normalizedSpeech)
-            ? "I hear you, and I'm sorry for the repeat."
-            : undefined,
-          transcript: normalizedSpeech,
-        });
-      }
-    }
-
-    try {
-      const triageInput =
-        capturedIssueFromCurrentTurn && effectiveIssueCandidate
-          ? effectiveIssueCandidate
-          : normalizedSpeech;
-      const aiResult = await this.trackAiCall(timingCollector, () =>
-        this.aiService.triage(tenant.id, callSid, triageInput, {
-          conversationId,
-          channel: CommunicationChannel.VOICE,
-        }),
-      );
-      if (aiResult.status === "reply" && "reply" in aiResult) {
-        const safeReply = capVoiceAiReply(aiResult.reply ?? "");
-        if (
-          (aiResult as { outcome?: string }).outcome === "sms_handoff" ||
-          safeReply === this.buildSmsHandoffMessage()
-        ) {
-          const includeFees = this.shouldDiscloseFees({
-            nameState,
-            addressState,
-            collectedData,
-            currentSpeech: normalizedSpeech,
-          });
-          const feePolicy = includeFees
-            ? await this.getTenantFeePolicySafe(tenant.id)
-            : null;
-          const smsMessage = this.buildSmsHandoffMessageForContext({
-            feePolicy,
-            includeFees,
-            isEmergency: this.isUrgencyEmergency(collectedData),
-            callerFirstName: this.getVoiceNameCandidate(nameState)
-              ?.split(" ")
-              .filter(Boolean)[0],
-          });
-          return this.replyWithSmsHandoff({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: "ai_sms_handoff",
-            messageOverride: smsMessage,
-          });
-        }
-        if (
-          nameReady &&
-          addressReady &&
-          effectiveIssueCandidate &&
-          (isVoiceIssueCollectionPrompt(safeReply, (value) =>
-            this.normalizeConfirmationUtterance(value),
-          ) ||
-            isVoiceIssueReconfirmationPrompt(safeReply, (value) =>
-              this.normalizeConfirmationUtterance(value),
-            ))
-        ) {
-          const includeFees = this.shouldDiscloseFees({
-            nameState,
-            addressState,
-            collectedData,
-            currentSpeech: effectiveIssueCandidate,
-          });
-          const feePolicy = includeFees
-            ? await this.getTenantFeePolicySafe(tenant.id)
-            : null;
-          const smsMessage = this.buildSmsHandoffMessageForContext({
-            feePolicy,
-            includeFees,
-            isEmergency: this.isUrgencyEmergency(collectedData),
-            callerFirstName: this.getVoiceNameCandidate(nameState)
-              ?.split(" ")
-              .filter(Boolean)[0],
-          });
-          return this.replyWithSmsHandoff({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: "ai_issue_reconfirm_guard",
-            messageOverride: smsMessage,
-          });
-        }
-        if (
-          nameReady &&
-          addressReady &&
-          !effectiveIssueCandidate &&
-          (isVoiceIssueCollectionPrompt(safeReply, (value) =>
-            this.normalizeConfirmationUtterance(value),
-          ) ||
-            isVoiceIssueReconfirmationPrompt(safeReply, (value) =>
-              this.normalizeConfirmationUtterance(value),
-            ))
-        ) {
-          return this.replyWithIssueCaptureRecovery({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            nameState,
-            addressState,
-            collectedData,
-            strategy: csrStrategy,
-            reason: "ai_issue_prompt_missing",
-            transcript: normalizedSpeech,
-          });
-        }
-        if (shouldVoiceGatherMore(safeReply)) {
-          return this.replyWithTwiml(res, this.buildSayGatherTwiml(safeReply));
-        }
-        if (this.isHumanFallbackMessage(safeReply)) {
-          return this.replyWithHumanFallback({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            reason: "ai_fallback",
-            messageOverride: safeReply,
-          });
-        }
-        if (
-          this.isLikelyQuestion(normalizedSpeech) &&
-          !this.isBookingIntent(normalizedSpeech)
-        ) {
-          return this.replyWithBookingOffer({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            sourceEventId: currentEventId,
-            message: safeReply,
-            strategy: csrStrategy,
-          });
-        }
-        this.logVoiceOutcome({
-          outcome: "no_handoff",
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          reason: "ai_reply_end",
-        });
-        return this.replyWithTwiml(res, this.buildTwiml(safeReply));
-      }
-      if (aiResult.status === "job_created" && "message" in aiResult) {
-        const message = capVoiceAiReply(
-          aiResult.message ?? "Your request has been booked.",
-        );
-        this.logVoiceOutcome({
-          outcome: "no_handoff",
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          reason: "job_created_in_voice",
-        });
-        return this.replyWithTwiml(res, this.buildTwiml(message));
-      }
-      return this.replyWithNoHandoff({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        callSid,
-        reason: "ai_unknown_status",
-      });
-    } catch {
-      this.loggingService.warn(
-        {
-          event: "ai.preview_fallback",
-          tenantId: tenant.id,
-          callSid,
-          conversationId,
-          reason: "voice_triage_failed",
-        },
-        VoiceTurnService.name,
-      );
-      return this.replyWithHumanFallback({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        callSid,
-        displayName,
-        reason: "ai_preview_fallback",
-        messageOverride:
-          "We're having trouble handling your call. Please try again later.",
-      });
-    }
+    return this.turnAiTriageRuntime.handle({
+      res,
+      tenantId: tenant.id,
+      conversationId,
+      callSid,
+      displayName,
+      normalizedSpeech,
+      currentEventId,
+      nameReady,
+      addressReady,
+      nameState,
+      addressState,
+      collectedData,
+      strategy: csrStrategy,
+      timingCollector,
+      shouldPromptForIssue: turnPlan.type === "ASK_ISSUE",
+    });
   }
 
   public async replyWithTwiml(
