@@ -58,6 +58,12 @@ import {
   type VoiceConfirmationResolution,
 } from "./intake/voice-field-confirmation.policy";
 import {
+  buildVoiceListeningWindowReprompt,
+  getExpectedVoiceListeningField,
+  isVoiceListeningWindowExpired,
+  shouldClearVoiceListeningWindow,
+} from "./intake/voice-listening-window.policy";
+import {
   capVoiceAiReply,
   isVoiceIssueCollectionPrompt,
   isVoiceIssueReconfirmationPrompt,
@@ -3189,20 +3195,13 @@ export class VoiceTurnService {
     window: VoiceListeningWindow,
     now: Date,
   ): boolean {
-    const expiresAt = Date.parse(window.expiresAt);
-    return Number.isNaN(expiresAt) || expiresAt <= now.getTime();
+    return isVoiceListeningWindowExpired(window, now);
   }
 
   private getExpectedListeningField(
     window: VoiceListeningWindow | null,
   ): VoiceExpectedField | null {
-    if (!window) {
-      return null;
-    }
-    if (window.field === "confirmation") {
-      return window.targetField ?? null;
-    }
-    return window.field;
+    return getExpectedVoiceListeningField(window);
   }
 
   private shouldClearListeningWindow(
@@ -3212,32 +3211,13 @@ export class VoiceTurnService {
     addressState: ReturnType<ConversationsService["getVoiceAddressState"]>,
     phoneState: ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
   ): boolean {
-    if (this.isListeningWindowExpired(window, now)) {
-      return true;
-    }
-    const expectedField = this.getExpectedListeningField(window);
-    if (expectedField === "name") {
-      return nameState.locked || nameState.attemptCount >= 3;
-    }
-    if (expectedField === "address") {
-      return (
-        addressState.locked ||
-        addressState.status === "FAILED" ||
-        addressState.attemptCount >= 2
-      );
-    }
-    if (expectedField === "sms_phone") {
-      return phoneState.confirmed || phoneState.attemptCount >= 2;
-    }
-    if (
-      expectedField === "booking" ||
-      expectedField === "callback" ||
-      expectedField === "comfort_risk" ||
-      expectedField === "urgency_confirm"
-    ) {
-      return this.isListeningWindowExpired(window, now);
-    }
-    return false;
+    return shouldClearVoiceListeningWindow({
+      window,
+      now,
+      nameState,
+      addressState,
+      phoneState,
+    });
   }
 
   private buildListeningWindowReprompt(params: {
@@ -3247,32 +3227,28 @@ export class VoiceTurnService {
     phoneState: ReturnType<ConversationsService["getVoiceSmsPhoneState"]>;
     strategy?: CsrStrategy;
   }): string {
-    const expectedField = this.getExpectedListeningField(params.window);
-    if (expectedField === "name") {
-      return this.buildAskNameTwiml(params.strategy);
-    }
-    if (expectedField === "address") {
-      return this.buildAddressPromptForState(
-        params.addressState,
-        params.strategy,
-      );
-    }
-    if (expectedField === "sms_phone") {
-      return this.buildAskSmsNumberTwiml(params.strategy);
-    }
-    if (expectedField === "booking") {
-      return this.buildBookingPromptTwiml(params.strategy);
-    }
-    if (expectedField === "callback") {
-      return this.buildCallbackOfferTwiml(params.strategy);
-    }
-    if (expectedField === "comfort_risk") {
-      return this.buildUrgencyConfirmTwiml(params.strategy);
-    }
-    if (expectedField === "urgency_confirm") {
-      return this.buildUrgencyConfirmTwiml(params.strategy);
-    }
-    return this.buildRepromptTwiml(params.strategy);
+    return buildVoiceListeningWindowReprompt({
+      window: params.window,
+      addressState: params.addressState,
+      strategy: params.strategy,
+      buildAskNameTwiml: (strategy) =>
+        this.buildAskNameTwiml(strategy as CsrStrategy | undefined),
+      buildAddressPromptForState: (addressState, strategy) =>
+        this.buildAddressPromptForState(
+          addressState,
+          strategy as CsrStrategy | undefined,
+        ),
+      buildAskSmsNumberTwiml: (strategy) =>
+        this.buildAskSmsNumberTwiml(strategy as CsrStrategy | undefined),
+      buildBookingPromptTwiml: (strategy) =>
+        this.buildBookingPromptTwiml(strategy as CsrStrategy | undefined),
+      buildCallbackOfferTwiml: (strategy) =>
+        this.buildCallbackOfferTwiml(strategy as CsrStrategy | undefined),
+      buildUrgencyConfirmTwiml: (strategy) =>
+        this.buildUrgencyConfirmTwiml(strategy as CsrStrategy | undefined),
+      buildRepromptTwiml: (strategy) =>
+        this.buildRepromptTwiml(strategy as CsrStrategy | undefined),
+    });
   }
 
   private async replyWithListeningWindow(params: {
