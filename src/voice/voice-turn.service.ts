@@ -102,6 +102,7 @@ import { VoiceTurnExpectedFieldRuntime } from "./voice-turn-expected-field.runti
 import { VoiceTurnIssueRecoveryRuntime } from "./voice-turn-issue-recovery.runtime";
 import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
+import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -166,6 +167,7 @@ export class VoiceTurnService {
   private readonly turnIssueRecoveryRuntime: VoiceTurnIssueRecoveryRuntime;
   private readonly turnInterruptRuntime: VoiceTurnInterruptRuntime;
   private readonly turnAiTriageRuntime: VoiceTurnAiTriageRuntime;
+  private readonly turnNameOpeningRuntime: VoiceTurnNameOpeningRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
@@ -382,6 +384,28 @@ export class VoiceTurnService {
         this.buildBookingPromptTwiml(strategy),
       buildCallbackOfferTwiml: (strategy) =>
         this.buildCallbackOfferTwiml(strategy),
+    });
+    this.turnNameOpeningRuntime = new VoiceTurnNameOpeningRuntime({
+      isOpeningGreetingOnly: (transcript) =>
+        this.isOpeningGreetingOnly(transcript),
+      extractNameCandidateDeterministic: (transcript) =>
+        extractNameCandidateDeterministic(transcript, this.sanitizationService),
+      normalizeIssueCandidate: (value) => this.normalizeIssueCandidate(value),
+      isLikelyIssueCandidate: (value) => this.isLikelyIssueCandidate(value),
+      clearIssuePromptAttempts: (callSid) =>
+        this.clearIssuePromptAttempts(callSid),
+      updateVoiceIssueCandidate: (params) =>
+        this.conversationsService.updateVoiceIssueCandidate(params),
+      buildIssueAcknowledgement: (value) => this.buildIssueAcknowledgement(value),
+      buildSideQuestionReply: (tenantId, transcript) =>
+        this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
+          tenantId,
+          transcript,
+        ),
+      replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
+      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      applyCsrStrategy: (strategy, message) =>
+        this.applyCsrStrategy(strategy, message),
     });
     this.turnSideQuestionRoutingRuntime =
       new VoiceTurnSideQuestionRoutingRuntime({
@@ -1190,91 +1214,24 @@ export class VoiceTurnService {
         return replyWithAddressPrompt();
       }
 
-      if (isOpeningTurn) {
-        if (this.isOpeningGreetingOnly(normalizedSpeech)) {
-          return replyWithNameTwiml(
-            this.buildSayGatherTwiml(
-              this.applyCsrStrategy(
-                csrStrategy,
-                "I'm here to help. Please say your full name and briefly what's going on with the system.",
-              ),
-            ),
-          );
-        }
-        const openingCandidate = extractNameCandidateDeterministic(
-          normalizedSpeech,
-          this.sanitizationService,
-        );
-        const hasOpeningName =
-          openingCandidate &&
-          isValidNameCandidate(openingCandidate) &&
-          isLikelyNameCandidate(openingCandidate);
-        const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
-        const hasIssue = this.isLikelyIssueCandidate(issueCandidate);
-        if (hasIssue) {
-          this.clearIssuePromptAttempts(callSid);
-          await this.conversationsService.updateVoiceIssueCandidate({
-            tenantId: tenant.id,
-            conversationId,
-            issue: {
-              value: issueCandidate,
-              sourceEventId: currentEventId ?? "",
-              createdAt: new Date().toISOString(),
-            },
-          });
-          if (hasOpeningName && openingCandidate) {
-            const issueSummary =
-              this.buildIssueAcknowledgement(normalizedSpeech);
-            const nextNameState = await storeProvisionalName(openingCandidate, {
-              lastConfidence: confidence ?? null,
-              corrections: nameState.corrections ?? 0,
-            });
-            return maybePromptForSpelling(
-              openingCandidate,
-              nextNameState,
-              issueSummary,
-            );
-          }
-          const followUp = buildNameFollowUpPrompt(
-            this.buildIssueAcknowledgement(normalizedSpeech),
-          );
-          return replyWithNameTwiml(
-            this.buildSayGatherTwiml(
-              this.applyCsrStrategy(csrStrategy, followUp),
-            ),
-          );
-        }
-        if (hasOpeningName && openingCandidate) {
-          const nextNameState = await storeProvisionalName(openingCandidate, {
-            lastConfidence: confidence ?? null,
-            corrections: nameState.corrections ?? 0,
-          });
-          return maybePromptForSpelling(openingCandidate, nextNameState);
-        }
-        const sideQuestionReply =
-          await this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
-            tenant.id,
-            normalizedSpeech,
-          );
-        if (sideQuestionReply && !bookingIntent) {
-          return this.replyWithBookingOffer({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            sourceEventId: currentEventId,
-            message: sideQuestionReply,
-            strategy: csrStrategy,
-          });
-        }
-        const followUp = sideQuestionReply
-          ? `${sideQuestionReply} What's your full name?`
-          : "What's your full name?";
-        return replyWithNameTwiml(
-          this.buildSayGatherTwiml(
-            this.applyCsrStrategy(csrStrategy, followUp),
-          ),
-        );
+      const openingTurnReply = await this.turnNameOpeningRuntime.handle({
+        isOpeningTurn,
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        currentEventId,
+        normalizedSpeech,
+        bookingIntent,
+        nameState,
+        confidence,
+        strategy: csrStrategy,
+        storeProvisionalName,
+        maybePromptForSpelling,
+        replyWithNameTwiml,
+      });
+      if (openingTurnReply) {
+        return openingTurnReply;
       }
 
       const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
