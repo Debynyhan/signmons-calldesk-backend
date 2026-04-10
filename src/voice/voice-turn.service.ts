@@ -42,9 +42,6 @@ import {
 } from "./intake/voice-name-slot.reducer";
 import {
   buildAddressCorrectionState,
-  buildAddressExtractionBaseState,
-  buildAddressExtractionCandidateState,
-  buildAddressExtractionRetryState,
   buildAddressLockedCandidateState,
   buildAddressRejectedState,
   buildAddressReplacementState,
@@ -103,6 +100,7 @@ import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
 import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
 import { VoiceTurnNameCaptureRuntime } from "./voice-turn-name-capture.runtime";
+import { VoiceTurnAddressExtractionRuntime } from "./voice-turn-address-extraction.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -169,6 +167,7 @@ export class VoiceTurnService {
   private readonly turnAiTriageRuntime: VoiceTurnAiTriageRuntime;
   private readonly turnNameOpeningRuntime: VoiceTurnNameOpeningRuntime;
   private readonly turnNameCaptureRuntime: VoiceTurnNameCaptureRuntime;
+  private readonly turnAddressExtractionRuntime: VoiceTurnAddressExtractionRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
@@ -440,6 +439,24 @@ export class VoiceTurnService {
       buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
+    });
+    this.turnAddressExtractionRuntime = new VoiceTurnAddressExtractionRuntime({
+      sanitizer: this.sanitizationService,
+      voiceAddressMinConfidence: this.config.voiceAddressMinConfidence ?? 0.7,
+      extractAddressCandidate: (tenantId, transcript, timingCollector) =>
+        this.trackAiCall(timingCollector, () =>
+          this.aiService.extractAddressCandidate(tenantId, transcript),
+        ),
+      updateVoiceAddressState: (params) =>
+        this.conversationsService.updateVoiceAddressState(params),
+      deferAddressToSmsAuthority: (params) =>
+        this.deferAddressToSmsAuthority(params),
+      replyWithAddressPromptWindow: (params) =>
+        this.replyWithAddressPromptWindow(params),
+      handleMissingLocalityPrompt: (params) =>
+        this.handleMissingLocalityPrompt(params),
+      replyWithAddressConfirmationWindow: (params) =>
+        this.replyWithAddressConfirmationWindow(params),
     });
     this.turnSideQuestionRoutingRuntime =
       new VoiceTurnSideQuestionRoutingRuntime({
@@ -1519,215 +1536,19 @@ export class VoiceTurnService {
         }
       }
 
-      const normalizedAddressInput =
-        voiceAddressCandidatePolicy.normalizeAddressCandidate(
-          normalizedSpeech,
-          this.sanitizationService,
-        );
-      const fallbackCandidate = voiceAddressCandidatePolicy.stripAddressLeadIn(
-        normalizedAddressInput,
-        this.sanitizationService,
-      );
-      const usableFallbackCandidate =
-        fallbackCandidate &&
-        voiceAddressCandidatePolicy.isLikelyAddressCandidate(fallbackCandidate)
-          ? fallbackCandidate
-          : "";
-      const fallbackDerivedParts = usableFallbackCandidate
-        ? voiceAddressCandidatePolicy.extractAddressPartsFromCandidate(
-            usableFallbackCandidate,
-            this.sanitizationService,
-          )
-        : {};
-      const directParts: {
-        houseNumber?: string | null;
-        street?: string | null;
-      } = {};
-      if (
-        addressState.street &&
-        !addressState.houseNumber &&
-        voiceAddressCandidatePolicy.isLikelyHouseNumberOnly(
-          normalizedAddressInput,
-        )
-      ) {
-        directParts.houseNumber = normalizedAddressInput;
-      }
-      if (
-        addressState.houseNumber &&
-        !addressState.street &&
-        voiceAddressCandidatePolicy.isLikelyStreetOnly(normalizedAddressInput)
-      ) {
-        directParts.street = normalizedAddressInput;
-      }
-      const hasDeterministicLineSignal = Boolean(
-        fallbackDerivedParts.houseNumber && fallbackDerivedParts.street,
-      );
-      const hasDeterministicSignal = Boolean(
-        hasDeterministicLineSignal ||
-        directParts.houseNumber ||
-        directParts.street,
-      );
-      let extracted: Awaited<
-        ReturnType<AiService["extractAddressCandidate"]>
-      > | null = null;
-      if (!hasDeterministicSignal) {
-        extracted = await this.trackAiCall(timingCollector, () =>
-          this.aiService.extractAddressCandidate(tenant.id, normalizedSpeech),
-        );
-      }
-      const normalizedAddress =
-        voiceAddressCandidatePolicy.normalizeAddressCandidate(
-          extracted?.address ?? "",
-          this.sanitizationService,
-        );
-      const seedCandidate =
-        normalizedAddress ||
-        usableFallbackCandidate ||
-        addressState.candidate ||
-        null;
-      const extractedParts = voiceAddressCandidatePolicy.compactAddressParts({
-        houseNumber: voiceAddressCandidatePolicy.normalizeAddressComponent(
-          extracted?.houseNumber ?? undefined,
-          this.sanitizationService,
-        ),
-        street: voiceAddressCandidatePolicy.normalizeAddressComponent(
-          extracted?.street ?? undefined,
-          this.sanitizationService,
-        ),
-        city: voiceAddressCandidatePolicy.normalizeAddressComponent(
-          extracted?.city ?? undefined,
-          this.sanitizationService,
-        ),
-        state: voiceAddressCandidatePolicy.normalizeAddressComponent(
-          extracted?.state ?? undefined,
-          this.sanitizationService,
-        ),
-        zip: voiceAddressCandidatePolicy.normalizeAddressComponent(
-          extracted?.zip ?? undefined,
-          this.sanitizationService,
-        ),
-      });
-      const derivedParts = seedCandidate
-        ? voiceAddressCandidatePolicy.extractAddressPartsFromCandidate(
-            seedCandidate,
-            this.sanitizationService,
-          )
-        : {};
-      const mergedParts = voiceAddressCandidatePolicy.mergeAddressParts(
-        addressState,
-        {
-          ...derivedParts,
-          ...extractedParts,
-          ...directParts,
-        },
-      );
-      const structuredCandidate =
-        voiceAddressCandidatePolicy.buildAddressCandidateFromParts(mergedParts);
-      const candidateAddress =
-        structuredCandidate ||
-        normalizedAddress ||
-        usableFallbackCandidate ||
-        addressState.candidate ||
-        null;
-      const minConfidence = this.config.voiceAddressMinConfidence ?? 0.7;
-      const extractedConfidence =
-        typeof extracted?.confidence === "number"
-          ? extracted.confidence
-          : undefined;
-      const meetsConfidence =
-        typeof extractedConfidence === "number"
-          ? extractedConfidence >= minConfidence
-          : hasDeterministicSignal || Boolean(usableFallbackCandidate);
-      const baseAddressState = buildAddressExtractionBaseState({
-        state: addressState,
-        mergedParts,
-        candidate: candidateAddress,
-        confidence: extractedConfidence,
-        sourceEventId: currentEventId,
-      });
-      const hasStructured =
-        voiceAddressCandidatePolicy.hasStructuredAddressParts(baseAddressState);
-      const missingParts =
-        voiceAddressCandidatePolicy.getAddressMissingParts(baseAddressState);
-      const missingStreetOrNumber = hasStructured
-        ? missingParts.houseNumber || missingParts.street
-        : !candidateAddress ||
-          voiceAddressCandidatePolicy.isIncompleteAddress(candidateAddress);
-      const missingLocality = hasStructured
-        ? missingParts.locality
-        : Boolean(
-            candidateAddress &&
-            voiceAddressCandidatePolicy.isMissingLocality(candidateAddress),
-          );
-      if (!candidateAddress || missingStreetOrNumber || !meetsConfidence) {
-        const retryAddress = buildAddressExtractionRetryState({
-          baseState: baseAddressState,
-          missingLocality,
-        });
-        const shouldFailClosed = retryAddress.shouldFailClosed;
-        const nextAddressState = retryAddress.state;
-        await this.conversationsService.updateVoiceAddressState({
-          tenantId: tenant.id,
-          conversationId,
-          addressState: nextAddressState,
-        });
-        if (shouldFailClosed) {
-          return this.deferAddressToSmsAuthority({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            currentEventId,
-            addressState: nextAddressState,
-            nameState,
-            collectedData,
-            strategy: csrStrategy,
-            timingCollector,
-          });
-        }
-        return this.replyWithAddressPromptWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          sourceEventId: currentEventId,
-          addressState: nextAddressState,
-          strategy: csrStrategy,
-        });
-      }
-
-      const nextAddressState = buildAddressExtractionCandidateState({
-        baseState: baseAddressState,
-        missingLocality,
-      });
-      await this.conversationsService.updateVoiceAddressState({
-        tenantId: tenant.id,
-        conversationId,
-        addressState: nextAddressState,
-      });
-      if (missingLocality) {
-        return this.handleMissingLocalityPrompt({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          candidate: candidateAddress ?? "",
-          addressState: nextAddressState,
-          nameState,
-          collectedData,
-          currentEventId,
-          displayName,
-          strategy: csrStrategy,
-          timingCollector,
-        });
-      }
-      return this.replyWithAddressConfirmationWindow({
+      return this.turnAddressExtractionRuntime.handle({
         res,
         tenantId: tenant.id,
         conversationId,
-        sourceEventId: currentEventId,
-        candidate: candidateAddress,
+        callSid,
+        displayName,
+        currentEventId,
+        normalizedSpeech,
+        addressState,
+        nameState,
+        collectedData,
         strategy: csrStrategy,
+        timingCollector,
       });
     }
 
