@@ -45,7 +45,9 @@ const defaultAddressState = {
 const buildPolicy = (
   overrides: Partial<SideQuestionPolicy> = {},
 ): SideQuestionPolicy => ({
+  resolveBinaryUtterance: jest.fn().mockReturnValue(null),
   isFrustrationRequest: jest.fn().mockReturnValue(false),
+  clearVoiceListeningWindow: jest.fn().mockResolvedValue(undefined),
   replyWithSideQuestionAndContinue: jest.fn().mockResolvedValue(null),
   getVoiceIssueCandidate: jest.fn().mockReturnValue(null),
   buildAskNameTwiml: jest.fn().mockReturnValue("ask-name"),
@@ -79,6 +81,11 @@ const buildParams = () => ({
   collectedData: null,
   currentEventId: "evt-1",
   shouldAskUrgencyConfirm: false,
+  urgencyConfirmation: {
+    askedAt: null,
+    response: null as "YES" | "NO" | null,
+    sourceEventId: null,
+  },
   emergencyIssueContext: null,
 });
 
@@ -133,6 +140,43 @@ describe("VoiceTurnSideQuestionRuntime", () => {
     expect(policy.replyWithIssueCaptureRecovery).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "frustration_missing_issue",
+      }),
+    );
+  });
+
+  it("handles late urgency yes/no confirmation before other side-question logic", async () => {
+    const policy = buildPolicy({
+      resolveBinaryUtterance: jest.fn().mockReturnValue("YES"),
+    });
+    const runtime = new VoiceTurnSideQuestionRuntime(policy);
+
+    const result = await runtime.handle({
+      ...buildParams(),
+      normalizedSpeech: "yes",
+      urgencyConfirmation: {
+        askedAt: "2026-04-10T12:00:00.000Z",
+        response: null,
+        sourceEventId: "evt-prior",
+      },
+    });
+
+    expect(result).toEqual({ kind: "exit", value: "side-question-routed" });
+    expect(policy.updateVoiceUrgencyConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urgencyConfirmation: expect.objectContaining({
+          response: "YES",
+        }),
+      }),
+    );
+    expect(policy.clearVoiceListeningWindow).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      conversationId: "conversation-1",
+    });
+    expect(
+      policy.continueAfterSideQuestionWithIssueRouting,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sideQuestionReply: "Thanks. We'll treat this as urgent.",
       }),
     );
   });

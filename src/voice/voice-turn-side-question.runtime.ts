@@ -21,9 +21,19 @@ type VoiceTurnTimingCollector = {
   aiMs: number;
   aiCalls?: number;
 };
+type VoiceUrgencyConfirmation = {
+  askedAt: string | null;
+  response: "YES" | "NO" | null;
+  sourceEventId: string | null;
+};
 
 type SideQuestionPolicy = {
+  resolveBinaryUtterance: (transcript: string) => "YES" | "NO" | null;
   isFrustrationRequest: (transcript: string) => boolean;
+  clearVoiceListeningWindow: (params: {
+    tenantId: string;
+    conversationId: string;
+  }) => Promise<void>;
   replyWithSideQuestionAndContinue: (params: {
     res?: Response;
     tenantId: string;
@@ -147,8 +157,56 @@ export class VoiceTurnSideQuestionRuntime {
     strategy?: CsrStrategy;
     timingCollector?: VoiceTurnTimingCollector;
     shouldAskUrgencyConfirm: boolean;
+    urgencyConfirmation: VoiceUrgencyConfirmation;
     emergencyIssueContext: string | null;
   }): Promise<TurnBranchResult> {
+    const yesNoIntent = this.policy.resolveBinaryUtterance(
+      params.normalizedSpeech,
+    );
+    const shouldHandleLateUrgencyConfirmation =
+      !params.expectedField &&
+      Boolean(yesNoIntent) &&
+      !params.urgencyConfirmation.response &&
+      Boolean(params.urgencyConfirmation.askedAt);
+    if (shouldHandleLateUrgencyConfirmation) {
+      const isYes = yesNoIntent === "YES";
+      await this.policy.updateVoiceUrgencyConfirmation({
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        urgencyConfirmation: {
+          askedAt: new Date().toISOString(),
+          response: isYes ? "YES" : "NO",
+          sourceEventId: params.currentEventId ?? null,
+        },
+      });
+      await this.policy.clearVoiceListeningWindow({
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+      });
+      return {
+        kind: "exit",
+        value: await this.policy.continueAfterSideQuestionWithIssueRouting({
+          res: params.res,
+          tenantId: params.tenantId,
+          conversationId: params.conversationId,
+          callSid: params.callSid,
+          displayName: params.displayName,
+          sideQuestionReply: isYes
+            ? "Thanks. We'll treat this as urgent."
+            : "Okay, we'll keep it standard.",
+          expectedField: null,
+          nameReady: params.nameReady,
+          addressReady: params.addressReady,
+          nameState: params.nameState,
+          addressState: params.addressState,
+          collectedData: params.collectedData,
+          currentEventId: params.currentEventId,
+          strategy: params.strategy,
+          timingCollector: params.timingCollector,
+        }),
+      };
+    }
+
     if (this.policy.isFrustrationRequest(params.normalizedSpeech)) {
       const apologyReply = await this.policy.replyWithSideQuestionAndContinue({
         res: params.res,

@@ -451,7 +451,11 @@ export class VoiceTurnService {
       loggerContext: VoiceTurnService.name,
     });
     this.turnSideQuestionRuntime = new VoiceTurnSideQuestionRuntime({
+      resolveBinaryUtterance: (transcript) =>
+        this.resolveBinaryUtterance(transcript),
       isFrustrationRequest: (transcript) => this.isFrustrationRequest(transcript),
+      clearVoiceListeningWindow: (params) =>
+        this.clearVoiceListeningWindow(params),
       replyWithSideQuestionAndContinue: (params) =>
         this.turnSideQuestionHelperRuntime.replyWithSideQuestionAndContinue(
           params,
@@ -770,49 +774,6 @@ export class VoiceTurnService {
       },
     );
     const shouldAskUrgencyConfirm = turnPlan.type === "ASK_EMERGENCY";
-    const isYesNoUtterance = Boolean(yesNoIntent);
-    const shouldHandleLateUrgencyConfirmation =
-      !expectedField &&
-      isYesNoUtterance &&
-      !urgencyConfirmation.response &&
-      Boolean(urgencyConfirmation.askedAt);
-
-    if (shouldHandleLateUrgencyConfirmation) {
-      const isYes = yesNoIntent === "YES";
-      await this.conversationsService.updateVoiceUrgencyConfirmation({
-        tenantId: tenant.id,
-        conversationId,
-        urgencyConfirmation: {
-          askedAt: new Date().toISOString(),
-          response: isYes ? "YES" : "NO",
-          sourceEventId: currentEventId ?? null,
-        },
-      });
-      await this.clearVoiceListeningWindow({
-        tenantId: tenant.id,
-        conversationId,
-      });
-      const preface = isYes
-        ? "Thanks. We'll treat this as urgent."
-        : "Okay, we'll keep it standard.";
-      return this.continueAfterSideQuestionWithIssueRouting({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        callSid,
-        displayName,
-        sideQuestionReply: preface,
-        expectedField: null,
-        nameReady,
-        addressReady,
-        nameState,
-        addressState,
-        collectedData,
-        currentEventId,
-        strategy: csrStrategy,
-        timingCollector,
-      });
-    }
 
     const interruptBranch = await this.turnInterruptRuntime.handleInterrupts({
       res,
@@ -845,6 +806,7 @@ export class VoiceTurnService {
       strategy: csrStrategy,
       timingCollector,
       shouldAskUrgencyConfirm,
+      urgencyConfirmation,
       emergencyIssueContext,
     });
     if (sideQuestionBranch.kind === "exit") {
