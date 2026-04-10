@@ -32,7 +32,6 @@ import {
   shouldPromptForNameSpelling,
 } from "./intake/voice-name-candidate.policy";
 import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
-import { buildAddressLockedCandidateState } from "./intake/voice-address-slot.reducer";
 import {
   normalizeConfirmationUtterance,
   resolveConfirmation,
@@ -92,6 +91,7 @@ import { VoiceTurnAddressExtractionRuntime } from "./voice-turn-address-extracti
 import { VoiceTurnAddressRoutingRuntime } from "./voice-turn-address-routing.runtime";
 import { VoiceTurnAddressCompletenessRuntime } from "./voice-turn-address-completeness.runtime";
 import { VoiceTurnAddressExistingCandidateRuntime } from "./voice-turn-address-existing-candidate.runtime";
+import { VoiceTurnAddressConfirmedRuntime } from "./voice-turn-address-confirmed.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -163,6 +163,7 @@ export class VoiceTurnService {
   private readonly turnAddressExtractionRuntime: VoiceTurnAddressExtractionRuntime;
   private readonly turnAddressRoutingRuntime: VoiceTurnAddressRoutingRuntime;
   private readonly turnAddressCompletenessRuntime: VoiceTurnAddressCompletenessRuntime;
+  private readonly turnAddressConfirmedRuntime: VoiceTurnAddressConfirmedRuntime;
   private readonly turnAddressExistingCandidateRuntime: VoiceTurnAddressExistingCandidateRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
@@ -506,6 +507,19 @@ export class VoiceTurnService {
         replyWithAddressPromptWindow: (params) =>
           this.replyWithAddressPromptWindow(params),
       });
+    this.turnAddressConfirmedRuntime = new VoiceTurnAddressConfirmedRuntime({
+      updateVoiceAddressState: (params) =>
+        this.conversationsService.updateVoiceAddressState(params),
+      clearVoiceListeningWindow: (params) =>
+        this.clearVoiceListeningWindow(params),
+      getVoiceIssueCandidate: (collectedData) =>
+        this.getVoiceIssueCandidate(collectedData),
+      continueAfterSideQuestionWithIssueRouting: (params) =>
+        this.continueAfterSideQuestionWithIssueRouting(params),
+      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
+      log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
+    });
     this.turnAddressExistingCandidateRuntime =
       new VoiceTurnAddressExistingCandidateRuntime({
         sanitizer: this.sanitizationService,
@@ -534,7 +548,9 @@ export class VoiceTurnService {
         routeAddressCompleteness: (params) =>
           this.turnAddressCompletenessRuntime.routeAddressCompleteness(params),
         handleAddressConfirmedContinuation: (params) =>
-          this.handleAddressConfirmedContinuation(params),
+          this.turnAddressConfirmedRuntime.handleAddressConfirmedContinuation(
+            params,
+          ),
         deferAddressToSmsAuthority: (params) =>
           this.deferAddressToSmsAuthority(params),
         replyWithAddressPromptWindow: (params) =>
@@ -1222,20 +1238,22 @@ export class VoiceTurnService {
       addressState.sourceEventId &&
       addressState.sourceEventId === currentEventId
     ) {
-      return this.handleAddressConfirmedContinuation({
-        res,
-        tenantId: tenant.id,
-        conversationId,
-        callSid,
-        displayName,
-        currentEventId,
-        addressState,
-        nameState,
-        nameReady,
-        collectedData,
-        strategy: csrStrategy,
-        timingCollector,
-      });
+      return this.turnAddressConfirmedRuntime.handleAddressConfirmedContinuation(
+        {
+          res,
+          tenantId: tenant.id,
+          conversationId,
+          callSid,
+          displayName,
+          currentEventId,
+          addressState,
+          nameState,
+          nameReady,
+          collectedData,
+          strategy: csrStrategy,
+          timingCollector,
+        },
+      );
     }
 
     return this.turnAiTriageRuntime.handle({
@@ -2227,87 +2245,6 @@ export class VoiceTurnService {
     conversationId: string;
   }) {
     await this.conversationsService.clearVoiceListeningWindow?.(params);
-  }
-
-  private async handleAddressConfirmedContinuation(params: {
-    res?: Response;
-    tenantId: string;
-    conversationId: string;
-    callSid: string;
-    displayName: string;
-    currentEventId: string | null;
-    addressState: ReturnType<ConversationsService["getVoiceAddressState"]>;
-    nameState: ReturnType<ConversationsService["getVoiceNameState"]>;
-    nameReady: boolean;
-    collectedData: Prisma.JsonValue | null;
-    strategy?: CsrStrategy;
-    timingCollector?: VoiceTurnTimingCollector;
-  }): Promise<string> {
-    let nextAddressState = params.addressState;
-    const confirmedCandidate = nextAddressState.candidate;
-    if (!nextAddressState.locked && confirmedCandidate) {
-      const confirmedAt = new Date().toISOString();
-      nextAddressState = buildAddressLockedCandidateState({
-        state: nextAddressState,
-        sourceEventId: params.currentEventId,
-      });
-      await this.conversationsService.updateVoiceAddressState({
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        addressState: nextAddressState,
-        confirmation: {
-          field: "address",
-          value: confirmedCandidate,
-          confirmedAt,
-          sourceEventId: params.currentEventId ?? "",
-          channel: "VOICE",
-        },
-      });
-      this.loggingService.log(
-        {
-          event: "voice.field_confirmed",
-          field: "address",
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          sourceEventId: params.currentEventId,
-        },
-        VoiceTurnService.name,
-      );
-    }
-
-    await this.clearVoiceListeningWindow({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-    });
-
-    const issueCandidate = this.getVoiceIssueCandidate(params.collectedData);
-    if (issueCandidate?.value) {
-      return this.continueAfterSideQuestionWithIssueRouting({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        callSid: params.callSid,
-        displayName: params.displayName,
-        sideQuestionReply: "Perfect, thanks for confirming that.",
-        expectedField: null,
-        nameReady: params.nameReady,
-        addressReady: true,
-        nameState: params.nameState,
-        addressState: nextAddressState,
-        collectedData: params.collectedData,
-        currentEventId: params.currentEventId,
-        strategy: params.strategy,
-        timingCollector: params.timingCollector,
-      });
-    }
-
-    return this.replyWithTwiml(
-      params.res,
-      this.buildSayGatherTwiml(
-        "Perfect, thanks for confirming that. Now tell me what's been going on with the system.",
-      ),
-    );
   }
 
   private async routeAddressCompleteness(params: {
