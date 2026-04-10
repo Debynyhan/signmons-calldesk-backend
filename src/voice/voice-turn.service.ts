@@ -33,7 +33,6 @@ import {
 } from "./intake/voice-name-candidate.policy";
 import * as voiceAddressCandidatePolicy from "./intake/voice-address-candidate.policy";
 import {
-  buildNameFollowUpPrompt,
   clearNameSpellPrompt,
   lockNameForAddressProgression as reduceLockNameForAddressProgression,
   markLowConfidenceNameReprompt as reduceMarkLowConfidenceNameReprompt,
@@ -103,6 +102,7 @@ import { VoiceTurnIssueRecoveryRuntime } from "./voice-turn-issue-recovery.runti
 import { VoiceTurnInterruptRuntime } from "./voice-turn-interrupt.runtime";
 import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
 import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
+import { VoiceTurnNameCaptureRuntime } from "./voice-turn-name-capture.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -168,6 +168,7 @@ export class VoiceTurnService {
   private readonly turnInterruptRuntime: VoiceTurnInterruptRuntime;
   private readonly turnAiTriageRuntime: VoiceTurnAiTriageRuntime;
   private readonly turnNameOpeningRuntime: VoiceTurnNameOpeningRuntime;
+  private readonly turnNameCaptureRuntime: VoiceTurnNameCaptureRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
@@ -403,6 +404,39 @@ export class VoiceTurnService {
           transcript,
         ),
       replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
+      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      applyCsrStrategy: (strategy, message) =>
+        this.applyCsrStrategy(strategy, message),
+    });
+    this.turnNameCaptureRuntime = new VoiceTurnNameCaptureRuntime({
+      normalizeIssueCandidate: (value) => this.normalizeIssueCandidate(value),
+      isLikelyIssueCandidate: (value) => this.isLikelyIssueCandidate(value),
+      getVoiceIssueCandidate: (collectedData) =>
+        this.getVoiceIssueCandidate(collectedData),
+      updateVoiceIssueCandidate: (params) =>
+        this.conversationsService.updateVoiceIssueCandidate(params),
+      buildIssueAcknowledgement: (value) => this.buildIssueAcknowledgement(value),
+      buildSideQuestionReply: (tenantId, transcript) =>
+        this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
+          tenantId,
+          transcript,
+        ),
+      replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
+      isLikelyAddressInputForName: (transcript) =>
+        this.isLikelyAddressInputForName(transcript),
+      extractNameCandidateDeterministic: (transcript) =>
+        extractNameCandidateDeterministic(transcript, this.sanitizationService),
+      extractNameCandidate: (tenantId, transcript, timingCollector) =>
+        this.trackAiCall(timingCollector, () =>
+          this.aiService.extractNameCandidate(tenantId, transcript),
+        ),
+      normalizeNameCandidate: (value) =>
+        normalizeNameCandidate(value, this.sanitizationService),
+      isValidNameCandidate: (value) => isValidNameCandidate(value),
+      isLikelyNameCandidate: (value) => isLikelyNameCandidate(value),
+      shouldPromptForNameSpelling: (state, candidate) =>
+        shouldPromptForNameSpelling(state, candidate, this.sanitizationService),
+      buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
       buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
@@ -1234,153 +1268,28 @@ export class VoiceTurnService {
         return openingTurnReply;
       }
 
-      const issueCandidate = this.normalizeIssueCandidate(normalizedSpeech);
-      if (this.isLikelyIssueCandidate(issueCandidate)) {
-        const existingIssue = this.getVoiceIssueCandidate(collectedData);
-        if (!existingIssue?.value) {
-          await this.conversationsService.updateVoiceIssueCandidate({
-            tenantId: tenant.id,
-            conversationId,
-            issue: {
-              value: issueCandidate,
-              sourceEventId: currentEventId ?? "",
-              createdAt: new Date().toISOString(),
-            },
-          });
-        }
-        const followUp = buildNameFollowUpPrompt(
-          this.buildIssueAcknowledgement(normalizedSpeech),
-        );
-        if (nameState.attemptCount >= 1) {
-          await recordNameAttemptIfNeeded();
-          return replyWithAddressPrompt();
-        }
-        return replyWithNameTwiml(
-          this.buildSayGatherTwiml(
-            this.applyCsrStrategy(csrStrategy, followUp),
-          ),
-        );
-      }
-
-      const sideQuestionReply =
-        await this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
-          tenant.id,
-          normalizedSpeech,
-        );
-      if (sideQuestionReply && !bookingIntent) {
-        return this.replyWithBookingOffer({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          sourceEventId: currentEventId,
-          message: sideQuestionReply,
-          strategy: csrStrategy,
-        });
-      }
-
-      const duplicateMissing =
-        !nameState.candidate.value &&
-        nameState.candidate.sourceEventId === currentEventId;
-      if (duplicateMissing) {
-        if (nameState.attemptCount >= 1) {
-          await recordNameAttemptIfNeeded();
-          return replyWithAddressPrompt();
-        }
-        return replyWithNameTwiml(this.buildAskNameTwiml(csrStrategy));
-      }
-
-      if (this.isLikelyAddressInputForName(normalizedSpeech)) {
-        await recordNameAttemptIfNeeded();
-        return replyWithAddressPrompt();
-      }
-
-      const deterministicCandidate = extractNameCandidateDeterministic(
+      return this.turnNameCaptureRuntime.handle({
+        res,
+        tenantId: tenant.id,
+        conversationId,
+        callSid,
+        currentEventId,
         normalizedSpeech,
-        this.sanitizationService,
-      );
-      const extracted =
-        deterministicCandidate ??
-        (await this.trackAiCall(timingCollector, () =>
-          this.aiService.extractNameCandidate(tenant.id, normalizedSpeech),
-        ));
-      const candidateName = normalizeNameCandidate(
-        extracted ?? "",
-        this.sanitizationService,
-      );
-      const validatedCandidate =
-        isValidNameCandidate(candidateName) &&
-        isLikelyNameCandidate(candidateName)
-          ? candidateName
-          : "";
-      if (validatedCandidate) {
-        const existingCandidate = nameState.candidate.value;
-        if (
-          existingCandidate &&
-          existingCandidate.trim().toLowerCase() ===
-            validatedCandidate.trim().toLowerCase()
-        ) {
-          if (
-            shouldPromptForNameSpelling(
-              nameState,
-              existingCandidate,
-              this.sanitizationService,
-            )
-          ) {
-            return promptForNameSpelling(existingCandidate, nameState);
-          }
-          return acknowledgeNameAndMoveOn(existingCandidate);
-        }
-        const isCorrection =
-          Boolean(existingCandidate) &&
-          validatedCandidate !== existingCandidate;
-        const nextCorrections = isCorrection
-          ? (nameState.corrections ?? 0) + 1
-          : (nameState.corrections ?? 0);
-        const nextNameState = await storeProvisionalName(validatedCandidate, {
-          lastConfidence: confidence ?? null,
-          corrections: nextCorrections,
-        });
-        return maybePromptForSpelling(validatedCandidate, nextNameState);
-      }
-      if (nameState.candidate.value) {
-        if (
-          shouldPromptForNameSpelling(
-            nameState,
-            nameState.candidate.value,
-            this.sanitizationService,
-          )
-        ) {
-          return promptForNameSpelling(nameState.candidate.value, nameState);
-        }
-        return acknowledgeNameAndMoveOn(nameState.candidate.value);
-      }
-
-      if (!expectedField) {
-        const extraSideReply =
-          await this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
-            tenant.id,
-            normalizedSpeech,
-          );
-        if (extraSideReply && !bookingIntent) {
-          return this.replyWithBookingOffer({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            sourceEventId: currentEventId,
-            message: extraSideReply,
-            strategy: csrStrategy,
-          });
-        }
-      }
-
-      if (nameState.attemptCount >= 1) {
-        await recordNameAttemptIfNeeded();
-        return replyWithAddressPrompt();
-      }
-
-      return replyWithNameTwiml(this.buildAskNameTwiml(csrStrategy));
+        expectedField,
+        bookingIntent,
+        nameState,
+        collectedData,
+        confidence,
+        strategy: csrStrategy,
+        timingCollector,
+        recordNameAttemptIfNeeded,
+        replyWithAddressPrompt,
+        replyWithNameTwiml,
+        storeProvisionalName,
+        promptForNameSpelling,
+        maybePromptForSpelling,
+        acknowledgeNameAndMoveOn,
+      });
     }
 
     const expectedFieldBranch =
