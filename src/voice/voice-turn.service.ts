@@ -41,10 +41,7 @@ import {
   storeProvisionalNameCandidate as reduceStoreProvisionalNameCandidate,
 } from "./intake/voice-name-slot.reducer";
 import {
-  buildAddressCorrectionState,
   buildAddressLockedCandidateState,
-  buildAddressRejectedState,
-  buildAddressReplacementState,
 } from "./intake/voice-address-slot.reducer";
 import {
   normalizeConfirmationUtterance,
@@ -101,6 +98,8 @@ import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
 import { VoiceTurnNameCaptureRuntime } from "./voice-turn-name-capture.runtime";
 import { VoiceTurnAddressExtractionRuntime } from "./voice-turn-address-extraction.runtime";
 import { VoiceTurnAddressRoutingRuntime } from "./voice-turn-address-routing.runtime";
+import { VoiceTurnAddressCompletenessRuntime } from "./voice-turn-address-completeness.runtime";
+import { VoiceTurnAddressExistingCandidateRuntime } from "./voice-turn-address-existing-candidate.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -169,6 +168,8 @@ export class VoiceTurnService {
   private readonly turnNameCaptureRuntime: VoiceTurnNameCaptureRuntime;
   private readonly turnAddressExtractionRuntime: VoiceTurnAddressExtractionRuntime;
   private readonly turnAddressRoutingRuntime: VoiceTurnAddressRoutingRuntime;
+  private readonly turnAddressCompletenessRuntime: VoiceTurnAddressCompletenessRuntime;
+  private readonly turnAddressExistingCandidateRuntime: VoiceTurnAddressExistingCandidateRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
@@ -459,6 +460,48 @@ export class VoiceTurnService {
       replyWithAddressConfirmationWindow: (params) =>
         this.replyWithAddressConfirmationWindow(params),
     });
+    this.turnAddressCompletenessRuntime =
+      new VoiceTurnAddressCompletenessRuntime({
+        handleMissingLocalityPrompt: (params) =>
+          this.handleMissingLocalityPrompt(params),
+        replyWithAddressPromptWindow: (params) =>
+          this.replyWithAddressPromptWindow(params),
+      });
+    this.turnAddressExistingCandidateRuntime =
+      new VoiceTurnAddressExistingCandidateRuntime({
+        sanitizer: this.sanitizationService,
+        updateVoiceAddressState: (params) =>
+          this.conversationsService.updateVoiceAddressState(params),
+        replyWithAddressConfirmationWindow: (params) =>
+          this.replyWithAddressConfirmationWindow(params),
+        isSoftConfirmationEligible: (
+          fieldType,
+          candidate,
+          utterance,
+          confidence,
+        ) =>
+          this.isSoftConfirmationEligible(
+            fieldType,
+            candidate,
+            utterance,
+            confidence,
+          ),
+        replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+        buildAddressSoftConfirmationTwiml: (candidate, strategy) =>
+          this.buildAddressSoftConfirmationTwiml(candidate, strategy),
+        resolveConfirmation: (utterance, currentCandidate, fieldType) =>
+          this.resolveConfirmation(utterance, currentCandidate, fieldType),
+        routeAddressCompleteness: (params) =>
+          this.turnAddressCompletenessRuntime.routeAddressCompleteness(params),
+        handleAddressConfirmedContinuation: (params) =>
+          this.handleAddressConfirmedContinuation(params),
+        deferAddressToSmsAuthority: (params) =>
+          this.deferAddressToSmsAuthority(params),
+        replyWithAddressPromptWindow: (params) =>
+          this.replyWithAddressPromptWindow(params),
+        buildYesNoRepromptTwiml: (strategy) =>
+          this.buildYesNoRepromptTwiml(strategy),
+      });
     this.turnAddressRoutingRuntime = new VoiceTurnAddressRoutingRuntime({
       sanitizer: this.sanitizationService,
       deferAddressToSmsAuthority: (params) =>
@@ -477,15 +520,11 @@ export class VoiceTurnService {
       replyWithAddressConfirmationWindow: (params) =>
         this.replyWithAddressConfirmationWindow(params),
       routeAddressCompleteness: (params) =>
-        this.routeAddressCompleteness({
-          ...params,
-          collectedData: (params.collectedData as Prisma.JsonValue | null) ?? null,
-        }),
+        this.turnAddressCompletenessRuntime.routeAddressCompleteness(params),
       handleAddressExistingCandidate: (params) =>
-        this.handleAddressExistingCandidate({
-          ...params,
-          collectedData: (params.collectedData as Prisma.JsonValue | null) ?? null,
-        }),
+        this.turnAddressExistingCandidateRuntime.handleAddressExistingCandidate(
+          params,
+        ),
       buildSideQuestionReply: (tenantId, transcript) =>
         this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
           tenantId,
@@ -2518,54 +2557,20 @@ export class VoiceTurnService {
     strategy?: CsrStrategy;
     timingCollector?: VoiceTurnTimingCollector;
   }): Promise<string | null> {
-    const hasStructured = voiceAddressCandidatePolicy.hasStructuredAddressParts(
-      params.addressState,
-    );
-    const missingParts = voiceAddressCandidatePolicy.getAddressMissingParts(
-      params.addressState,
-    );
-    const missingLocality = hasStructured
-      ? missingParts.locality
-      : Boolean(
-          params.candidateForCompleteness &&
-          voiceAddressCandidatePolicy.isMissingLocality(
-            params.candidateForCompleteness,
-          ),
-        );
-    const missingStreetOrNumber = hasStructured
-      ? missingParts.houseNumber || missingParts.street
-      : !params.candidateForCompleteness ||
-        voiceAddressCandidatePolicy.isIncompleteAddress(
-          params.candidateForCompleteness,
-        );
-
-    if (missingLocality) {
-      return this.handleMissingLocalityPrompt({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        callSid: params.callSid,
-        candidate: params.candidateForCompleteness ?? "",
-        addressState: params.addressState,
-        nameState: params.nameState,
-        collectedData: params.collectedData,
-        currentEventId: params.currentEventId,
-        displayName: params.displayName,
-        strategy: params.strategy,
-        timingCollector: params.timingCollector,
-      });
-    }
-    if (missingStreetOrNumber) {
-      return this.replyWithAddressPromptWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        sourceEventId: params.currentEventId,
-        addressState: params.addressState,
-        strategy: params.strategy,
-      });
-    }
-    return null;
+    return this.turnAddressCompletenessRuntime.routeAddressCompleteness({
+      res: params.res,
+      tenantId: params.tenantId,
+      conversationId: params.conversationId,
+      callSid: params.callSid,
+      displayName: params.displayName,
+      currentEventId: params.currentEventId,
+      addressState: params.addressState,
+      candidateForCompleteness: params.candidateForCompleteness,
+      nameState: params.nameState,
+      collectedData: params.collectedData,
+      strategy: params.strategy,
+      timingCollector: params.timingCollector,
+    });
   }
 
   private async handleAddressExistingCandidate(params: {
@@ -2584,256 +2589,24 @@ export class VoiceTurnService {
     strategy?: CsrStrategy;
     timingCollector?: VoiceTurnTimingCollector;
   }): Promise<string | null> {
-    if (!params.addressState.candidate) {
-      return null;
-    }
-
-    const localityCorrection =
-      voiceAddressCandidatePolicy.extractAddressLocalityCorrection(
-        params.normalizedSpeech,
-        this.sanitizationService,
-      );
-    if (localityCorrection) {
-      const mergedParts = voiceAddressCandidatePolicy.mergeAddressParts(
-        params.addressState,
-        localityCorrection,
-      );
-      const mergedCandidate =
-        voiceAddressCandidatePolicy.buildAddressCandidateFromParts(
-          mergedParts,
-        ) ||
-        voiceAddressCandidatePolicy.mergeAddressWithLocality(
-          params.addressState.candidate,
-          voiceAddressCandidatePolicy.normalizeAddressCandidate(
-            params.normalizedSpeech,
-            this.sanitizationService,
-          ),
-        ) ||
-        params.addressState.candidate;
-      const nextAddressState = buildAddressCorrectionState({
-        state: params.addressState,
-        mergedParts,
-        mergedCandidate,
-        sourceEventId: params.currentEventId,
-      });
-      await this.conversationsService.updateVoiceAddressState({
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        addressState: nextAddressState,
-      });
-      return this.replyWithAddressConfirmationWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        sourceEventId: params.currentEventId,
-        candidate: mergedCandidate,
-        strategy: params.strategy,
-      });
-    }
-
-    if (
-      this.isSoftConfirmationEligible(
-        "address",
-        params.addressState.candidate,
-        params.normalizedSpeech,
-        params.confidence ?? undefined,
-      )
-    ) {
-      return this.replyWithListeningWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        field: "confirmation",
-        targetField: "address",
-        sourceEventId: params.currentEventId,
-        twiml: this.buildAddressSoftConfirmationTwiml(
-          params.addressState.candidate,
-          params.strategy,
-        ),
-      });
-    }
-
-    const resolution = this.resolveConfirmation(
-      params.normalizedSpeech,
-      params.addressState.candidate,
-      "address",
-    );
-
-    if (resolution.outcome === "CONFIRM") {
-      const routeResponse = await this.routeAddressCompleteness({
+    return this.turnAddressExistingCandidateRuntime.handleAddressExistingCandidate(
+      {
         res: params.res,
         tenantId: params.tenantId,
         conversationId: params.conversationId,
         callSid: params.callSid,
         displayName: params.displayName,
         currentEventId: params.currentEventId,
-        addressState: params.addressState,
-        candidateForCompleteness: params.addressState.candidate,
-        nameState: params.nameState,
-        collectedData: params.collectedData,
-        strategy: params.strategy,
-        timingCollector: params.timingCollector,
-      });
-      if (routeResponse) {
-        return routeResponse;
-      }
-      return this.handleAddressConfirmedContinuation({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        callSid: params.callSid,
-        displayName: params.displayName,
-        currentEventId: params.currentEventId,
+        normalizedSpeech: params.normalizedSpeech,
+        confidence: params.confidence,
         addressState: params.addressState,
         nameState: params.nameState,
         nameReady: params.nameReady,
         collectedData: params.collectedData,
         strategy: params.strategy,
         timingCollector: params.timingCollector,
-      });
-    }
-
-    if (resolution.outcome === "REJECT") {
-      const rejectedAddress = buildAddressRejectedState({
-        state: params.addressState,
-        sourceEventId: params.currentEventId,
-      });
-      const shouldFailClosed = rejectedAddress.shouldFailClosed;
-      const nextAddressState = rejectedAddress.state;
-      await this.conversationsService.updateVoiceAddressState({
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        addressState: nextAddressState,
-      });
-      if (shouldFailClosed) {
-        return this.deferAddressToSmsAuthority({
-          res: params.res,
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          displayName: params.displayName,
-          currentEventId: params.currentEventId,
-          addressState: nextAddressState,
-          nameState: params.nameState,
-          collectedData: params.collectedData,
-          strategy: params.strategy,
-          timingCollector: params.timingCollector,
-        });
-      }
-      return this.replyWithAddressPromptWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        sourceEventId: params.currentEventId,
-        addressState: nextAddressState,
-        strategy: params.strategy,
-      });
-    }
-
-    if (resolution.outcome === "REPLACE_CANDIDATE" && resolution.candidate) {
-      if (
-        voiceAddressCandidatePolicy.isEquivalentAddressCandidate(
-          params.addressState.candidate,
-          resolution.candidate,
-          this.sanitizationService,
-        )
-      ) {
-        const routeResponse = await this.routeAddressCompleteness({
-          res: params.res,
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          displayName: params.displayName,
-          currentEventId: params.currentEventId,
-          addressState: params.addressState,
-          candidateForCompleteness: params.addressState.candidate,
-          nameState: params.nameState,
-          collectedData: params.collectedData,
-          strategy: params.strategy,
-          timingCollector: params.timingCollector,
-        });
-        if (routeResponse) {
-          return routeResponse;
-        }
-        return this.handleAddressConfirmedContinuation({
-          res: params.res,
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          displayName: params.displayName,
-          currentEventId: params.currentEventId,
-          addressState: params.addressState,
-          nameState: params.nameState,
-          nameReady: params.nameReady,
-          collectedData: params.collectedData,
-          strategy: params.strategy,
-          timingCollector: params.timingCollector,
-        });
-      }
-
-      const replacedAddress = buildAddressReplacementState({
-        state: params.addressState,
-        replacementCandidate: resolution.candidate,
-        sourceEventId: params.currentEventId,
-      });
-      const shouldFailClosed = replacedAddress.shouldFailClosed;
-      const nextAddressState = replacedAddress.state;
-      await this.conversationsService.updateVoiceAddressState({
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        addressState: nextAddressState,
-      });
-      if (shouldFailClosed) {
-        return this.deferAddressToSmsAuthority({
-          res: params.res,
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          displayName: params.displayName,
-          currentEventId: params.currentEventId,
-          addressState: nextAddressState,
-          nameState: params.nameState,
-          collectedData: params.collectedData,
-          strategy: params.strategy,
-          timingCollector: params.timingCollector,
-        });
-      }
-      const routeResponse = await this.routeAddressCompleteness({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        callSid: params.callSid,
-        displayName: params.displayName,
-        currentEventId: params.currentEventId,
-        addressState: nextAddressState,
-        candidateForCompleteness: resolution.candidate,
-        nameState: params.nameState,
-        collectedData: params.collectedData,
-        strategy: params.strategy,
-        timingCollector: params.timingCollector,
-      });
-      if (routeResponse) {
-        return routeResponse;
-      }
-      return this.replyWithAddressConfirmationWindow({
-        res: params.res,
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        sourceEventId: params.currentEventId,
-        candidate: resolution.candidate,
-        strategy: params.strategy,
-      });
-    }
-
-    return this.replyWithListeningWindow({
-      res: params.res,
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      field: "confirmation",
-      targetField: "address",
-      sourceEventId: params.currentEventId,
-      twiml: this.buildYesNoRepromptTwiml(params.strategy),
-    });
+      },
+    );
   }
 
   private async replyWithAddressPromptWindow(params: {
