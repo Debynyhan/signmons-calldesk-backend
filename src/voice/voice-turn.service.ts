@@ -69,6 +69,11 @@ import {
   isVoiceIssueReconfirmationPrompt,
   shouldVoiceGatherMore,
 } from "./intake/voice-issue-reply.policy";
+import {
+  extractVoiceSmsPhoneCandidate,
+  getVoiceCallerPhoneFromCollectedData,
+  isVoiceSmsNumberConfirmation,
+} from "./intake/voice-sms-phone-confirmation.policy";
 import { shouldIgnoreVoiceStreamingTranscript } from "./intake/voice-streaming-transcript.policy";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
 import {
@@ -218,7 +223,7 @@ export class VoiceTurnService {
             normalizeConfirmationUtterance: (value) =>
               this.normalizeConfirmationUtterance(value),
             isSmsNumberConfirmation: (value) =>
-              this.isSmsNumberConfirmation(value),
+              isVoiceSmsNumberConfirmation(value),
           }),
         isDuplicateTranscript: (collectedData, transcript, now) =>
           this.isDuplicateTranscript(collectedData, transcript, now),
@@ -294,13 +299,16 @@ export class VoiceTurnService {
       getVoiceSmsHandoff: (collectedData) =>
         this.conversationsService.getVoiceSmsHandoff(collectedData),
       getCallerPhoneFromCollectedData: (collectedData) =>
-        this.getCallerPhoneFromCollectedData(collectedData),
+        getVoiceCallerPhoneFromCollectedData(collectedData),
       normalizeConfirmationUtterance: (value) =>
         this.normalizeConfirmationUtterance(value),
       isSmsNumberConfirmation: (transcript) =>
-        this.isSmsNumberConfirmation(transcript),
+        isVoiceSmsNumberConfirmation(transcript),
       extractSmsPhoneCandidate: (transcript) =>
-        this.extractSmsPhoneCandidate(transcript),
+        extractVoiceSmsPhoneCandidate(
+          transcript,
+          (value) => this.sanitizationService.normalizePhoneE164(value),
+        ),
       handleExpectedSmsPhoneField: (params) =>
         this.voiceSmsPhoneSlotService.handleExpectedField(params),
       replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
@@ -3817,71 +3825,6 @@ export class VoiceTurnService {
 
   private normalizeConfirmationUtterance(value: string): string {
     return normalizeConfirmationUtterance(value);
-  }
-
-  private isSmsNumberConfirmation(normalizedUtterance: string): boolean {
-    const directMatches = [
-      "yes",
-      "yeah",
-      "yep",
-      "yup",
-      "yah",
-      "ya",
-      "yuh",
-      "yellow",
-      "yello",
-      "correct",
-      "perfect",
-      "sure",
-      "sounds good",
-      "that works",
-      "that's fine",
-      "that is fine",
-      "that's good",
-      "that is good",
-      "works for me",
-      "go ahead",
-      "that's correct",
-      "that is correct",
-      "that's right",
-      "that is right",
-      "this one",
-      "this number",
-      "same number",
-      "use this",
-      "use this number",
-      "that number",
-      "that number works",
-      "that number's fine",
-      "that number is fine",
-    ];
-    if (directMatches.includes(normalizedUtterance)) {
-      return true;
-    }
-    return (
-      normalizedUtterance.includes("this number") ||
-      normalizedUtterance.includes("same number") ||
-      normalizedUtterance.includes("this one") ||
-      normalizedUtterance.startsWith("use this") ||
-      normalizedUtterance.includes("that works") ||
-      normalizedUtterance.includes("sounds good") ||
-      normalizedUtterance.includes("that number")
-    );
-  }
-
-  private extractSmsPhoneCandidate(utterance: string): string | null {
-    const normalized = this.sanitizationService.normalizePhoneE164(utterance);
-    return normalized || null;
-  }
-
-  private getCallerPhoneFromCollectedData(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): string | null {
-    if (!collectedData || typeof collectedData !== "object") {
-      return null;
-    }
-    const data = collectedData as Record<string, unknown>;
-    return typeof data.callerPhone === "string" ? data.callerPhone : null;
   }
 
   private stripConfirmationPrefix(value: string): string {
