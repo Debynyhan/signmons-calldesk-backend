@@ -45,7 +45,6 @@ import {
   buildAddressLockedCandidateState,
   buildAddressRejectedState,
   buildAddressReplacementState,
-  buildAddressStateFromLocalityMerge,
 } from "./intake/voice-address-slot.reducer";
 import {
   normalizeConfirmationUtterance,
@@ -101,6 +100,7 @@ import { VoiceTurnAiTriageRuntime } from "./voice-turn-ai-triage.runtime";
 import { VoiceTurnNameOpeningRuntime } from "./voice-turn-name-opening.runtime";
 import { VoiceTurnNameCaptureRuntime } from "./voice-turn-name-capture.runtime";
 import { VoiceTurnAddressExtractionRuntime } from "./voice-turn-address-extraction.runtime";
+import { VoiceTurnAddressRoutingRuntime } from "./voice-turn-address-routing.runtime";
 import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-helper.runtime";
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
@@ -168,6 +168,7 @@ export class VoiceTurnService {
   private readonly turnNameOpeningRuntime: VoiceTurnNameOpeningRuntime;
   private readonly turnNameCaptureRuntime: VoiceTurnNameCaptureRuntime;
   private readonly turnAddressExtractionRuntime: VoiceTurnAddressExtractionRuntime;
+  private readonly turnAddressRoutingRuntime: VoiceTurnAddressRoutingRuntime;
   private readonly turnSideQuestionHelperRuntime: VoiceTurnSideQuestionHelperRuntime;
   private readonly turnSideQuestionRoutingRuntime: VoiceTurnSideQuestionRoutingRuntime;
   private readonly turnSideQuestionRuntime: VoiceTurnSideQuestionRuntime;
@@ -457,6 +458,39 @@ export class VoiceTurnService {
         this.handleMissingLocalityPrompt(params),
       replyWithAddressConfirmationWindow: (params) =>
         this.replyWithAddressConfirmationWindow(params),
+    });
+    this.turnAddressRoutingRuntime = new VoiceTurnAddressRoutingRuntime({
+      sanitizer: this.sanitizationService,
+      deferAddressToSmsAuthority: (params) =>
+        this.deferAddressToSmsAuthority(params),
+      replyWithListeningWindow: (params) => this.replyWithListeningWindow(params),
+      buildSayGatherTwiml: (message, options) =>
+        this.buildSayGatherTwiml(message, options),
+      buildAddressPromptForState: (addressState, strategy) =>
+        this.buildAddressPromptForState(addressState, strategy),
+      updateVoiceAddressState: (params) =>
+        this.conversationsService.updateVoiceAddressState(params),
+      handleMissingLocalityPrompt: (params) =>
+        this.handleMissingLocalityPrompt(params),
+      replyWithAddressPromptWindow: (params) =>
+        this.replyWithAddressPromptWindow(params),
+      replyWithAddressConfirmationWindow: (params) =>
+        this.replyWithAddressConfirmationWindow(params),
+      routeAddressCompleteness: (params) =>
+        this.routeAddressCompleteness({
+          ...params,
+          collectedData: (params.collectedData as Prisma.JsonValue | null) ?? null,
+        }),
+      handleAddressExistingCandidate: (params) =>
+        this.handleAddressExistingCandidate({
+          ...params,
+          collectedData: (params.collectedData as Prisma.JsonValue | null) ?? null,
+        }),
+      buildSideQuestionReply: (tenantId, transcript) =>
+        this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
+          tenantId,
+          transcript,
+        ),
     });
     this.turnSideQuestionRoutingRuntime =
       new VoiceTurnSideQuestionRoutingRuntime({
@@ -1336,204 +1370,27 @@ export class VoiceTurnService {
       expectedField = null;
     }
     if (!addressReady && (!expectedField || expectedField === "address")) {
-      if (addressState.status === "FAILED") {
-        return this.deferAddressToSmsAuthority({
+      const addressPreRoutingResponse =
+        await this.turnAddressRoutingRuntime.handleNotReady({
           res,
           tenantId: tenant.id,
           conversationId,
           callSid,
           displayName,
           currentEventId,
+          normalizedSpeech,
+          confidence,
           addressState,
           nameState,
+          nameReady,
           collectedData,
+          expectedField,
+          openingAddressPreface,
           strategy: csrStrategy,
           timingCollector,
         });
-      }
-      // First address ask after a multi-slot opening (name+issue captured in one turn).
-      // Use the personalized preface so the caller hears "Thanks, David. I heard furnace
-      // issue. What's the service address?" instead of the generic CSR opening prefix.
-      if (openingAddressPreface && !addressState.candidate) {
-        const preface = openingAddressPreface;
-        openingAddressPreface = null;
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "address",
-          sourceEventId: currentEventId,
-          timeoutSec: 8,
-          twiml: this.buildSayGatherTwiml(
-            `${preface} What's the service address?`,
-            { timeout: 8 },
-          ),
-        });
-      }
-
-      const duplicateMissing =
-        !addressState.candidate &&
-        addressState.sourceEventId === currentEventId;
-      if (duplicateMissing) {
-        return this.replyWithListeningWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          field: "address",
-          sourceEventId: currentEventId,
-          twiml: this.buildAddressPromptForState(addressState, csrStrategy),
-        });
-      }
-
-      if (addressState.needsLocality && addressState.candidate) {
-        const normalizedLocality =
-          voiceAddressCandidatePolicy.normalizeAddressCandidate(
-            normalizedSpeech,
-            this.sanitizationService,
-          );
-        const localityParts = voiceAddressCandidatePolicy.parseLocalityParts(
-          normalizedLocality,
-          this.sanitizationService,
-        );
-        const mergedCandidate =
-          voiceAddressCandidatePolicy.mergeAddressWithLocality(
-            addressState.candidate,
-            normalizedLocality,
-          );
-        const mergedParts = voiceAddressCandidatePolicy.mergeAddressParts(
-          addressState,
-          localityParts,
-        );
-        const mergedCandidateFromParts =
-          voiceAddressCandidatePolicy.buildAddressCandidateFromParts(
-            mergedParts,
-          );
-        const nextAddressState = buildAddressStateFromLocalityMerge({
-          state: addressState,
-          mergedParts,
-          mergedCandidate:
-            mergedCandidate ||
-            mergedCandidateFromParts ||
-            addressState.candidate,
-          sourceEventId: currentEventId,
-        });
-        await this.conversationsService.updateVoiceAddressState({
-          tenantId: tenant.id,
-          conversationId,
-          addressState: nextAddressState,
-        });
-        const missingParts =
-          voiceAddressCandidatePolicy.getAddressMissingParts(nextAddressState);
-        if (missingParts.locality) {
-          return this.handleMissingLocalityPrompt({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            candidate: nextAddressState.candidate ?? "",
-            addressState: nextAddressState,
-            nameState,
-            collectedData,
-            currentEventId,
-            displayName,
-            strategy: csrStrategy,
-            timingCollector,
-          });
-        }
-        if (missingParts.houseNumber || missingParts.street) {
-          return this.replyWithAddressPromptWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            sourceEventId: currentEventId,
-            addressState: nextAddressState,
-            strategy: csrStrategy,
-          });
-        }
-        return this.replyWithAddressConfirmationWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          sourceEventId: currentEventId,
-          candidate: nextAddressState.candidate ?? "",
-          strategy: csrStrategy,
-        });
-      }
-
-      const candidateForEvent =
-        Boolean(addressState.candidate) &&
-        addressState.sourceEventId === currentEventId;
-      if (candidateForEvent && addressState.candidate) {
-        const routeResponse = await this.routeAddressCompleteness({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          callSid,
-          displayName,
-          currentEventId,
-          addressState,
-          candidateForCompleteness: addressState.candidate,
-          nameState,
-          collectedData,
-          strategy: csrStrategy,
-          timingCollector,
-        });
-        if (routeResponse) {
-          return routeResponse;
-        }
-        return this.replyWithAddressConfirmationWindow({
-          res,
-          tenantId: tenant.id,
-          conversationId,
-          sourceEventId: currentEventId,
-          candidate: addressState.candidate,
-          strategy: csrStrategy,
-        });
-      }
-
-      if (addressState.candidate) {
-        const existingAddressResponse =
-          await this.handleAddressExistingCandidate({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            callSid,
-            displayName,
-            currentEventId,
-            normalizedSpeech,
-            confidence,
-            addressState,
-            nameState,
-            nameReady,
-            collectedData,
-            strategy: csrStrategy,
-            timingCollector,
-          });
-        if (existingAddressResponse) {
-          return existingAddressResponse;
-        }
-      }
-
-      if (!expectedField) {
-        const addressQuestionReply =
-          await this.turnSideQuestionHelperRuntime.buildSideQuestionReply(
-            tenant.id,
-            normalizedSpeech,
-          );
-        if (addressQuestionReply) {
-          return this.replyWithListeningWindow({
-            res,
-            tenantId: tenant.id,
-            conversationId,
-            field: "address",
-            sourceEventId: currentEventId,
-            timeoutSec: 8,
-            twiml: this.buildSayGatherTwiml(
-              `${addressQuestionReply} Now, please say the service address.`,
-              { timeout: 8 },
-            ),
-          });
-        }
+      if (addressPreRoutingResponse) {
+        return addressPreRoutingResponse;
       }
 
       return this.turnAddressExtractionRuntime.handle({
