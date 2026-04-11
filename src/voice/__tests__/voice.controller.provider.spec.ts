@@ -37,16 +37,24 @@ describe("VoiceController provider selection", () => {
     extractFromNumber: jest.Mock;
   };
   let voiceTurnService: {
+    handleTurn: jest.Mock;
+  };
+  let voiceResponse: {
     replyWithNoHandoff: jest.Mock;
-    disabledTwiml: jest.Mock;
-    getTenantDisplayName: jest.Mock;
-    buildConsentMessage: jest.Mock;
-    buildConsentTwiml: jest.Mock;
+    replyWithHumanFallback: jest.Mock;
     replyWithTwiml: jest.Mock;
   };
   let voiceConsentAudioService: {
     getCachedConsentUrl: jest.Mock;
-    warmConsentAudio: jest.Mock;
+    synthesizeAndGetUrl: jest.Mock;
+  };
+  let voicePromptComposer: {
+    disabledTwiml: jest.Mock;
+    buildConsentMessage: jest.Mock;
+    buildConsentTwiml: jest.Mock;
+  };
+  let voiceTurnPolicy: {
+    getTenantDisplayName: jest.Mock;
   };
   let loggingService: {
     log: jest.Mock;
@@ -69,22 +77,30 @@ describe("VoiceController provider selection", () => {
       extractFromNumber: jest.fn().mockReturnValue("+12165550000"),
     };
     voiceTurnService = {
+      handleTurn: jest.fn(),
+    };
+    voiceResponse = {
       replyWithNoHandoff: jest.fn(),
-      disabledTwiml: jest.fn(),
-      getTenantDisplayName: jest.fn().mockReturnValue("Leizurely HVAC"),
-      buildConsentMessage: jest
-        .fn()
-        .mockReturnValue("Thank you for calling Leizurely HVAC."),
-      buildConsentTwiml: jest
-        .fn()
-        .mockReturnValue("<Response><Say>Fallback consent.</Say></Response>"),
+      replyWithHumanFallback: jest.fn(),
       replyWithTwiml: jest.fn().mockReturnValue(undefined),
     };
     voiceConsentAudioService = {
       getCachedConsentUrl: jest
         .fn()
         .mockResolvedValue("https://media.example/consent.mp3"),
-      warmConsentAudio: jest.fn(),
+      synthesizeAndGetUrl: jest.fn().mockResolvedValue(null),
+    };
+    voicePromptComposer = {
+      disabledTwiml: jest.fn(),
+      buildConsentMessage: jest
+        .fn()
+        .mockReturnValue("Thank you for calling Leizurely HVAC."),
+      buildConsentTwiml: jest
+        .fn()
+        .mockReturnValue("<Response><Say>Fallback consent.</Say></Response>"),
+    };
+    voiceTurnPolicy = {
+      getTenantDisplayName: jest.fn().mockReturnValue("Leizurely HVAC"),
     };
     loggingService = {
       log: jest.fn(),
@@ -104,6 +120,9 @@ describe("VoiceController provider selection", () => {
       voiceWebhookParser as never,
       voiceTurnService as never,
       voiceConsentAudioService as never,
+      voicePromptComposer as never,
+      voiceTurnPolicy as never,
+      voiceResponse as never,
       loggingService as never,
     );
 
@@ -121,8 +140,7 @@ describe("VoiceController provider selection", () => {
       "tenant-1",
       "Thank you for calling Leizurely HVAC.",
     );
-    expect(voiceConsentAudioService.warmConsentAudio).not.toHaveBeenCalled();
-    expect(voiceTurnService.buildConsentTwiml).not.toHaveBeenCalled();
+    expect(voicePromptComposer.buildConsentTwiml).not.toHaveBeenCalled();
     expect(loggingService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "voice.streaming_inbound_selected",
@@ -131,7 +149,7 @@ describe("VoiceController provider selection", () => {
       }),
       VoiceController.name,
     );
-    const twiml = voiceTurnService.replyWithTwiml.mock.calls[0]?.[1] as string;
+    const twiml = voiceResponse.replyWithTwiml.mock.calls[0]?.[1] as string;
     expect(twiml).toContain(
       `<Start><Stream url="wss://example.ngrok.io${VOICE_STREAM_PATH}"`,
     );
@@ -151,17 +169,19 @@ describe("VoiceController provider selection", () => {
       voiceWebhookParser as never,
       voiceTurnService as never,
       voiceConsentAudioService as never,
+      voicePromptComposer as never,
+      voiceTurnPolicy as never,
+      voiceResponse as never,
       loggingService as never,
     );
 
     await controller.handleInbound({} as Request, {} as Response);
 
-    expect(voiceTurnService.buildConsentTwiml).toHaveBeenCalledWith(
+    expect(voicePromptComposer.buildConsentTwiml).toHaveBeenCalledWith(
       "Leizurely HVAC",
     );
     expect(voiceConsentAudioService.getCachedConsentUrl).not.toHaveBeenCalled();
-    expect(voiceConsentAudioService.warmConsentAudio).not.toHaveBeenCalled();
-    expect(voiceTurnService.replyWithTwiml).toHaveBeenCalledWith(
+    expect(voiceResponse.replyWithTwiml).toHaveBeenCalledWith(
       expect.anything(),
       "<Response><Say>Fallback consent.</Say></Response>",
     );

@@ -1,5 +1,6 @@
 import { CallLogService } from "../call-log.service";
 import { SanitizationService } from "../../sanitization/sanitization.service";
+import { PiiObfuscatorService } from "../pii-obfuscator.service";
 import type { PrismaService } from "../../prisma/prisma.service";
 
 describe("CallLogService", () => {
@@ -22,6 +23,7 @@ describe("CallLogService", () => {
     service = new CallLogService(
       prisma as unknown as PrismaService,
       new SanitizationService(),
+      new PiiObfuscatorService(),
     );
   });
 

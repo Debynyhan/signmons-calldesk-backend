@@ -4,6 +4,7 @@ import { LoggingService } from "./logging.service";
 import { CallLogService } from "./call-log.service";
 import { CallLogCleanupService } from "./call-log.cleanup";
 import { AlertingService } from "./alerting.service";
+import { PiiObfuscatorService } from "./pii-obfuscator.service";
 
 @Global()
 @Module({
@@ -13,7 +14,8 @@ import { AlertingService } from "./alerting.service";
     CallLogService,
     CallLogCleanupService,
     AlertingService,
+    PiiObfuscatorService,
   ],
-  exports: [LoggingService, CallLogService, AlertingService],
+  exports: [LoggingService, CallLogService, AlertingService, PiiObfuscatorService],
 })
 export class LoggingModule {}

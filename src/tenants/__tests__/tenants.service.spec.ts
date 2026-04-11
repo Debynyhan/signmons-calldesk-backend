@@ -1,4 +1,6 @@
 import { PrismaTenantsService } from "../tenants.service";
+import { TenantPromptBuilderService } from "../tenant-prompt-builder.service";
+import { TenantFeePolicySynchronizerService } from "../tenant-fee-policy-synchronizer.service";
 import { SanitizationService } from "../../sanitization/sanitization.service";
 import type { PrismaService } from "../../prisma/prisma.service";
 
@@ -14,9 +16,15 @@ describe("PrismaTenantsService", () => {
         findFirst: jest.fn(),
       },
     };
+    const sanitizationService = new SanitizationService();
     service = new PrismaTenantsService(
       prisma as unknown as PrismaService,
-      new SanitizationService(),
+      sanitizationService,
+      new TenantPromptBuilderService(),
+      new TenantFeePolicySynchronizerService(
+        prisma as unknown as PrismaService,
+        sanitizationService,
+      ),
     );
   });
 

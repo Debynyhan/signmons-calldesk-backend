@@ -3,14 +3,10 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import type { Prisma } from "@prisma/client";
-import {
-  JobStatus,
-  JobUrgency,
-  PaymentStatus,
-  PreferredWindowLabel,
-} from "@prisma/client";
+import { JobStatus, PaymentStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { IssueNormalizerService } from "./issue-normalizer.service";
 import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
 import {
   CreateJobFromToolCallRequest,
@@ -24,6 +20,7 @@ export class JobsService implements IJobRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
+    private readonly issueNormalizer: IssueNormalizerService,
   ) {}
 
   async createJobFromToolCall(
@@ -92,9 +89,9 @@ export class JobsService implements IJobRepository {
         serviceCategoryId: serviceCategory.id,
         serviceCategoryTenantId: tenantId,
         status: JobStatus.CREATED,
-        urgency: this.mapUrgency(normalizedPayload.urgency),
+        urgency: this.issueNormalizer.mapUrgency(normalizedPayload.urgency),
         description: normalizedPayload.description ?? null,
-        preferredWindowLabel: this.mapPreferredWindow(
+        preferredWindowLabel: this.issueNormalizer.mapPreferredWindow(
           normalizedPayload.preferredTime,
         ),
         pricingSnapshot: {},
@@ -212,7 +209,7 @@ export class JobsService implements IJobRepository {
         this.buildValidationError("Job payload validation failed.", audit),
       );
     }
-    if (!this.isPreferredTimeValid(normalized.preferredTime)) {
+    if (!this.issueNormalizer.isPreferredTimeValid(normalized.preferredTime)) {
       throw new BadRequestException(
         this.buildValidationError("Preferred time is invalid.", audit),
       );
@@ -268,11 +265,11 @@ export class JobsService implements IJobRepository {
   }
 
   private normalizePayload(payload: Record<string, unknown>): CreateJobPayload {
-    const normalizedIssueCategory = this.normalizeIssueCategory(
+    const normalizedIssueCategory = this.issueNormalizer.normalizeIssueCategory(
       payload.issueCategory,
     );
-    const normalizedUrgency = this.normalizeUrgency(payload.urgency);
-    const normalizedPreferredTime = this.normalizePreferredTime(
+    const normalizedUrgency = this.issueNormalizer.normalizeUrgency(payload.urgency);
+    const normalizedPreferredTime = this.issueNormalizer.normalizePreferredTime(
       payload.preferredTime,
     );
     return {
@@ -429,97 +426,4 @@ export class JobsService implements IJobRepository {
     return "";
   }
 
-  private normalizeIssueCategory(
-    value: unknown,
-  ): CreateJobPayload["issueCategory"] {
-    if (typeof value !== "string") return "" as never;
-    const normalized = this.sanitizationService
-      .normalizeWhitespace(value)
-      .toLowerCase()
-      .replace(/[^a-z\s]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    const mapped: Record<string, CreateJobPayload["issueCategory"]> = {
-      heating: "HEATING",
-      heat: "HEATING",
-      "no heat": "HEATING",
-      "heat not working": "HEATING",
-      heater: "HEATING",
-      furnace: "HEATING",
-      "furnace down": "HEATING",
-      hvac: "HEATING",
-      cooling: "COOLING",
-      cool: "COOLING",
-      ac: "COOLING",
-      "air conditioning": "COOLING",
-      "no ac": "COOLING",
-      "ac not cooling": "COOLING",
-      plumbing: "PLUMBING",
-      plumb: "PLUMBING",
-      leak: "PLUMBING",
-      "pipe leak": "PLUMBING",
-      electrical: "ELECTRICAL",
-      electric: "ELECTRICAL",
-      wiring: "ELECTRICAL",
-      general: "GENERAL",
-      "general service": "GENERAL",
-      "maintenance": "GENERAL",
-    };
-    return mapped[normalized] ?? ("" as never);
-  }
-
-  private normalizeUrgency(value: unknown): CreateJobPayload["urgency"] {
-    if (typeof value !== "string") return "" as never;
-    const normalized = this.sanitizationService
-      .normalizeWhitespace(value)
-      .toUpperCase();
-    if (normalized === "EMERGENCY" || normalized === "URGENT") {
-      return "EMERGENCY";
-    }
-    if (normalized === "STANDARD" || normalized === "NORMAL") {
-      return "STANDARD";
-    }
-    return "" as never;
-  }
-
-  private normalizePreferredTime(value: unknown): string | undefined {
-    if (typeof value !== "string") return undefined;
-    const normalized = this.sanitizationService.normalizeWhitespace(value);
-    const upper = normalized.toUpperCase();
-    const slots = ["ASAP", "MORNING", "AFTERNOON", "EVENING"];
-    if (slots.includes(upper)) {
-      return upper;
-    }
-    const timestamp = Date.parse(normalized);
-    if (!Number.isNaN(timestamp)) {
-      return new Date(timestamp).toISOString();
-    }
-    return normalized;
-  }
-
-  private isPreferredTimeValid(value?: string): boolean {
-    if (!value) return true;
-    const slots = ["ASAP", "MORNING", "AFTERNOON", "EVENING"];
-    if (slots.includes(value)) return true;
-    return !Number.isNaN(Date.parse(value));
-  }
-
-  private mapUrgency(value: string): JobUrgency {
-    return value === "EMERGENCY" ? JobUrgency.EMERGENCY : JobUrgency.STANDARD;
-  }
-
-  private mapPreferredWindow(
-    value?: string,
-  ): PreferredWindowLabel | undefined {
-    if (!value) {
-      return undefined;
-    }
-    const normalized = value.trim().toUpperCase();
-    if (normalized in PreferredWindowLabel) {
-      return PreferredWindowLabel[
-        normalized as keyof typeof PreferredWindowLabel
-      ];
-    }
-    return undefined;
-  }
 }

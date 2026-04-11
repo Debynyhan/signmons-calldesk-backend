@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { PiiObfuscatorService } from "./pii-obfuscator.service";
 
 export interface CreateCallLogInput {
   tenantId: string;
@@ -27,14 +28,15 @@ export class CallLogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
+    private readonly piiObfuscator: PiiObfuscatorService,
   ) {}
 
   async createLog(input: CreateCallLogInput) {
-    const sanitizedTranscript = this.obfuscatePii(
+    const sanitizedTranscript = this.piiObfuscator.obfuscate(
       this.sanitizationService.sanitizeText(input.transcript),
     );
     const sanitizedResponse = input.aiResponse
-      ? this.obfuscatePii(
+      ? this.piiObfuscator.obfuscate(
           this.sanitizationService.sanitizeText(input.aiResponse),
         )
       : null;
@@ -152,7 +154,7 @@ export class CallLogService {
     confidence?: number;
     occurredAt?: Date;
   }): Promise<string | null> {
-    const sanitizedTranscript = this.obfuscatePii(
+    const sanitizedTranscript = this.piiObfuscator.obfuscate(
       this.sanitizationService.sanitizeText(input.transcript),
     );
     if (!sanitizedTranscript) {
@@ -188,7 +190,7 @@ export class CallLogService {
     occurredAt?: Date;
     sourceEventId?: string;
   }): Promise<string | null> {
-    const sanitizedMessage = this.obfuscatePii(
+    const sanitizedMessage = this.piiObfuscator.obfuscate(
       this.sanitizationService.sanitizeText(input.message),
     );
     if (!sanitizedMessage) {
@@ -410,29 +412,4 @@ export class CallLogService {
       );
   }
 
-  private obfuscatePii(value: string): string {
-    const maskedPhones = value.replace(
-      /\b(\+?\d{1,3}[-.\s]?)?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
-      (match) => {
-        const digits = match.replace(/\D/g, "");
-        if (digits.length < 4) {
-          return "***";
-        }
-        const lastFour = digits.slice(-4);
-        return `***-***-${lastFour}`;
-      },
-    );
-
-    return maskedPhones.replace(
-      /\b(\d{1,5}\s+[A-Za-z0-9\s]+(?:Street|St|Road|Rd|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Terrace|Ter|Place|Pl|Trail|Trl)\b)/gi,
-      (match) => {
-        const parts = match.split(" ");
-        if (parts.length < 2) {
-          return "***";
-        }
-        const streetName = parts.slice(1).join(" ");
-        return `*** ${streetName}`;
-      },
-    );
-  }
 }

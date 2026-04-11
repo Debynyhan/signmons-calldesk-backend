@@ -63,7 +63,7 @@ export class VoiceStreamGateway
     );
     this.turnExecutionRuntime = new VoiceStreamTurnExecutionRuntime(
       this.config,
-      this.conversationsService,
+      this.voiceConversationStateService,
       this.voiceCallService,
       this.voiceTurnService,
       this.voiceFillerAudioService,
@@ -94,6 +94,10 @@ export class VoiceStreamGateway
 
   private get conversationsService() {
     return this.dependencies.conversationsService;
+  }
+
+  private get voiceConversationStateService() {
+    return this.dependencies.voiceConversationStateService;
   }
 
   private get googleSpeechService() {

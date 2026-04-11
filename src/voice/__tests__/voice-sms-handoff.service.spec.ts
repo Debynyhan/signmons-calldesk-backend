@@ -1,6 +1,40 @@
+import type { TenantFeePolicy } from "@prisma/client";
 import type { ConversationsService } from "../../conversations/conversations.service";
 import type { LoggingService } from "../../logging/logging.service";
 import { VoiceSmsHandoffService } from "../voice-sms-handoff.service";
+
+const buildFeePolicy = (
+  overrides: Partial<TenantFeePolicy> = {},
+): TenantFeePolicy => ({
+  id: "policy-1",
+  tenantId: "tenant-1",
+  serviceFeeCents: 15000,
+  emergencyFeeCents: 9900,
+  creditWindowHours: 24,
+  currency: "USD",
+  effectiveAt: new Date("2026-01-01T00:00:00.000Z"),
+  isActive: true,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  ...overrides,
+});
+
+const buildVoiceHandoffPolicyService = (
+  feePolicy: TenantFeePolicy | null = buildFeePolicy(),
+) => ({
+  getTenantFeePolicySafe: jest.fn().mockResolvedValue(feePolicy),
+  getTenantFeeConfig: jest.fn().mockImplementation(
+    (policy: TenantFeePolicy | null) => ({
+      serviceFee: policy ? policy.serviceFeeCents / 100 : null,
+      emergencyFee: policy && policy.emergencyFeeCents ? policy.emergencyFeeCents / 100 : null,
+      creditWindowHours: policy?.creditWindowHours ?? 24,
+    }),
+  ),
+  formatFeeAmount: jest.fn().mockImplementation((value: number) => {
+    const rounded = Math.round(value * 100) / 100;
+    return Number.isInteger(rounded) ? `$${rounded}` : `$${rounded.toFixed(2)}`;
+  }),
+});
 
 const buildConversationsService = (
   overrides: Record<string, unknown> = {},
@@ -49,7 +83,7 @@ describe("VoiceSmsHandoffService", () => {
       }),
     });
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsHandoffService(conversationsService, loggingService);
+    const service = new VoiceSmsHandoffService(conversationsService, loggingService, buildVoiceHandoffPolicyService() as never);
 
     const result = await service.prepare({
       tenantId: "tenant-1",
@@ -115,7 +149,7 @@ describe("VoiceSmsHandoffService", () => {
       }),
     });
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsHandoffService(conversationsService, loggingService);
+    const service = new VoiceSmsHandoffService(conversationsService, loggingService, buildVoiceHandoffPolicyService() as never);
 
     const result = await service.prepare({
       tenantId: "tenant-1",
@@ -170,7 +204,7 @@ describe("VoiceSmsHandoffService", () => {
       }),
     });
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsHandoffService(conversationsService, loggingService);
+    const service = new VoiceSmsHandoffService(conversationsService, loggingService, buildVoiceHandoffPolicyService() as never);
 
     const result = await service.prepare({
       tenantId: "tenant-1",
@@ -200,5 +234,70 @@ describe("VoiceSmsHandoffService", () => {
       }),
       "VoiceTurnService",
     );
+  });
+
+  describe("SMS closing message builders", () => {
+    const makeService = (feePolicy: TenantFeePolicy | null = buildFeePolicy()) =>
+      new VoiceSmsHandoffService(
+        buildConversationsService() as never,
+        buildLoggingService() as never,
+        buildVoiceHandoffPolicyService(feePolicy) as never,
+      );
+
+    it("builds default sms handoff message", () => {
+      const service = makeService();
+      expect(service.buildSmsHandoffMessage()).toContain(
+        "I'm texting you now to confirm your details.",
+      );
+    });
+
+    it("personalizes message with caller first name", () => {
+      const service = makeService();
+      expect(service.buildSmsHandoffMessage("Dan")).toContain("Thanks, Dan.");
+    });
+
+    it("builds fee-aware handoff message with emergency add-on", () => {
+      const service = makeService();
+      const message = service.buildSmsHandoffMessageForContext({
+        feePolicy: buildFeePolicy(),
+        includeFees: true,
+        isEmergency: true,
+        callerFirstName: "Dan",
+      });
+      expect(message).toContain("Great, Dan");
+      expect(message).toContain("service fee is $150");
+      expect(message).toContain("additional $99 emergency fee");
+      expect(message).toContain("approve the fees");
+    });
+
+    it("uses plain message when includeFees is false", () => {
+      const service = makeService();
+      const message = service.buildSmsHandoffMessageForContext({
+        feePolicy: buildFeePolicy(),
+        includeFees: false,
+        isEmergency: false,
+      });
+      expect(message).toContain("I'm texting you now to confirm your details.");
+      expect(message).not.toContain("service fee");
+    });
+
+    it("uses compliant override only when fee + texting language are present", async () => {
+      const service = makeService();
+      const accepted = await service.resolveSmsHandoffClosingMessage({
+        tenantId: "tenant-1",
+        isEmergency: false,
+        messageOverride:
+          "The service fee is $150 and it's credited toward repairs. I'm texting you now.",
+      });
+      expect(accepted).toContain("I'm texting you now.");
+
+      const fallback = await service.resolveSmsHandoffClosingMessage({
+        tenantId: "tenant-1",
+        isEmergency: false,
+        messageOverride: "Thanks, we will call you back.",
+      });
+      expect(fallback).toContain("service fee is $150");
+      expect(fallback).toContain("I'm texting you now");
+    });
   });
 });

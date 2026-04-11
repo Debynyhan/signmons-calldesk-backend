@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ConversationsService } from "../conversations/conversations.service";
+import { VoiceConversationStateService } from "./voice-conversation-state.service";
 
 export type VoiceUrgencyBinaryIntent = "YES" | "NO" | null;
 
@@ -10,7 +11,34 @@ export type VoiceUrgencyExpectedFieldOutcome =
 
 @Injectable()
 export class VoiceUrgencySlotService {
-  constructor(private readonly conversationsService: ConversationsService) {}
+  private readonly stateServiceDependency?: VoiceConversationStateService;
+
+  constructor(
+    private readonly conversationsService: ConversationsService,
+    voiceConversationStateService?: VoiceConversationStateService,
+  ) {
+    this.stateServiceDependency = voiceConversationStateService;
+  }
+
+  private get stateService(): Pick<
+    VoiceConversationStateService,
+    "updateVoiceUrgencyConfirmation" | "clearVoiceListeningWindow"
+  > {
+    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
+    if (
+      typeof legacy.updateVoiceUrgencyConfirmation === "function" &&
+      typeof legacy.clearVoiceListeningWindow === "function"
+    ) {
+      return legacy as Pick<
+        VoiceConversationStateService,
+        "updateVoiceUrgencyConfirmation" | "clearVoiceListeningWindow"
+      >;
+    }
+    return this.stateServiceDependency as Pick<
+      VoiceConversationStateService,
+      "updateVoiceUrgencyConfirmation" | "clearVoiceListeningWindow"
+    >;
+  }
 
   async handleExpectedField(params: {
     expectedField: "comfort_risk" | "urgency_confirm" | null;
@@ -27,7 +55,7 @@ export class VoiceUrgencySlotService {
     }
 
     if (params.binaryIntent === "YES" || params.binaryIntent === "NO") {
-      await this.conversationsService.updateVoiceUrgencyConfirmation({
+      await this.stateService.updateVoiceUrgencyConfirmation({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
         urgencyConfirmation: {
@@ -36,7 +64,7 @@ export class VoiceUrgencySlotService {
           sourceEventId: params.sourceEventId ?? null,
         },
       });
-      await this.conversationsService.clearVoiceListeningWindow({
+      await this.stateService.clearVoiceListeningWindow({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });

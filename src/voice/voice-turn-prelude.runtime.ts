@@ -2,6 +2,7 @@ import type { Prisma, TenantOrganization } from "@prisma/client";
 import type { Response } from "express";
 import type { AppConfig } from "../config/app.config";
 import { ConversationsService } from "../conversations/conversations.service";
+import { VoiceConversationStateService } from "./voice-conversation-state.service";
 import { CallLogService } from "../logging/call-log.service";
 
 type TurnConversationLike = {
@@ -87,6 +88,7 @@ export class VoiceTurnPreludeRuntime {
   constructor(
     private readonly config: AppConfig,
     private readonly conversationsService: ConversationsService,
+    private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly callLogService: CallLogService,
     private readonly policy: TurnPreludePolicy,
   ) {}
@@ -172,7 +174,7 @@ export class VoiceTurnPreludeRuntime {
       return { kind: "exit", value: "" };
     }
 
-    const turnState = (await this.conversationsService.incrementVoiceTurn({
+    const turnState = (await this.voiceConversationStateService.incrementVoiceTurn({
       tenantId: tenant.id,
       conversationId: conversation.id,
       now,
@@ -234,7 +236,7 @@ export class VoiceTurnPreludeRuntime {
 
     const confidence = this.policy.normalizeConfidence(input.confidence ?? null);
     const updatedConversation =
-      (await this.conversationsService.updateVoiceTranscript({
+      (await this.voiceConversationStateService.updateVoiceTranscript({
         tenantId: tenant.id,
         callSid,
         transcript: normalizedSpeech,

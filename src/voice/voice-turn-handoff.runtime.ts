@@ -64,7 +64,6 @@ type VoiceTurnHandoffPolicy = {
     message: string,
   ) => string;
   replyWithTwiml: (res: Response | undefined, twiml: string) => Promise<string>;
-  buildNoHandoffTwiml: () => string;
   log: (payload: Record<string, unknown>) => void;
   warn: (payload: Record<string, unknown>) => void;
 };
@@ -180,52 +179,6 @@ export class VoiceTurnHandoffRuntime {
     return this.policy.replyWithTwiml(
       params.res,
       this.policy.buildClosingTwiml(params.displayName, closingMessage),
-    );
-  }
-
-  async replyWithHumanFallback(params: {
-    res?: Response;
-    tenantId?: string;
-    conversationId?: string;
-    callSid?: string;
-    displayName?: string;
-    reason: string;
-    messageOverride?: string;
-  }): Promise<string> {
-    this.logVoiceOutcome({
-      outcome: "human_fallback",
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      reason: params.reason,
-    });
-    this.policy.clearIssuePromptAttempts(params.callSid);
-    const message = params.messageOverride ?? "We'll follow up shortly.";
-    return this.policy.replyWithTwiml(
-      params.res,
-      this.policy.buildClosingTwiml(params.displayName ?? "", message),
-    );
-  }
-
-  async replyWithNoHandoff(params: {
-    res?: Response;
-    reason: string;
-    tenantId?: string;
-    conversationId?: string;
-    callSid?: string;
-    twimlOverride?: string;
-  }): Promise<string> {
-    this.logVoiceOutcome({
-      outcome: "no_handoff",
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      callSid: params.callSid,
-      reason: params.reason,
-    });
-    this.policy.clearIssuePromptAttempts(params.callSid);
-    return this.policy.replyWithTwiml(
-      params.res,
-      params.twimlOverride ?? this.policy.buildNoHandoffTwiml(),
     );
   }
 

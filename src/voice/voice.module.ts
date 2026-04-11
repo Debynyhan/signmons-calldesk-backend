@@ -25,6 +25,12 @@ import { VoiceTurnDependencies } from "./voice-turn.dependencies";
 import { VoiceStreamDependencies } from "./voice-stream.dependencies";
 import { VoiceUtteranceService } from "./voice-utterance.service";
 import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
+import { VoiceTurnPolicyService } from "./voice-turn-policy.service";
+import { VoiceResponseService } from "./voice-response.service";
+import { VoiceListeningWindowService } from "./voice-listening-window.service";
+import { VoiceCallStateService } from "./voice-call-state.service";
+import { TwilioSignatureGuard } from "./twilio-signature.guard";
+import { VoiceTurnRuntimeFactory } from "./voice-turn-runtime.factory";
 
 @Module({
   imports: [
@@ -47,6 +53,7 @@ import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
     VoiceHandoffPolicyService,
     VoiceSmsHandoffService,
     VoiceSmsPhoneSlotService,
+    VoiceTurnPolicyService,
     VoiceUtteranceService,
     VoiceWebhookParserService,
     VoiceUrgencySlotService,
@@ -55,6 +62,11 @@ import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
     VoiceStreamDependencies,
     VoiceConsentAudioService,
     VoiceFillerAudioService,
+    VoiceResponseService,
+    VoiceListeningWindowService,
+    VoiceCallStateService,
+    TwilioSignatureGuard,
+    VoiceTurnRuntimeFactory,
   ],
   controllers: [VoiceController],
 })

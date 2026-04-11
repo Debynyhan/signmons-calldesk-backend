@@ -1,24 +1,24 @@
 import { randomUUID } from "crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma, TenantFeePolicy, TenantOrganization } from "@prisma/client";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import type { TenantFeePolicy, TenantOrganization } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { TenantPromptBuilderService } from "./tenant-prompt-builder.service";
+import { TenantFeePolicySynchronizerService } from "./tenant-fee-policy-synchronizer.service";
 import {
   CreateTenantInput,
   TenantContext,
   TenantsService,
   TenantFeeSettingsUpdate,
 } from "./interfaces/tenants-service.interface";
-import {
-  DEFAULT_FEE_POLICY,
-  normalizeFeePolicyFromSettings,
-} from "./fee-policy";
 
 @Injectable()
 export class PrismaTenantsService implements TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
+    private readonly promptBuilder: TenantPromptBuilderService,
+    private readonly feePolicySynchronizer: TenantFeePolicySynchronizerService,
   ) {}
 
   async getTenantContext(tenantId: string): Promise<TenantContext> {
@@ -52,7 +52,7 @@ export class PrismaTenantsService implements TenantsService {
       throw new Error("Tenant name must include alphanumeric characters.");
     }
 
-    const prompt = this.buildPrompt(tenantId, displayName, instructions);
+    const prompt = this.promptBuilder.buildPrompt(tenantId, displayName, instructions);
 
     const tenant = await this.prisma.tenantOrganization.create({
       data: {
@@ -118,125 +118,14 @@ export class PrismaTenantsService implements TenantsService {
   async syncTenantFeePolicy(
     tenantId: string,
   ): Promise<TenantFeePolicy | null> {
-    const sanitizedId = this.sanitizationService.sanitizeIdentifier(tenantId);
-    if (!sanitizedId) {
-      throw new NotFoundException("Tenant not found.");
-    }
-
-    const tenant = await this.prisma.tenantOrganization.findUnique({
-      where: { id: sanitizedId },
-    });
-
-    if (!tenant) {
-      throw new NotFoundException("Tenant not found.");
-    }
-
-    const normalized = normalizeFeePolicyFromSettings(
-      tenant.settings,
-      DEFAULT_FEE_POLICY,
-    );
-
-    const existing = await this.prisma.tenantFeePolicy.findFirst({
-      where: {
-        tenantId: sanitizedId,
-        isActive: true,
-        effectiveAt: { lte: new Date() },
-      },
-      orderBy: { effectiveAt: "desc" },
-    });
-
-    if (
-      existing &&
-      existing.serviceFeeCents === normalized.serviceFeeCents &&
-      existing.emergencyFeeCents === normalized.emergencyFeeCents &&
-      existing.creditWindowHours === normalized.creditWindowHours &&
-      existing.currency === normalized.currency
-    ) {
-      return existing;
-    }
-
-    const results = await this.prisma.$transaction([
-      this.prisma.tenantFeePolicy.updateMany({
-        where: { tenantId: sanitizedId, isActive: true },
-        data: { isActive: false },
-      }),
-      this.prisma.tenantFeePolicy.create({
-        data: {
-          tenantId: sanitizedId,
-          serviceFeeCents: normalized.serviceFeeCents,
-          emergencyFeeCents: normalized.emergencyFeeCents,
-          creditWindowHours: normalized.creditWindowHours,
-          currency: normalized.currency,
-          effectiveAt: new Date(),
-          isActive: true,
-        },
-      }),
-    ]);
-
-    const created = results[1] as TenantFeePolicy | undefined;
-    return created ?? null;
+    return this.feePolicySynchronizer.sync(tenantId);
   }
 
   async updateTenantFeeSettings(
     tenantId: string,
     updates: TenantFeeSettingsUpdate,
   ): Promise<TenantFeePolicy | null> {
-    const sanitizedId = this.sanitizationService.sanitizeIdentifier(tenantId);
-    if (!sanitizedId) {
-      throw new NotFoundException("Tenant not found.");
-    }
-
-    const tenant = await this.prisma.tenantOrganization.findUnique({
-      where: { id: sanitizedId },
-      select: { id: true, settings: true },
-    });
-
-    if (!tenant) {
-      throw new NotFoundException("Tenant not found.");
-    }
-
-    const feeUpdates: Prisma.JsonObject = {};
-    if (typeof updates.serviceFeeCents === "number") {
-      feeUpdates.serviceFeeCents = Math.max(0, Math.round(updates.serviceFeeCents));
-    }
-    if (typeof updates.emergencyFeeCents === "number") {
-      feeUpdates.emergencyFeeCents = Math.max(
-        0,
-        Math.round(updates.emergencyFeeCents),
-      );
-    }
-    if (typeof updates.creditWindowHours === "number") {
-      feeUpdates.creditWindowHours = Math.max(
-        1,
-        Math.round(updates.creditWindowHours),
-      );
-    }
-    if (typeof updates.currency === "string" && updates.currency.trim()) {
-      feeUpdates.currency = updates.currency.trim().toUpperCase();
-    }
-
-    if (Object.keys(feeUpdates).length === 0) {
-      throw new BadRequestException("No fee settings provided.");
-    }
-
-    const baseSettings: Prisma.JsonObject = this.isJsonObject(tenant.settings)
-      ? tenant.settings
-      : {};
-    const baseFees: Prisma.JsonObject = this.isJsonObject(baseSettings.fees)
-      ? baseSettings.fees
-      : {};
-
-    const nextSettings: Prisma.InputJsonValue = {
-      ...baseSettings,
-      fees: { ...baseFees, ...feeUpdates },
-    };
-
-    await this.prisma.tenantOrganization.update({
-      where: { id: sanitizedId },
-      data: { settings: nextSettings },
-    });
-
-    return this.syncTenantFeePolicy(sanitizedId);
+    return this.feePolicySynchronizer.updateSettings(tenantId, updates);
   }
 
   private mapTenantToContext(tenant: TenantOrganization): TenantContext {
@@ -244,30 +133,13 @@ export class PrismaTenantsService implements TenantsService {
     const displayName = settings.displayName ?? tenant.name;
     const instructions = settings.instructions ?? "";
     const prompt =
-      settings.prompt ?? this.buildPrompt(tenant.id, displayName, instructions);
+      settings.prompt ?? this.promptBuilder.buildPrompt(tenant.id, displayName, instructions);
     return {
       tenantId: tenant.id,
       displayName,
       instructions,
       prompt,
     };
-  }
-
-  private buildPrompt(
-    tenantId: string,
-    displayName: string,
-    instructions: string,
-  ) {
-    const persona = [
-      `You are handling calls for tenantId=${tenantId} (${displayName}).`,
-      'Always greet callers warmly, introduce yourself as their dispatcher, and speak as part of the tenant\'s team (use "we" / "our").',
-      "Act on the tenant's behalf end-to-end: gather details, reassure them, and upsell maintenance plans or priority service whenever it helps.",
-      "Be transparent that every visit includes a service fee that is credited toward repairs if they approve work within 24 hours.",
-      "Summarize the plan and next steps before closing every interaction.",
-    ].join(" ");
-
-    const trimmedInstructions = instructions?.trim();
-    return trimmedInstructions ? `${persona} ${trimmedInstructions}` : persona;
   }
 
   private parseSettings(value: unknown): {
@@ -294,10 +166,5 @@ export class PrismaTenantsService implements TenantsService {
     };
   }
 
-  private isJsonObject(
-    value: Prisma.JsonValue | undefined,
-  ): value is Prisma.JsonObject {
-    return Boolean(value && typeof value === "object" && !Array.isArray(value));
-  }
 
 }

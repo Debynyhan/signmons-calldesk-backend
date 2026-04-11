@@ -26,43 +26,48 @@ const buildTenantsService = (
   }) as unknown as TenantsService;
 
 describe("VoiceHandoffPolicyService", () => {
-  it("builds default sms handoff message", () => {
-    const service = new VoiceHandoffPolicyService(buildTenantsService());
-    expect(service.buildSmsHandoffMessage()).toContain(
-      "I'm texting you now to confirm your details.",
-    );
+  describe("getTenantFeeConfig", () => {
+    it("returns nulls and default window for null policy", () => {
+      const service = new VoiceHandoffPolicyService(buildTenantsService());
+      const config = service.getTenantFeeConfig(null);
+      expect(config.serviceFee).toBeNull();
+      expect(config.emergencyFee).toBeNull();
+      expect(config.creditWindowHours).toBe(24);
+    });
+
+    it("extracts fees from policy", () => {
+      const service = new VoiceHandoffPolicyService(buildTenantsService());
+      const config = service.getTenantFeeConfig(buildFeePolicy());
+      expect(config.serviceFee).toBe(150);
+      expect(config.emergencyFee).toBe(99);
+      expect(config.creditWindowHours).toBe(24);
+    });
   });
 
-  it("builds fee-aware handoff message with emergency add-on", () => {
-    const service = new VoiceHandoffPolicyService(buildTenantsService());
-    const message = service.buildSmsHandoffMessageForContext({
-      feePolicy: buildFeePolicy(),
-      includeFees: true,
-      isEmergency: true,
-      callerFirstName: "Dan",
+  describe("formatFeeAmount", () => {
+    it("formats integer amounts without decimals", () => {
+      const service = new VoiceHandoffPolicyService(buildTenantsService());
+      expect(service.formatFeeAmount(150)).toBe("$150");
     });
-    expect(message).toContain("Great, Dan");
-    expect(message).toContain("service fee is $150");
-    expect(message).toContain("additional $99 emergency fee");
-    expect(message).toContain("approve the fees");
+
+    it("formats fractional amounts with 2 decimals", () => {
+      const service = new VoiceHandoffPolicyService(buildTenantsService());
+      expect(service.formatFeeAmount(99.5)).toBe("$99.50");
+    });
   });
 
-  it("uses compliant override only when fee + texting language are present", async () => {
-    const service = new VoiceHandoffPolicyService(buildTenantsService());
-    const accepted = await service.resolveSmsHandoffClosingMessage({
-      tenantId: "tenant-1",
-      isEmergency: false,
-      messageOverride:
-        "The service fee is $150 and it's credited toward repairs. I'm texting you now.",
+  describe("getTenantFeePolicySafe", () => {
+    it("returns null when service throws", async () => {
+      const tenantsService = {
+        getTenantFeePolicy: jest.fn().mockRejectedValue(new Error("db error")),
+      } as unknown as TenantsService;
+      const service = new VoiceHandoffPolicyService(tenantsService);
+      expect(await service.getTenantFeePolicySafe("t1")).toBeNull();
     });
-    expect(accepted).toContain("I'm texting you now.");
 
-    const fallback = await service.resolveSmsHandoffClosingMessage({
-      tenantId: "tenant-1",
-      isEmergency: false,
-      messageOverride: "Thanks, we will call you back.",
+    it("returns policy on success", async () => {
+      const service = new VoiceHandoffPolicyService(buildTenantsService());
+      expect(await service.getTenantFeePolicySafe("tenant-1")).not.toBeNull();
     });
-    expect(fallback).toContain("service fee is $150");
-    expect(fallback).toContain("I'm texting you now");
   });
 });

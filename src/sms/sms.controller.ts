@@ -23,6 +23,7 @@ import { ConversationsService } from "../conversations/conversations.service";
 import { AiService } from "../ai/ai.service";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
+import { VoiceConversationStateService } from "../voice/voice-conversation-state.service";
 import {
   getRequestContext,
   setRequestContextData,
@@ -38,11 +39,29 @@ export class SmsController {
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
     private readonly conversationsService: ConversationsService,
+    private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly aiService: AiService,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly smsService: SmsService,
   ) {}
+
+  private get stateService(): Pick<
+    VoiceConversationStateService,
+    "promoteNameFromSms" | "promoteAddressFromSms"
+  > {
+    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
+    if (
+      typeof legacy.promoteNameFromSms === "function" &&
+      typeof legacy.promoteAddressFromSms === "function"
+    ) {
+      return legacy as Pick<
+        VoiceConversationStateService,
+        "promoteNameFromSms" | "promoteAddressFromSms"
+      >;
+    }
+    return this.voiceConversationStateService;
+  }
 
   @Post("confirm-field")
   @UseGuards(AdminApiGuard)
@@ -73,14 +92,14 @@ export class SmsController {
       dto.sourceEventId?.trim() ?? `sms-${randomUUID()}`;
 
     if (dto.field === "name") {
-      await this.conversationsService.promoteNameFromSms({
+      await this.stateService.promoteNameFromSms({
         tenantId,
         conversationId: dto.conversationId,
         value: sanitizedValue,
         sourceEventId,
       });
     } else {
-      await this.conversationsService.promoteAddressFromSms({
+      await this.stateService.promoteAddressFromSms({
         tenantId,
         conversationId: dto.conversationId,
         value: sanitizedValue,

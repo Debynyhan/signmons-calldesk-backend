@@ -1,8 +1,8 @@
 import { protos } from "@google-cloud/speech";
 import type { AppConfig } from "../config/app.config";
-import { ConversationsService } from "../conversations/conversations.service";
 import { runWithRequestContext } from "../common/context/request-context";
 import { LoggingService } from "../logging/logging.service";
+import { VoiceConversationStateService } from "./voice-conversation-state.service";
 import { VoiceCallService } from "./voice-call.service";
 import { VoiceFillerAudioService } from "./voice-filler-audio.service";
 import { VoiceTurnService } from "./voice-turn.service";
@@ -64,7 +64,7 @@ export class VoiceStreamTurnExecutionRuntime {
 
   constructor(
     private readonly config: AppConfig,
-    private readonly conversationsService: ConversationsService,
+    private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly voiceCallService: VoiceCallService,
     private readonly voiceTurnService: VoiceTurnService,
     private readonly voiceFillerAudioService: VoiceFillerAudioService,
@@ -219,7 +219,7 @@ export class VoiceStreamTurnExecutionRuntime {
           VoiceStreamTurnExecutionRuntime.LOG_SOURCE,
         );
       }
-      void this.conversationsService
+      void this.voiceConversationStateService
         .appendVoiceTurnTiming({
           tenantId: session.tenantId,
           callSid: session.callSid,

@@ -28,7 +28,6 @@ const buildPolicy = (
     .fn()
     .mockImplementation((_, message: string) => message),
   replyWithTwiml: jest.fn().mockResolvedValue("twiml"),
-  buildNoHandoffTwiml: jest.fn().mockReturnValue("no-handoff"),
   log: jest.fn(),
   warn: jest.fn(),
   ...overrides,
@@ -179,32 +178,6 @@ describe("VoiceTurnHandoffRuntime", () => {
     );
   });
 
-  it("routes human and no-handoff closing paths", async () => {
-    const policy = buildPolicy();
-    const runtime = new VoiceTurnHandoffRuntime(policy);
-
-    const human = await runtime.replyWithHumanFallback({
-      tenantId: "tenant-1",
-      conversationId: "conversation-1",
-      callSid: "CA123",
-      displayName: "Acme HVAC",
-      reason: "human_transfer",
-    });
-    const noHandoff = await runtime.replyWithNoHandoff({
-      tenantId: "tenant-1",
-      conversationId: "conversation-1",
-      callSid: "CA123",
-      reason: "tenant_not_found",
-    });
-
-    expect(human).toBe("twiml");
-    expect(noHandoff).toBe("twiml");
-    expect(policy.buildClosingTwiml).toHaveBeenCalledWith(
-      "Acme HVAC",
-      "We'll follow up shortly.",
-    );
-    expect(policy.replyWithTwiml).toHaveBeenCalledWith(undefined, "no-handoff");
-  });
 
   it("asks booking confirmation using confirmation target", async () => {
     const policy = buildPolicy();
