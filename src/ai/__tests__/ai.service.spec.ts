@@ -22,6 +22,8 @@ import { AiPromptOrchestrationService } from "../prompts/prompt-orchestration.se
 import { ToolExecutorRegistryService } from "../tools/tool-executor.registry";
 import { RouteConversationToolExecutor } from "../tools/route-conversation.executor";
 import { AiCreateJobToolExecutor } from "../tools/create-job.executor";
+import { AiExtractionService } from "../ai-extraction.service";
+import { TriageOrchestratorService } from "../triage-orchestrator.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn((path: string) => {
@@ -217,18 +219,23 @@ describe("AiService", () => {
     );
 
     service = new AiService(
-      aiProvider,
       errorHandler,
-      loggingService,
       sanitizationService,
-      toolSelector as unknown as ToolSelectorService,
-      promptOrchestration,
-      toolExecutorRegistry,
       tenantsService,
       callLogService,
       conversationLifecycleService,
       conversationsService,
-      config,
+      new AiExtractionService(aiProvider, loggingService, sanitizationService, config),
+      new TriageOrchestratorService(
+        aiProvider,
+        loggingService,
+        toolSelector as unknown as ToolSelectorService,
+        promptOrchestration,
+        toolExecutorRegistry,
+        callLogService,
+        errorHandler,
+        config,
+      ),
     );
   });
 
@@ -299,7 +306,7 @@ describe("AiService", () => {
         lane: "TRIAGE_ROUTER",
         routerFlowEnabled: true,
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
   });
 
@@ -342,7 +349,7 @@ describe("AiService", () => {
         channel: CommunicationChannel.SMS,
         reason: "sms_disabled",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
   });
 
@@ -386,7 +393,7 @@ describe("AiService", () => {
         channel: CommunicationChannel.WEBCHAT,
         reason: "tenant_not_allowlisted",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
   });
 
@@ -529,7 +536,7 @@ describe("AiService", () => {
         previousIntent: null,
         nextIntent: "BOOKING",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
   });
 
@@ -793,14 +800,14 @@ describe("AiService", () => {
         tenantId,
         reason: "tool_args_invalid",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
     expect(loggingService.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "ai.route_loop_guard_triggered",
         tenantId,
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
   });
 
@@ -874,7 +881,7 @@ describe("AiService", () => {
         tenantId,
         toolName: "lookup_price_range",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
   });
 
@@ -1058,7 +1065,7 @@ describe("AiService", () => {
         tenantId,
         reason: "empty_reply",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
     expect(errorHandler.handle).toHaveBeenCalledWith(
       expect.any(Error),
@@ -1108,7 +1115,7 @@ describe("AiService", () => {
         budget: "AI_MAX_TOOL_CALLS",
         limit: config.aiMaxToolCalls,
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
     expect(errorHandler.handle).toHaveBeenCalledWith(
       expect.any(Error),
@@ -1188,7 +1195,7 @@ describe("AiService", () => {
         callSid: "CA123",
         conversationId: "conversation-1",
       }),
-      AiService.name,
+      TriageOrchestratorService.name,
     );
     expect(errorHandler.handle).toHaveBeenCalledWith(
       expect.any(Error),
@@ -1272,7 +1279,7 @@ describe("AiService", () => {
         tenantId,
         reason: "invalid_json",
       }),
-      AiService.name,
+      AiExtractionService.name,
     );
   });
 });

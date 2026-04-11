@@ -8,6 +8,8 @@ import { SmsModule } from "../sms/sms.module";
 import { ConversationsModule } from "../conversations/conversations.module";
 import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
+import { StripeEventProcessorService } from "./stripe-event-processor.service";
+import { VoiceIntakeSmsService } from "./voice-intake-sms.service";
 import { PaymentsService } from "./payments.service";
 import { PaymentsController } from "./payments.controller";
 
@@ -22,7 +24,7 @@ import { PaymentsController } from "./payments.controller";
     ConversationsModule,
   ],
   controllers: [PaymentsController],
-  providers: [IntakeLinkService, IntakeFeeCalculatorService, PaymentsService],
-  exports: [IntakeLinkService, PaymentsService],
+  providers: [IntakeLinkService, IntakeFeeCalculatorService, StripeEventProcessorService, VoiceIntakeSmsService, PaymentsService],
+  exports: [IntakeLinkService, VoiceIntakeSmsService, PaymentsService],
 })
 export class PaymentsModule {}

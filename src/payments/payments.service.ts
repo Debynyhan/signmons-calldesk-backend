@@ -3,12 +3,10 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
 import {
   JobUrgency,
-  type Payment,
   PaymentStatus,
   Prisma,
   StripeEventStatus,
@@ -19,27 +17,13 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { LoggingService } from "../logging/logging.service";
 import { IntakeLinkService } from "./intake-link.service";
-import {
-  IntakeFeeCalculatorService,
-} from "./intake-fee-calculator.service";
+import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
+import { StripeEventProcessorService } from "./stripe-event-processor.service";
+import { VoiceIntakeSmsService } from "./voice-intake-sms.service";
 import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { JobsService } from "../jobs/jobs.service";
-import { SmsService } from "../sms/sms.service";
-import { VoiceConversationStateService } from "../voice/voice-conversation-state.service";
 import type { IntakeCheckoutDto } from "./dto/intake-checkout.dto";
-
-type VoiceIntakePaymentState = {
-  linkSentAt?: string;
-  linkMessageSid?: string | null;
-  linkToPhone?: string | null;
-  intakeUrl?: string;
-  tokenExpiresAt?: string;
-  amountCents?: number;
-  currency?: string;
-  checkoutSessionId?: string;
-  checkoutCreatedAt?: string;
-};
 
 @Injectable()
 export class PaymentsService {
@@ -53,30 +37,12 @@ export class PaymentsService {
     private readonly loggingService: LoggingService,
     private readonly intakeLinkService: IntakeLinkService,
     private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
+    private readonly stripeEventProcessor: StripeEventProcessorService,
+    private readonly voiceIntakeSmsService: VoiceIntakeSmsService,
     private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly jobsService: JobsService,
-    private readonly smsService: SmsService,
   ) {}
-
-  private get stateService(): Pick<
-    VoiceConversationStateService,
-    "promoteNameFromSms" | "promoteAddressFromSms" | "updateVoiceIssueCandidate"
-  > {
-    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
-    if (
-      typeof legacy.promoteNameFromSms === "function" &&
-      typeof legacy.promoteAddressFromSms === "function" &&
-      typeof legacy.updateVoiceIssueCandidate === "function"
-    ) {
-      return legacy as Pick<
-        VoiceConversationStateService,
-        "promoteNameFromSms" | "promoteAddressFromSms" | "updateVoiceIssueCandidate"
-      >;
-    }
-    return this.voiceConversationStateService;
-  }
 
   private get lifecycleService(): Pick<
     ConversationLifecycleService,
@@ -152,7 +118,7 @@ export class PaymentsService {
       );
     }
 
-    await this.persistSmsIntakeFields({
+    await this.voiceIntakeSmsService.persistSmsIntakeFields({
       tenantId: context.tenantId,
       conversationId: context.conversationId,
       fullName,
@@ -230,7 +196,7 @@ export class PaymentsService {
       currency,
     });
 
-    await this.updateVoiceIntakePaymentState({
+    await this.voiceIntakeSmsService.updateVoiceIntakePaymentState({
       tenantId: context.tenantId,
       conversationId: context.conversationId,
       next: {
@@ -259,89 +225,12 @@ export class PaymentsService {
     displayName: string;
     isEmergency: boolean;
   }): Promise<void> {
-    if (!this.config.stripeSecretKey) {
-      return;
-    }
-    if (!this.config.smsIntakeBaseUrl && !this.config.twilioWebhookBaseUrl) {
-      this.loggingService.warn(
-        {
-          event: "voice.sms_intake_link_skipped",
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          callSid: params.callSid,
-          reason: "missing_public_base_url",
-        },
-        PaymentsService.name,
-      );
-      return;
-    }
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        id: params.conversationId,
-      },
-      select: { id: true, collectedData: true },
-    });
-    if (!conversation) {
-      return;
-    }
-    const state = this.getVoiceIntakePaymentState(conversation.collectedData);
-    if (state?.linkSentAt && state?.intakeUrl) {
-      return;
-    }
-
-    const tokenData = this.intakeLinkService.createConversationToken({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-    });
-    const intakeUrl = this.intakeLinkService.buildIntakeUrl(tokenData.token);
-    const intakeContext = await this.intakeFeeCalculator.resolveIntakeContext(
-      tokenData.token,
-    );
-    const totalCents = this.intakeFeeCalculator.computeTotalCents(
-      intakeContext,
-      params.isEmergency,
-    );
-    const amount = this.intakeFeeCalculator.formatFeeAmount(totalCents);
-    const body = `Thanks for calling ${params.displayName}. Confirm your details and pay ${amount} to dispatch: ${intakeUrl}`;
-
-    const messageSid = await this.smsService.sendMessage({
-      to: params.toPhone,
-      body,
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-    });
-
-    await this.updateVoiceIntakePaymentState({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      next: {
-        linkSentAt: new Date().toISOString(),
-        linkMessageSid: messageSid ?? null,
-        linkToPhone: params.toPhone,
-        intakeUrl,
-        tokenExpiresAt: tokenData.expiresAt,
-        amountCents: totalCents,
-        currency: intakeContext.currency.toLowerCase(),
-      },
-    });
-
-    this.loggingService.log(
-      {
-        event: "voice.sms_intake_link_sent",
-        tenantId: params.tenantId,
-        conversationId: params.conversationId,
-        callSid: params.callSid,
-        to: params.toPhone,
-        hasMessageSid: Boolean(messageSid),
-      },
-      PaymentsService.name,
-    );
+    return this.voiceIntakeSmsService.sendVoiceHandoffIntakeLink(params);
   }
 
   async handleStripeWebhook(req: Request): Promise<{ received: true }> {
-    const event = this.parseWebhookEvent(req);
-    const tenantId = this.extractTenantId(event);
+    const event = this.stripeEventProcessor.parse(req);
+    const tenantId = this.stripeEventProcessor.extractTenantId(event);
     if (!tenantId) {
       this.loggingService.warn(
         {
@@ -354,7 +243,7 @@ export class PaymentsService {
       return { received: true };
     }
 
-    const stripeEvent = await this.createStripeEventRecord({
+    const stripeEvent = await this.stripeEventProcessor.createEventRecord({
       tenantId,
       stripeEventId: event.id,
       type: event.type,
@@ -365,7 +254,7 @@ export class PaymentsService {
     }
 
     try {
-      await this.processStripeEvent(tenantId, event);
+      await this.stripeEventProcessor.process(tenantId, event);
       await this.prisma.stripeEvent.update({
         where: { id: stripeEvent.id },
         data: {
@@ -388,37 +277,6 @@ export class PaymentsService {
     }
 
     return { received: true };
-  }
-
-  private async persistSmsIntakeFields(params: {
-    tenantId: string;
-    conversationId: string;
-    fullName: string;
-    address: string;
-    issue: string;
-  }): Promise<void> {
-    const sourceEventId = `sms-intake-${randomUUID()}`;
-    await this.stateService.promoteNameFromSms({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      value: params.fullName,
-      sourceEventId,
-    });
-    await this.stateService.promoteAddressFromSms({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      value: params.address,
-      sourceEventId,
-    });
-    await this.stateService.updateVoiceIssueCandidate({
-      tenantId: params.tenantId,
-      conversationId: params.conversationId,
-      issue: {
-        value: params.issue,
-        sourceEventId,
-        createdAt: new Date().toISOString(),
-      },
-    });
   }
 
   private async ensureJobForConversation(params: {
@@ -496,211 +354,6 @@ export class PaymentsService {
     });
   }
 
-  private parseWebhookEvent(req: Request): Stripe.Event {
-    const stripe = this.getStripeClientOrThrow();
-    const signature = req.header("stripe-signature");
-    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
-    const hasWebhookSecret = Boolean(this.config.stripeWebhookSecret);
-    const shouldVerify = hasWebhookSecret && Boolean(signature);
-
-    if (shouldVerify && rawBody && signature) {
-      return stripe.webhooks.constructEvent(
-        rawBody,
-        signature,
-        this.config.stripeWebhookSecret,
-      );
-    }
-
-    if (this.config.environment === "production" && hasWebhookSecret) {
-      throw new UnauthorizedException(
-        "Stripe signature verification is required in production.",
-      );
-    }
-
-    return req.body as Stripe.Event;
-  }
-
-  private extractTenantId(event: Stripe.Event): string | null {
-    const object = event.data.object as { metadata?: Record<string, string> };
-    return object?.metadata?.tenantId ?? null;
-  }
-
-  private async createStripeEventRecord(params: {
-    tenantId: string;
-    stripeEventId: string;
-    type: string;
-    payload: Prisma.InputJsonValue;
-  }) {
-    try {
-      return await this.prisma.stripeEvent.create({
-        data: {
-          id: randomUUID(),
-          tenantId: params.tenantId,
-          stripeEventId: params.stripeEventId,
-          type: params.type,
-          payload: params.payload,
-          processingStatus: StripeEventStatus.PENDING,
-          receivedAt: new Date(),
-        },
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  private async processStripeEvent(
-    tenantId: string,
-    event: Stripe.Event,
-  ): Promise<void> {
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const paymentIntentId =
-        typeof session.payment_intent === "string" ? session.payment_intent : null;
-      const payment = await this.findPaymentForCheckoutSessionComplete({
-        tenantId,
-        session,
-        paymentIntentId,
-      });
-      if (!payment) {
-        this.loggingService.warn(
-          {
-            event: "stripe.checkout_completed_unmatched_payment",
-            tenantId,
-            stripeCheckoutSessionId: session.id,
-            stripePaymentIntentId: paymentIntentId,
-            jobId: this.getMetadataValue(session.metadata, "jobId"),
-          },
-          PaymentsService.name,
-        );
-        return;
-      }
-      await this.prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: PaymentStatus.SUCCEEDED,
-          stripeCheckoutSessionId: session.id,
-          stripePaymentIntentId: paymentIntentId ?? payment.stripePaymentIntentId,
-          amountTotalCents:
-            typeof session.amount_total === "number"
-              ? session.amount_total
-              : payment.amountTotalCents,
-          updatedAt: new Date(),
-        },
-      });
-      try {
-        await this.jobsService.acceptJobAfterPayment({
-          tenantId,
-          jobId: payment.jobId,
-          paymentIntentId: paymentIntentId ?? undefined,
-        });
-      } catch (error) {
-        this.loggingService.warn(
-          {
-            event: "stripe.job_accept_after_payment_failed",
-            tenantId,
-            jobId: payment.jobId,
-            reason: error instanceof Error ? error.message : String(error),
-          },
-          PaymentsService.name,
-        );
-      }
-      return;
-    }
-
-    if (event.type === "checkout.session.expired") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      await this.prisma.payment.updateMany({
-        where: {
-          tenantId,
-          stripeCheckoutSessionId: session.id,
-          status: PaymentStatus.PENDING,
-        },
-        data: {
-          status: PaymentStatus.CANCELED,
-          updatedAt: new Date(),
-        },
-      });
-      return;
-    }
-
-    if (event.type === "payment_intent.payment_failed") {
-      const intent = event.data.object as Stripe.PaymentIntent;
-      const result = await this.prisma.payment.updateMany({
-        where: {
-          tenantId,
-          stripePaymentIntentId: intent.id,
-          status: PaymentStatus.PENDING,
-        },
-        data: {
-          status: PaymentStatus.FAILED,
-          updatedAt: new Date(),
-        },
-      });
-      if (result.count === 0) {
-        const jobId = this.getMetadataValue(intent.metadata, "jobId");
-        if (jobId) {
-          await this.prisma.payment.updateMany({
-            where: {
-              tenantId,
-              jobId,
-              status: PaymentStatus.PENDING,
-            },
-            data: {
-              status: PaymentStatus.FAILED,
-              stripePaymentIntentId: intent.id,
-              updatedAt: new Date(),
-            },
-          });
-        }
-      }
-    }
-  }
-
-  private async findPaymentForCheckoutSessionComplete(params: {
-    tenantId: string;
-    session: Stripe.Checkout.Session;
-    paymentIntentId: string | null;
-  }): Promise<Payment | null> {
-    const paymentBySession = await this.prisma.payment.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        stripeCheckoutSessionId: params.session.id,
-      },
-    });
-    if (paymentBySession) {
-      return paymentBySession;
-    }
-
-    if (params.paymentIntentId) {
-      const paymentByIntent = await this.prisma.payment.findFirst({
-        where: {
-          tenantId: params.tenantId,
-          stripePaymentIntentId: params.paymentIntentId,
-        },
-      });
-      if (paymentByIntent) {
-        return paymentByIntent;
-      }
-    }
-
-    const jobId = this.getMetadataValue(params.session.metadata, "jobId");
-    if (!jobId) {
-      return null;
-    }
-    return this.prisma.payment.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        jobId,
-      },
-    });
-  }
-
   private getStripeClientOrThrow(): Stripe {
     const client = this.getStripeClient();
     if (!client) {
@@ -739,63 +392,4 @@ export class PaymentsService {
     return normalized || null;
   }
 
-  private getVoiceIntakePaymentState(
-    collectedData: Prisma.JsonValue | null,
-  ): VoiceIntakePaymentState | null {
-    if (!collectedData || typeof collectedData !== "object") {
-      return null;
-    }
-    const raw = (collectedData as Record<string, unknown>).voiceIntakePayment;
-    if (!raw || typeof raw !== "object") {
-      return null;
-    }
-    return raw as VoiceIntakePaymentState;
-  }
-
-  private async updateVoiceIntakePaymentState(params: {
-    tenantId: string;
-    conversationId: string;
-    next: VoiceIntakePaymentState;
-  }): Promise<void> {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        id: params.conversationId,
-      },
-      select: { id: true, collectedData: true },
-    });
-    if (!conversation) {
-      return;
-    }
-    const current =
-      conversation.collectedData && typeof conversation.collectedData === "object"
-        ? (conversation.collectedData as Record<string, unknown>)
-        : {};
-    const existingState = this.getVoiceIntakePaymentState(
-      conversation.collectedData ?? null,
-    );
-    const merged: Prisma.InputJsonValue = {
-      ...current,
-      voiceIntakePayment: {
-        ...(existingState ?? {}),
-        ...params.next,
-      },
-    };
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { collectedData: merged, updatedAt: new Date() },
-    });
-  }
-
-  private getMetadataValue(
-    metadata: Stripe.Metadata | null | undefined,
-    key: string,
-  ): string | null {
-    const value = metadata?.[key];
-    if (typeof value !== "string") {
-      return null;
-    }
-    const trimmed = value.trim();
-    return trimmed || null;
-  }
 }

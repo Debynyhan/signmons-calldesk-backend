@@ -116,7 +116,8 @@ const buildDeps = () =>
       isDuplicateTranscript: jest.fn(),
     },
     voiceUrgencySlotService: { handleExpectedField: jest.fn() },
-    paymentsService: { sendVoiceHandoffIntakeLink: jest.fn() },
+    paymentsService: {},
+    voiceIntakeSmsService: { sendVoiceHandoffIntakeLink: jest.fn() },
     voiceAddressPromptService: { buildAddressPromptForState: jest.fn() },
     voiceResponseService: {
       replyWithTwiml: jest.fn(),

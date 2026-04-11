@@ -1,16 +1,12 @@
 import { randomUUID } from "crypto";
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { plainToInstance } from "class-transformer";
-import { validateSync } from "class-validator";
 import type { Prisma } from "@prisma/client";
 import { JobStatus, PaymentStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
-import { IssueNormalizerService } from "./issue-normalizer.service";
-import { CreateJobPayloadDto } from "./dto/create-job-payload.dto";
+import { CreateJobPayloadValidatorService } from "./create-job-payload-validator.service";
 import {
   CreateJobFromToolCallRequest,
-  CreateJobPayload,
   IJobRepository,
   JobRecord,
 } from "./interfaces/job-repository.interface";
@@ -20,7 +16,7 @@ export class JobsService implements IJobRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
-    private readonly issueNormalizer: IssueNormalizerService,
+    private readonly payloadValidator: CreateJobPayloadValidatorService,
   ) {}
 
   async createJobFromToolCall(
@@ -34,9 +30,11 @@ export class JobsService implements IJobRepository {
     if (existingJob) {
       return this.mapJob(existingJob);
     }
-    const { payload: normalizedPayload } = this.parseAndNormalizePayload(
-      request.rawArgs,
-    );
+    const {
+      payload: normalizedPayload,
+      mappedUrgency,
+      mappedPreferredWindow,
+    } = this.payloadValidator.parseAndNormalize(request.rawArgs);
 
     const customer = await this.prisma.customer.upsert({
       where: {
@@ -89,11 +87,9 @@ export class JobsService implements IJobRepository {
         serviceCategoryId: serviceCategory.id,
         serviceCategoryTenantId: tenantId,
         status: JobStatus.CREATED,
-        urgency: this.issueNormalizer.mapUrgency(normalizedPayload.urgency),
+        urgency: mappedUrgency,
         description: normalizedPayload.description ?? null,
-        preferredWindowLabel: this.issueNormalizer.mapPreferredWindow(
-          normalizedPayload.preferredTime,
-        ),
+        preferredWindowLabel: mappedPreferredWindow ?? null,
         pricingSnapshot: {},
         policySnapshot: {},
       },
@@ -179,75 +175,6 @@ export class JobsService implements IJobRepository {
     return this.mapJob(updated);
   }
 
-  private parseAndNormalizePayload(rawArgs?: string): {
-    payload: CreateJobPayload;
-    audit: {
-      rawArgs: string;
-      normalizedArgs: CreateJobPayload;
-      validationErrors?: unknown;
-    };
-  } {
-    const raw = this.parseRawArgs(rawArgs);
-    const normalized = this.normalizePayload(raw);
-    const extraKeys = this.findUnexpectedKeys(raw);
-    const errors = this.validatePayload(normalized);
-    const audit = {
-      rawArgs: rawArgs ?? "",
-      normalizedArgs: normalized,
-      validationErrors:
-        errors.length || extraKeys.length
-          ? { errors, extraKeys }
-          : undefined,
-    };
-    if (extraKeys.length) {
-      throw new BadRequestException(
-        this.buildValidationError("Job payload contains unexpected fields.", audit),
-      );
-    }
-    if (errors.length) {
-      throw new BadRequestException(
-        this.buildValidationError("Job payload validation failed.", audit),
-      );
-    }
-    if (!this.issueNormalizer.isPreferredTimeValid(normalized.preferredTime)) {
-      throw new BadRequestException(
-        this.buildValidationError("Preferred time is invalid.", audit),
-      );
-    }
-    return { payload: normalized, audit };
-  }
-
-  private findUnexpectedKeys(payload: Record<string, unknown>): string[] {
-    const allowed = new Set([
-      "customerName",
-      "phone",
-      "address",
-      "issueCategory",
-      "urgency",
-      "description",
-      "preferredTime",
-    ]);
-    return Object.keys(payload).filter((key) => !allowed.has(key));
-  }
-
-  private parseRawArgs(rawArgs?: string): Record<string, unknown> {
-    if (!rawArgs?.trim()) {
-      throw new BadRequestException("Job payload missing.");
-    }
-    try {
-      const parsed = JSON.parse(rawArgs) as Record<string, unknown>;
-      if (!parsed || typeof parsed !== "object") {
-        throw new BadRequestException("Job payload must be an object.");
-      }
-      return parsed;
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new BadRequestException("Invalid job creation payload.");
-    }
-  }
-
   private sanitizeTenantId(tenantId: string): string {
     const sanitized = this.sanitizationService.sanitizeIdentifier(tenantId);
     if (!sanitized) {
@@ -262,42 +189,6 @@ export class JobsService implements IJobRepository {
       throw new BadRequestException("Invalid job identifier.");
     }
     return sanitized;
-  }
-
-  private normalizePayload(payload: Record<string, unknown>): CreateJobPayload {
-    const normalizedIssueCategory = this.issueNormalizer.normalizeIssueCategory(
-      payload.issueCategory,
-    );
-    const normalizedUrgency = this.issueNormalizer.normalizeUrgency(payload.urgency);
-    const normalizedPreferredTime = this.issueNormalizer.normalizePreferredTime(
-      payload.preferredTime,
-    );
-    return {
-      customerName: this.normalizeRequiredText(payload.customerName),
-      phone: this.normalizePhone(payload.phone),
-      address: this.normalizeOptionalText(payload.address),
-      issueCategory: normalizedIssueCategory,
-      urgency: normalizedUrgency,
-      description: this.normalizeOptionalText(payload.description),
-      preferredTime: normalizedPreferredTime,
-    };
-  }
-
-  private validatePayload(payload: CreateJobPayload) {
-    const dto = plainToInstance(CreateJobPayloadDto, payload);
-    return validateSync(dto, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      forbidUnknownValues: true,
-    });
-  }
-
-  private buildValidationError(
-    message: string,
-    audit: { rawArgs: string; normalizedArgs: CreateJobPayload },
-  ) {
-    const includeAudit = process.env.NODE_ENV !== "production";
-    return includeAudit ? { message, audit } : { message };
   }
 
   private mapJob(
@@ -398,32 +289,6 @@ export class JobsService implements IJobRepository {
         updatedAt: new Date(),
       },
     });
-  }
-
-  private normalizeRequiredText(value: unknown): string {
-    if (typeof value !== "string") return "";
-    return this.sanitizationService.sanitizeText(value);
-  }
-
-  private normalizeOptionalText(value: unknown): string | undefined {
-    if (typeof value !== "string") return undefined;
-    const sanitized = this.sanitizationService.sanitizeText(value);
-    return sanitized.length ? sanitized : undefined;
-  }
-
-  private normalizePhone(value: unknown): string {
-    if (typeof value !== "string") return "";
-    const digits = value.replace(/\D/g, "");
-    if (digits.length === 10) {
-      return `+1${digits}`;
-    }
-    if (digits.length === 11 && digits.startsWith("1")) {
-      return `+${digits}`;
-    }
-    if (digits.length >= 8 && digits.length <= 15) {
-      return `+${digits}`;
-    }
-    return "";
   }
 
 }

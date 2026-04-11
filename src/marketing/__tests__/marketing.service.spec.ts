@@ -5,6 +5,7 @@ import type { PrismaService } from "../../prisma/prisma.service";
 import type { TenantsService } from "../../tenants/interfaces/tenants-service.interface";
 import type { LoggingService } from "../../logging/logging.service";
 import { MarketingService } from "../marketing.service";
+import type { DemoCallService } from "../demo-call.service";
 
 describe("MarketingService", () => {
   it("rate-limits by phone within 5 minutes", async () => {
@@ -38,12 +39,26 @@ describe("MarketingService", () => {
     } as MarketingLead;
     prisma.marketingLead.findFirst.mockResolvedValue(recentLead);
 
+    const demoCallService = {
+      place: jest.fn(),
+      mapStatus: jest.fn(),
+      buildRetryInfo: jest.fn().mockReturnValue({
+        allowed: true,
+        afterSec: 240,
+        reason: "rate_limited",
+      }),
+      normalizeFailureReason: jest.fn(),
+      mapLeadCallStatus: jest.fn(),
+      updateLeadStatus: jest.fn(),
+    };
+
     const service = new MarketingService(
       config,
       prisma as unknown as PrismaService,
       new SanitizationService(),
       loggingService as LoggingService,
       tenantsService as TenantsService,
+      demoCallService as unknown as DemoCallService,
     );
 
     const response = await service.submitTryDemo({

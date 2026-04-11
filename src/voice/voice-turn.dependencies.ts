@@ -5,6 +5,7 @@ import { VoiceConversationStateService } from "./voice-conversation-state.servic
 import { CallLogService } from "../logging/call-log.service";
 import { LoggingService } from "../logging/logging.service";
 import { PaymentsService } from "../payments/payments.service";
+import { VoiceIntakeSmsService } from "../payments/voice-intake-sms.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
@@ -55,6 +56,7 @@ export class VoiceTurnDependencies {
     public readonly voiceUtteranceService: VoiceUtteranceService,
     public readonly voiceUrgencySlotService: VoiceUrgencySlotService,
     public readonly paymentsService: PaymentsService,
+    public readonly voiceIntakeSmsService: VoiceIntakeSmsService,
     public readonly voiceAddressPromptService: VoiceAddressPromptService,
     public readonly voiceResponseService: VoiceResponseService,
     public readonly voiceListeningWindowService: VoiceListeningWindowService,

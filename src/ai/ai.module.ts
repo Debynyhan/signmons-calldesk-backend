@@ -24,6 +24,8 @@ import { ToolExecutorRegistryService } from "./tools/tool-executor.registry";
 import { RouteConversationToolExecutor } from "./tools/route-conversation.executor";
 import { AiCreateJobToolExecutor } from "./tools/create-job.executor";
 import { ToolRegistryModule } from "./tools/tool-registry.module";
+import { AiExtractionService } from "./ai-extraction.service";
+import { TriageOrchestratorService } from "./triage-orchestrator.service";
 
 @Module({
   imports: [
@@ -65,8 +67,10 @@ import { ToolRegistryModule } from "./tools/tool-registry.module";
     ToolSelectorService,
     AiPromptOrchestrationService,
     AiErrorHandler,
+    AiExtractionService,
+    TriageOrchestratorService,
     AiService,
   ],
-  exports: [AiService],
+  exports: [AiExtractionService, TriageOrchestratorService, AiService],
 })
 export class AiModule {}

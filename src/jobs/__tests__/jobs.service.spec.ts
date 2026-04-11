@@ -1,6 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { JobsService } from "../jobs.service";
 import { IssueNormalizerService } from "../issue-normalizer.service";
+import { CreateJobPayloadValidatorService } from "../create-job-payload-validator.service";
 import { SanitizationService } from "../../sanitization/sanitization.service";
 import type { PrismaService } from "../../prisma/prisma.service";
 
@@ -71,10 +72,11 @@ describe("JobsService", () => {
     };
 
     const sanitizationService = new SanitizationService();
+    const issueNormalizer = new IssueNormalizerService(sanitizationService);
     service = new JobsService(
       prisma as unknown as PrismaService,
       sanitizationService,
-      new IssueNormalizerService(sanitizationService),
+      new CreateJobPayloadValidatorService(sanitizationService, issueNormalizer),
     );
   });
 

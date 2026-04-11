@@ -221,7 +221,7 @@ independent of payment processing.
 
 ### TODO-8 — Extract `StripeEventProcessor` from `PaymentsService`
 **Principle:** SRP, OCP
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `PaymentsService.handleStripeWebhook()` dispatches to `processStripeEvent()` (line
@@ -251,7 +251,7 @@ Related private methods that move:
 
 ### TODO-9 — Extract `VoiceIntakeSmsService` from `PaymentsService`
 **Principle:** SRP, SoC
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `PaymentsService.sendVoiceHandoffIntakeLink()` (line 233, ~89 lines) sends an SMS
@@ -279,7 +279,7 @@ Methods moving:
 
 ### TODO-10 — Extract `CreateJobPayloadValidator` from `JobsService`
 **Principle:** SRP
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `JobsService` mixes job creation orchestration with payload parsing and validation:
@@ -306,7 +306,7 @@ separately testable and have no business logic dependency on job creation.
 
 ### TODO-11 — Extract `DemoCallService` from `MarketingService`
 **Principle:** SRP, OCP
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `MarketingService` mixes Twilio client management with lead lifecycle management:
@@ -334,7 +334,7 @@ Swapping the call provider or adding a second provider requires editing
 
 ### TODO-12 — Extract `AiExtractionService` from `AiService`
 **Principle:** SRP, cohesion
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `AiService` contains ~150 lines of name/address extraction logic (lines 281–522)
@@ -363,7 +363,7 @@ called by voice runtimes independently of `triage()`.
 
 ### TODO-13 — Extract `TriageOrchestrator` from `AiService.triage()`
 **Principle:** SRP, SoC — god method decomposition
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `AiService.triage()` (line 50, ~230 lines) is a god method with a while-loop that
@@ -401,12 +401,12 @@ that cannot be unit-tested in isolation.
 - [x] TODO-5   `VoiceConversationStateService`
 - [x] TODO-6   `ConversationLifecycleService`
 - [x] TODO-7   `IntakeFeeCalculator`
-- [ ] TODO-8   `StripeEventProcessor`
-- [ ] TODO-9   `VoiceIntakeSmsService`
-- [ ] TODO-10  `CreateJobPayloadValidator`
-- [ ] TODO-11  `DemoCallService`
-- [ ] TODO-12  `AiExtractionService`
-- [ ] TODO-13  `TriageOrchestrator`
+- [x] TODO-8   `StripeEventProcessor`
+- [x] TODO-9   `VoiceIntakeSmsService`
+- [x] TODO-10  `CreateJobPayloadValidator`
+- [x] TODO-11  `DemoCallService`
+- [x] TODO-12  `AiExtractionService`
+- [x] TODO-13  `TriageOrchestrator`
 
 ---
 

@@ -658,7 +658,7 @@ export class VoiceTurnRuntimeFactory {
       buildAskSmsNumberTwiml: () =>
         this.deps.voicePromptComposer.buildAskSmsNumberTwiml(),
       sendVoiceHandoffIntakeLink: (params) =>
-        this.deps.paymentsService.sendVoiceHandoffIntakeLink(params),
+        this.deps.voiceIntakeSmsService.sendVoiceHandoffIntakeLink(params),
       isUrgencyEmergency: (collectedData) =>
         this.deps.voiceTurnPolicyService.isUrgencyEmergency(collectedData),
       resolveSmsHandoffClosingMessage: (params) =>

@@ -5,7 +5,6 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { Twilio } from "twilio";
 import type {
   MarketingLead,
   MarketingLeadStatus,
@@ -19,27 +18,12 @@ import type { TryDemoDto } from "./dto/try-demo.dto";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import { Inject } from "@nestjs/common";
-
-const TRY_DEMO_RATE_LIMIT_MS = 5 * 60 * 1000;
-
-type TryDemoResponse = {
-  status: "queued" | "failed";
-  leadId: string;
-  call: {
-    status: "initiated" | "failed";
-    to: string;
-    from: string;
-    callSid: string | null;
-  };
-  estimatedWaitSec?: number;
-  retry: {
-    allowed: boolean;
-    afterSec: number;
-    reason: string | null;
-  };
-};
-
-type TryDemoRetry = TryDemoResponse["retry"];
+import {
+  DemoCallService,
+  TRY_DEMO_RATE_LIMIT_MS,
+  type TryDemoResponse,
+  type TryDemoRetry,
+} from "./demo-call.service";
 
 type TryDemoStatusResponse = {
   leadId: string;
@@ -54,8 +38,6 @@ type TryDemoStatusResponse = {
 
 @Injectable()
 export class MarketingService {
-  private twilioClient: Twilio | null = null;
-
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
@@ -64,6 +46,7 @@ export class MarketingService {
     private readonly loggingService: LoggingService,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
+    private readonly demoCallService: DemoCallService,
   ) {}
 
   async submitTryDemo(payload: TryDemoDto): Promise<TryDemoResponse> {
@@ -133,7 +116,7 @@ export class MarketingService {
       },
     });
 
-    return this.placeDemoCall(created);
+    return this.demoCallService.place(created);
   }
 
   async handleTryDemoStatusCallback(
@@ -155,7 +138,7 @@ export class MarketingService {
     }
 
     const callStatus = rawStatus.toLowerCase();
-    const nextStatus = this.mapCallStatus(callStatus);
+    const nextStatus = this.demoCallService.mapStatus(callStatus);
     if (!nextStatus) {
       return;
     }
@@ -184,7 +167,7 @@ export class MarketingService {
     }
 
     const errorReason = nextStatus === "FAILED" ? callStatus : undefined;
-    await this.updateLeadStatus(
+    await this.demoCallService.updateLeadStatus(
       lead.id,
       nextStatus,
       callSid ?? lead.callSid ?? null,
@@ -213,17 +196,17 @@ export class MarketingService {
     }
 
     const now = new Date();
-    const retry = this.buildRetryInfo(lead, now);
+    const retry = this.demoCallService.buildRetryInfo(lead, now);
     const failureReason =
       lead.status === "FAILED"
-        ? this.normalizeFailureReason(lead.errorReason)
+        ? this.demoCallService.normalizeFailureReason(lead.errorReason)
         : null;
 
     return {
       leadId: lead.id,
       status: lead.status,
       call: {
-        status: this.mapLeadCallStatus(lead.status),
+        status: this.demoCallService.mapLeadCallStatus(lead.status),
         callSid: lead.callSid ?? null,
       },
       failureReason,
@@ -281,114 +264,6 @@ export class MarketingService {
     };
   }
 
-  private async placeDemoCall(lead: MarketingLead): Promise<TryDemoResponse> {
-    const twilio = this.getTwilioClient();
-    const to = lead.phone;
-    const from = this.config.twilioPhoneNumber;
-    const baseUrl = this.config.twilioWebhookBaseUrl.replace(/\/$/, "");
-    const url = `${baseUrl}/api/voice/demo-inbound?leadId=${lead.id}`;
-    const statusCallback = `${baseUrl}/api/marketing/try-demo/status?leadId=${lead.id}`;
-
-    try {
-      const call = await twilio.calls.create({
-        to,
-        from,
-        url,
-        method: "POST",
-        statusCallback,
-        statusCallbackMethod: "POST",
-        statusCallbackEvent: ["completed"],
-      });
-      await this.updateLeadStatus(lead.id, "CALLING", call.sid);
-
-      this.loggingService.log(
-        {
-          event: "marketing.try_demo_called",
-          leadId: lead.id,
-          callSid: call.sid,
-          to,
-          from,
-        },
-        MarketingService.name,
-      );
-
-      return {
-        status: "queued",
-        leadId: lead.id,
-        call: {
-          status: "initiated",
-          to,
-          from,
-          callSid: call.sid,
-        },
-        estimatedWaitSec: 20,
-        retry: {
-          allowed: false,
-          afterSec: 0,
-          reason: null,
-        },
-      };
-    } catch (error) {
-      const reason =
-        error instanceof Error ? error.message : "provider_unavailable";
-      await this.updateLeadStatus(lead.id, "FAILED", null, reason);
-
-      this.loggingService.warn(
-        {
-          event: "marketing.try_demo_call_failed",
-          leadId: lead.id,
-          to,
-          from,
-          reason,
-        },
-        MarketingService.name,
-      );
-
-      return {
-        status: "failed",
-        leadId: lead.id,
-        call: {
-          status: "failed",
-          to,
-          from,
-          callSid: null,
-        },
-        retry: {
-          allowed: true,
-          afterSec: 60,
-          reason: "provider_unavailable",
-        },
-      };
-    }
-  }
-
-  private getTwilioClient(): Twilio {
-    if (!this.twilioClient) {
-      this.twilioClient = new Twilio(
-        this.config.twilioAccountSid,
-        this.config.twilioAuthToken,
-      );
-    }
-    return this.twilioClient;
-  }
-
-  private updateLeadStatus(
-    leadId: string,
-    status: MarketingLeadStatus,
-    callSid: string | null,
-    errorReason?: string,
-  ) {
-    return this.prisma.marketingLead.update({
-      where: { id: leadId },
-      data: {
-        status,
-        callSid,
-        lastCallAt: new Date(),
-        errorReason: errorReason ?? null,
-      },
-    });
-  }
-
   private parsePreferredTime(value?: string): Date | null {
     if (!value) {
       return null;
@@ -413,73 +288,4 @@ export class MarketingService {
     }
   }
 
-  private mapCallStatus(status: string): MarketingLeadStatus | null {
-    switch (status) {
-      case "completed":
-        return "CALLED";
-      case "busy":
-      case "failed":
-      case "no-answer":
-      case "noanswer":
-      case "canceled":
-        return "FAILED";
-      default:
-        return null;
-    }
-  }
-
-  private mapLeadCallStatus(
-    status: MarketingLeadStatus,
-  ): "pending" | "calling" | "completed" | "failed" {
-    switch (status) {
-      case "CALLING":
-        return "calling";
-      case "CALLED":
-        return "completed";
-      case "FAILED":
-        return "failed";
-      default:
-        return "pending";
-    }
-  }
-
-  private buildRetryInfo(lead: MarketingLead, now: Date): TryDemoRetry {
-    if (lead.status !== "FAILED") {
-      return { allowed: false, afterSec: 0, reason: null };
-    }
-
-    const remainingMs =
-      lead.createdAt.getTime() + TRY_DEMO_RATE_LIMIT_MS - now.getTime();
-    const retryAfterSec = Math.max(0, Math.ceil(remainingMs / 1000));
-    const allowed = retryAfterSec === 0;
-
-    return {
-      allowed,
-      afterSec: retryAfterSec,
-      reason: allowed ? null : "rate_limited",
-    };
-  }
-
-  private normalizeFailureReason(reason: string | null): string | null {
-    if (!reason) {
-      return null;
-    }
-
-    const normalized = reason.toLowerCase().trim();
-    const stripped = normalized.startsWith("call_status:")
-      ? normalized.slice("call_status:".length)
-      : normalized;
-    if (
-      stripped === "busy" ||
-      stripped === "failed" ||
-      stripped === "no-answer" ||
-      stripped === "noanswer" ||
-      stripped === "canceled" ||
-      stripped === "provider_unavailable"
-    ) {
-      return stripped.replace("noanswer", "no-answer");
-    }
-
-    return "failed";
-  }
 }
