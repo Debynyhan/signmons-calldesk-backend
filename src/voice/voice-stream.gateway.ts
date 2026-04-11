@@ -41,7 +41,7 @@ export class VoiceStreamGateway
     private readonly dependencies: VoiceStreamDependencies,
   ) {
     this.callLifecycleRuntime = new VoiceStreamCallLifecycleRuntime(
-      this.conversationsService,
+      this.conversationLifecycleService,
       this.loggingService,
     );
     this.speechRuntime = new VoiceStreamSpeechRuntime(
@@ -51,7 +51,7 @@ export class VoiceStreamGateway
     this.startRuntime = new VoiceStreamStartRuntime(
       this.config,
       this.tenantsService,
-      this.conversationsService,
+      this.conversationLifecycleService,
       this.googleSpeechService,
       this.loggingService,
     );
@@ -92,8 +92,8 @@ export class VoiceStreamGateway
     return this.dependencies.tenantsService;
   }
 
-  private get conversationsService() {
-    return this.dependencies.conversationsService;
+  private get conversationLifecycleService() {
+    return this.dependencies.conversationLifecycleService;
   }
 
   private get voiceConversationStateService() {

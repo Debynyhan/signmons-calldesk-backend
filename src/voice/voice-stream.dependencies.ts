@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { VoiceConversationStateService } from "./voice-conversation-state.service";
 import { GoogleSpeechService } from "../google/google-speech.service";
@@ -20,14 +21,28 @@ const hasLegacyVoiceTimingMethods = (
         .appendVoiceTurnTiming === "function",
   );
 
+const hasLegacyVoiceLifecycleMethods = (
+  value: unknown,
+): value is ConversationLifecycleService =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as { ensureVoiceConsentConversation?: unknown })
+        .ensureVoiceConsentConversation === "function" &&
+      typeof (value as { completeVoiceConversationByCallSid?: unknown })
+        .completeVoiceConversationByCallSid === "function",
+  );
+
 @Injectable()
 export class VoiceStreamDependencies {
   public readonly voiceConversationStateService: VoiceConversationStateService;
+  public readonly conversationLifecycleService: ConversationLifecycleService;
 
   constructor(
     @Inject(TENANTS_SERVICE)
     public readonly tenantsService: TenantsService,
     public readonly conversationsService: ConversationsService,
+    injectedConversationLifecycleService: ConversationLifecycleService,
     injectedVoiceConversationStateService: VoiceConversationStateService,
     public readonly googleSpeechService: GoogleSpeechService,
     public readonly googleTtsService: GoogleTtsService,
@@ -36,6 +51,11 @@ export class VoiceStreamDependencies {
     public readonly voiceFillerAudioService: VoiceFillerAudioService,
     public readonly loggingService: LoggingService,
   ) {
+    this.conversationLifecycleService = hasLegacyVoiceLifecycleMethods(
+      this.conversationsService,
+    )
+      ? this.conversationsService
+      : injectedConversationLifecycleService;
     this.voiceConversationStateService = hasLegacyVoiceTimingMethods(
       this.conversationsService,
     )

@@ -14,6 +14,7 @@ import { AiProviderService } from "../providers/ai-provider.service";
 import type { IAiProviderClient } from "../providers/ai-provider.interface";
 import appConfig from "../../config/app.config";
 import { ToolSelectorService } from "../tools/tool-selector.service";
+import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../../conversations/conversations.service";
 import { runWithRequestContext } from "../../common/context/request-context";
 import { CommunicationChannel } from "@prisma/client";
@@ -67,6 +68,7 @@ describe("AiService", () => {
   let jobsRepository: jest.Mocked<IJobRepository>;
   let tenantsService: jest.Mocked<TenantsService>;
   let callLogService: jest.Mocked<CallLogService>;
+  let conversationLifecycleService: jest.Mocked<ConversationLifecycleService>;
   let conversationsService: jest.Mocked<ConversationsService>;
   let config: ReturnType<typeof appConfig>;
   let service: AiService;
@@ -110,13 +112,18 @@ describe("AiService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
     callLogService.getRecentMessages.mockResolvedValue([]);
-    conversationsService = {
+    conversationLifecycleService = {
       ensureConversation: jest.fn(),
+      ensureSmsConversation: jest.fn(),
+      ensureVoiceConsentConversation: jest.fn(),
+      completeVoiceConversationByCallSid: jest.fn(),
+      linkJobToConversation: jest.fn(),
+    } as unknown as jest.Mocked<ConversationLifecycleService>;
+    conversationsService = {
       getConversationById: jest.fn(),
       setAiRouteIntent: jest.fn(),
-      linkJobToConversation: jest.fn(),
     } as unknown as jest.Mocked<ConversationsService>;
-    conversationsService.ensureConversation.mockResolvedValue({
+    conversationLifecycleService.ensureConversation.mockResolvedValue({
       id: "conversation-1",
       collectedData: {},
     } as never);
@@ -132,7 +139,7 @@ describe("AiService", () => {
     toolExecutorRegistry.register(
       new AiCreateJobToolExecutor(
         jobsRepository,
-        conversationsService as unknown as ConversationsService,
+        conversationLifecycleService as unknown as ConversationLifecycleService,
         callLogService as unknown as CallLogService,
         loggingService as unknown as LoggingService,
       ),
@@ -219,6 +226,7 @@ describe("AiService", () => {
       toolExecutorRegistry,
       tenantsService,
       callLogService,
+      conversationLifecycleService,
       conversationsService,
       config,
     );
@@ -387,7 +395,7 @@ describe("AiService", () => {
       routeTool,
       createJobTool,
     ] as never);
-    conversationsService.ensureConversation.mockResolvedValue({
+    conversationLifecycleService.ensureConversation.mockResolvedValue({
       id: "conversation-1",
       collectedData: { aiRoute: { intent: "BOOKING" } },
     } as never);
@@ -418,7 +426,7 @@ describe("AiService", () => {
       routeTool,
       createJobTool,
     ] as never);
-    conversationsService.ensureConversation.mockResolvedValue({
+    conversationLifecycleService.ensureConversation.mockResolvedValue({
       id: "conversation-1",
       collectedData: { aiRoute: { intent: "FAQ" } },
     } as never);
@@ -652,7 +660,7 @@ describe("AiService", () => {
       routeTool,
       createJobTool,
     ] as never);
-    conversationsService.ensureConversation.mockResolvedValue({
+    conversationLifecycleService.ensureConversation.mockResolvedValue({
       id: "conversation-1",
       collectedData: { aiRoute: { intent: "FAQ" } },
     } as never);
@@ -932,7 +940,7 @@ describe("AiService", () => {
         metadata: expect.objectContaining({ toolName: "create_job" }),
       }),
     );
-    expect(conversationsService.linkJobToConversation).toHaveBeenCalledWith(
+    expect(conversationLifecycleService.linkJobToConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId,
         conversationId: "conversation-1",
@@ -998,7 +1006,7 @@ describe("AiService", () => {
       reason: "voice_tool_blocked",
     });
     expect(jobsRepository.createJobFromToolCall).not.toHaveBeenCalled();
-    expect(conversationsService.linkJobToConversation).not.toHaveBeenCalled();
+    expect(conversationLifecycleService.linkJobToConversation).not.toHaveBeenCalled();
     expect(callLogService.clearSession).not.toHaveBeenCalled();
     expect(callLogService.createLog).toHaveBeenCalledWith(
       expect.objectContaining({

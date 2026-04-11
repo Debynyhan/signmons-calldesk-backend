@@ -19,6 +19,7 @@ import appConfig, { type AppConfig } from "../config/app.config";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { AiService } from "../ai/ai.service";
 import { LoggingService } from "../logging/logging.service";
@@ -38,6 +39,7 @@ export class SmsController {
     private readonly config: AppConfig,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
     private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly aiService: AiService,
@@ -61,6 +63,18 @@ export class SmsController {
       >;
     }
     return this.voiceConversationStateService;
+  }
+
+  private get lifecycleService(): Pick<
+    ConversationLifecycleService,
+    "ensureSmsConversation"
+  > {
+    const legacy =
+      this.conversationsService as Partial<ConversationLifecycleService>;
+    if (typeof legacy.ensureSmsConversation === "function") {
+      return legacy as Pick<ConversationLifecycleService, "ensureSmsConversation">;
+    }
+    return this.conversationLifecycleService;
   }
 
   @Post("confirm-field")
@@ -159,7 +173,7 @@ export class SmsController {
     }
 
     const { conversation, sessionId } =
-      await this.conversationsService.ensureSmsConversation({
+      await this.lifecycleService.ensureSmsConversation({
         tenantId: tenant.id,
         fromNumber,
         smsSid: smsSid ?? undefined,

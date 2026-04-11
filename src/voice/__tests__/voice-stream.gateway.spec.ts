@@ -26,6 +26,10 @@ describe("VoiceStreamGateway provider selection", () => {
     appendVoiceTurnTiming: jest.Mock;
     completeVoiceConversationByCallSid: jest.Mock;
   };
+  let conversationLifecycleService: {
+    ensureVoiceConsentConversation: jest.Mock;
+    completeVoiceConversationByCallSid: jest.Mock;
+  };
   let voiceConversationStateService: {
     appendVoiceTurnTiming: jest.Mock;
   };
@@ -67,6 +71,12 @@ describe("VoiceStreamGateway provider selection", () => {
         .fn()
         .mockResolvedValue({ id: "conversation-1" }),
     };
+    conversationLifecycleService = {
+      ensureVoiceConsentConversation:
+        conversationsService.ensureVoiceConsentConversation,
+      completeVoiceConversationByCallSid:
+        conversationsService.completeVoiceConversationByCallSid,
+    };
     voiceConversationStateService = {
       appendVoiceTurnTiming: conversationsService.appendVoiceTurnTiming,
     };
@@ -106,6 +116,7 @@ describe("VoiceStreamGateway provider selection", () => {
     new VoiceStreamGateway(buildConfig(configOverrides), {
       tenantsService: tenantsService as never,
       conversationsService: conversationsService as never,
+      conversationLifecycleService: conversationLifecycleService as never,
       voiceConversationStateService: voiceConversationStateService as never,
       googleSpeechService: googleSpeechService as never,
       googleTtsService: googleTtsService as never,

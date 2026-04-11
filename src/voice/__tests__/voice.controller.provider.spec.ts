@@ -30,6 +30,9 @@ describe("VoiceController provider selection", () => {
   let conversationsService: {
     ensureVoiceConsentConversation: jest.Mock;
   };
+  let conversationLifecycleService: {
+    ensureVoiceConsentConversation: jest.Mock;
+  };
   let voiceWebhookParser: {
     extractToNumber: jest.Mock;
     extractCallSid: jest.Mock;
@@ -69,6 +72,10 @@ describe("VoiceController provider selection", () => {
       ensureVoiceConsentConversation: jest
         .fn()
         .mockResolvedValue({ id: "conversation-1" }),
+    };
+    conversationLifecycleService = {
+      ensureVoiceConsentConversation:
+        conversationsService.ensureVoiceConsentConversation,
     };
     voiceWebhookParser = {
       extractToNumber: jest.fn().mockReturnValue("+12167448929"),
@@ -116,6 +123,7 @@ describe("VoiceController provider selection", () => {
         googleSpeechEnabled: true,
       }),
       tenantsService as never,
+      conversationLifecycleService as never,
       conversationsService as never,
       voiceWebhookParser as never,
       voiceTurnService as never,
@@ -165,6 +173,7 @@ describe("VoiceController provider selection", () => {
         googleSpeechEnabled: true,
       }),
       tenantsService as never,
+      conversationLifecycleService as never,
       conversationsService as never,
       voiceWebhookParser as never,
       voiceTurnService as never,

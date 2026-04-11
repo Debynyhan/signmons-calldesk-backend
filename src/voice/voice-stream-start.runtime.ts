@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config/app.config";
-import { ConversationsService } from "../conversations/conversations.service";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { GoogleSpeechService } from "../google/google-speech.service";
 import { LoggingService } from "../logging/logging.service";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
@@ -18,7 +18,7 @@ export class VoiceStreamStartRuntime {
   constructor(
     private readonly config: AppConfig,
     private readonly tenantsService: TenantsService,
-    private readonly conversationsService: ConversationsService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly googleSpeechService: GoogleSpeechService,
     private readonly loggingService: LoggingService,
   ) {}
@@ -71,7 +71,7 @@ export class VoiceStreamStartRuntime {
     }
 
     const leadId = params.customParameters?.leadId;
-    await this.conversationsService.ensureVoiceConsentConversation({
+    await this.conversationLifecycleService.ensureVoiceConsentConversation({
       tenantId: tenant.id,
       callSid: params.callSid,
       requestId: leadId,

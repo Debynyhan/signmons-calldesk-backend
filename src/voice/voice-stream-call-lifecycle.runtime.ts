@@ -1,4 +1,4 @@
-import { ConversationsService } from "../conversations/conversations.service";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { LoggingService } from "../logging/logging.service";
 import type { VoiceStreamSession } from "./voice-stream.types";
 
@@ -15,7 +15,7 @@ export class VoiceStreamCallLifecycleRuntime {
   private static readonly LOG_SOURCE = "VoiceStreamGateway";
 
   constructor(
-    private readonly conversationsService: ConversationsService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly loggingService: LoggingService,
   ) {}
 
@@ -42,7 +42,7 @@ export class VoiceStreamCallLifecycleRuntime {
       VoiceStreamCallLifecycleRuntime.LOG_SOURCE,
     );
 
-    void this.conversationsService
+    void this.conversationLifecycleService
       .completeVoiceConversationByCallSid({
         tenantId: session.tenantId,
         callSid: session.callSid,

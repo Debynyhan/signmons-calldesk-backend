@@ -10,6 +10,7 @@ import type { Request, Response } from "express";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { setRequestContextData } from "../common/context/request-context";
 import { LoggingService } from "../logging/logging.service";
@@ -34,6 +35,7 @@ export class VoiceController {
     private readonly config: AppConfig,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
     private readonly voiceWebhookParser: VoiceWebhookParserService,
     private readonly voiceTurnService: VoiceTurnService,
@@ -43,6 +45,21 @@ export class VoiceController {
     private readonly voiceResponse: VoiceResponseService,
     private readonly loggingService: LoggingService,
   ) {}
+
+  private get lifecycleService(): Pick<
+    ConversationLifecycleService,
+    "ensureVoiceConsentConversation"
+  > {
+    const legacy =
+      this.conversationsService as Partial<ConversationLifecycleService>;
+    if (typeof legacy.ensureVoiceConsentConversation === "function") {
+      return legacy as Pick<
+        ConversationLifecycleService,
+        "ensureVoiceConsentConversation"
+      >;
+    }
+    return this.conversationLifecycleService;
+  }
 
   @Post("inbound")
   async handleInbound(@Req() req: Request, @Res() res: Response) {
@@ -76,7 +93,7 @@ export class VoiceController {
     const callerPhone =
       this.voiceWebhookParser.extractFromNumber(req) ?? undefined;
     const conversation =
-      await this.conversationsService.ensureVoiceConsentConversation({
+      await this.lifecycleService.ensureVoiceConsentConversation({
         tenantId: tenant.id,
         callSid,
         requestId,
@@ -179,7 +196,7 @@ export class VoiceController {
     const callerPhone =
       this.voiceWebhookParser.extractToNumber(req) ?? undefined;
     const conversation =
-      await this.conversationsService.ensureVoiceConsentConversation({
+      await this.lifecycleService.ensureVoiceConsentConversation({
         tenantId: tenant.id,
         callSid,
         requestId,

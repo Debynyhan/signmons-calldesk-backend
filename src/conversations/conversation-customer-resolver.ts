@@ -1,10 +1,12 @@
 import { randomUUID } from "crypto";
+import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { LoggingService } from "../logging/logging.service";
 import { ConversationsRepository } from "./conversations.repository";
 
-const LOG_CONTEXT = "ConversationsService";
+const LOG_CONTEXT = "ConversationCustomerResolver";
 
+@Injectable()
 export class ConversationCustomerResolver {
   constructor(
     private readonly repository: ConversationsRepository,

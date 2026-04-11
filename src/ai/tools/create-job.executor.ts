@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { CommunicationChannel } from "@prisma/client";
 import { JOB_REPOSITORY } from "../../jobs/jobs.constants";
 import type { IJobRepository } from "../../jobs/interfaces/job-repository.interface";
-import { ConversationsService } from "../../conversations/conversations.service";
+import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
 import { CallLogService } from "../../logging/call-log.service";
 import { LoggingService } from "../../logging/logging.service";
 import { getRequestContext } from "../../common/context/request-context";
@@ -18,7 +18,7 @@ export class AiCreateJobToolExecutor implements RegisteredToolExecutor {
 
   constructor(
     @Inject(JOB_REPOSITORY) private readonly jobsRepository: IJobRepository,
-    private readonly conversationsService: ConversationsService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly callLogService: CallLogService,
     private readonly loggingService: LoggingService,
   ) {}
@@ -66,7 +66,7 @@ export class AiCreateJobToolExecutor implements RegisteredToolExecutor {
       rawArgs: context.rawArgs,
     });
 
-    await this.conversationsService.linkJobToConversation({
+    await this.conversationLifecycleService.linkJobToConversation({
       tenantId: context.tenantId,
       conversationId: context.conversationId,
       jobId: job.id,

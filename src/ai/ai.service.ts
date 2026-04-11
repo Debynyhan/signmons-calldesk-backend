@@ -14,6 +14,7 @@ import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { CallLogService } from "../logging/call-log.service";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import appConfig from "../config/app.config";
 import { getRequestContext } from "../common/context/request-context";
@@ -42,10 +43,23 @@ export class AiService {
     private readonly toolExecutorRegistry: ToolExecutorRegistryService,
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     private readonly callLogService: CallLogService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
   ) {}
+
+  private get lifecycleService(): Pick<
+    ConversationLifecycleService,
+    "ensureConversation"
+  > {
+    const legacy =
+      this.conversationsService as Partial<ConversationLifecycleService>;
+    if (typeof legacy.ensureConversation === "function") {
+      return legacy as Pick<ConversationLifecycleService, "ensureConversation">;
+    }
+    return this.conversationLifecycleService;
+  }
 
   async triage(
     tenantId: string,
@@ -82,7 +96,7 @@ export class AiService {
             tenantId: safeTenantId,
             conversationId: options.conversationId,
           })
-        : await this.conversationsService.ensureConversation(
+        : await this.lifecycleService.ensureConversation(
             safeTenantId,
             safeSessionId,
           );

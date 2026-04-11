@@ -1,37 +1,21 @@
 import { ConversationsService } from "../conversations.service";
-import { SanitizationService } from "../../sanitization/sanitization.service";
 import type { PrismaService } from "../../prisma/prisma.service";
-import { LoggingService } from "../../logging/logging.service";
 
 describe("ConversationsService", () => {
   let prisma: {
-    conversation: { findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
-    customer: { create: jest.Mock; findFirst: jest.Mock };
+    conversation: { findFirst: jest.Mock; update: jest.Mock };
   };
   let service: ConversationsService;
-  let loggingService: { warn: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       conversation: {
         findFirst: jest.fn(),
-        create: jest.fn(),
         update: jest.fn(),
       },
-      customer: {
-        create: jest.fn(),
-        findFirst: jest.fn(),
-      },
-    };
-    loggingService = {
-      warn: jest.fn(),
     };
 
-    service = new ConversationsService(
-      prisma as unknown as PrismaService,
-      new SanitizationService(),
-      loggingService as unknown as LoggingService,
-    );
+    service = new ConversationsService(prisma as unknown as PrismaService);
   });
 
   it("stores ai route intent in collectedData without overwriting existing fields", async () => {
@@ -68,161 +52,41 @@ describe("ConversationsService", () => {
     );
   });
 
-  it("persists CallSid on voice consent conversation creation", async () => {
-    prisma.conversation.findFirst.mockResolvedValue(null as never);
-    prisma.customer.findFirst.mockResolvedValue(null as never);
-    prisma.customer.create.mockResolvedValue({ id: "cust-1" } as never);
-    prisma.conversation.create.mockResolvedValue({ id: "conv-1" } as never);
+  it("returns parsed defaults for voice state accessors", () => {
+    const collectedData = {
+      name: {
+        candidate: { value: "Dean", sourceEventId: "evt-1", createdAt: "x" },
+        confirmed: { value: null, sourceEventId: null, confirmedAt: null },
+        status: "CANDIDATE",
+        locked: false,
+        attemptCount: 1,
+      },
+      address: {
+        candidate: "123 Main St",
+        confirmed: null,
+        status: "CANDIDATE",
+        locked: false,
+        attemptCount: 1,
+      },
+      smsPhone: {
+        value: "+12167448929",
+        source: "twilio_ani",
+        confirmed: false,
+        confirmedAt: null,
+        attemptCount: 0,
+        lastPromptedAt: null,
+      },
+    };
 
-    await service.ensureVoiceConsentConversation({
-      tenantId: "tenant-1",
-      callSid: "CA123",
-      requestId: "req-1",
-      callerPhone: "2167448929",
-    });
-
-    expect(prisma.conversation.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          twilioCallSid: "CA123",
-          collectedData: expect.objectContaining({
-            requestId: "req-1",
-            callerPhone: "+12167448929",
-            address: expect.objectContaining({
-              status: "MISSING",
-              locked: false,
-            }),
-            voiceConsent: expect.objectContaining({
-              granted: true,
-              method: "implied",
-              callSid: "CA123",
-            }),
-          }),
-        }),
-      }),
+    expect(service.getVoiceNameState(collectedData).candidate.value).toBe("Dean");
+    expect(service.getVoiceAddressState(collectedData).candidate).toBe(
+      "123 Main St",
     );
-  });
-
-  it("reuses an existing customer by normalized phone", async () => {
-    prisma.conversation.findFirst.mockResolvedValue(null as never);
-    prisma.customer.findFirst.mockResolvedValue({ id: "cust-1" } as never);
-    prisma.conversation.create.mockResolvedValue({ id: "conv-1" } as never);
-
-    await service.ensureVoiceConsentConversation({
-      tenantId: "tenant-1",
-      callSid: "CA123",
-      callerPhone: "(216) 744-8929",
-    });
-
-    expect(prisma.customer.create).not.toHaveBeenCalled();
-  });
-
-  it("creates a customer when none exists for caller phone", async () => {
-    prisma.conversation.findFirst.mockResolvedValue(null as never);
-    prisma.customer.findFirst.mockResolvedValue(null as never);
-    prisma.customer.create.mockResolvedValue({ id: "cust-1" } as never);
-    prisma.conversation.create.mockResolvedValue({ id: "conv-1" } as never);
-
-    await service.ensureVoiceConsentConversation({
-      tenantId: "tenant-1",
-      callSid: "CA123",
-      callerPhone: "2167448929",
-    });
-
-    expect(prisma.customer.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          phone: "+12167448929",
-        }),
-      }),
+    expect(service.getVoiceSmsPhoneState(collectedData).value).toBe(
+      "+12167448929",
     );
-  });
-
-  it("creates a placeholder customer if customer creation fails", async () => {
-    prisma.conversation.findFirst.mockResolvedValue(null as never);
-    prisma.customer.findFirst.mockResolvedValue(null as never);
-    prisma.customer.create
-      .mockRejectedValueOnce(new Error("insert failed"))
-      .mockResolvedValueOnce({ id: "cust-2" } as never);
-    prisma.conversation.create.mockResolvedValue({ id: "conv-1" } as never);
-
-    await service.ensureVoiceConsentConversation({
-      tenantId: "tenant-1",
-      callSid: "CA123",
-      callerPhone: "2167448929",
-    });
-
-    expect(loggingService.warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "voice_customer_create_failed",
-        tenantId: "tenant-1",
-      }),
-      ConversationsService.name,
-    );
-    expect(prisma.customer.create).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not overwrite callerPhone once set", async () => {
-    prisma.conversation.findFirst.mockResolvedValue({
-      id: "conv-1",
-      collectedData: { callerPhone: "+12167448929", voiceConsent: { granted: true } },
-    } as never);
-    prisma.conversation.update.mockResolvedValue({ id: "conv-1" } as never);
-
-    await service.ensureVoiceConsentConversation({
-      tenantId: "tenant-1",
-      callSid: "CA123",
-      callerPhone: "2165550000",
-    });
-
-    expect(prisma.conversation.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          collectedData: expect.objectContaining({
-            callerPhone: "+12167448929",
-            smsPhone: expect.objectContaining({
-              value: "+12167448929",
-            }),
-          }),
-        }),
-      }),
-    );
-  });
-
-  it("marks disconnected voice calls as abandoned when no hangup was requested", async () => {
-    prisma.conversation.findFirst.mockResolvedValue({
-      id: "conv-1",
-      status: "ONGOING",
-      endedAt: null,
-      collectedData: {},
-    } as never);
-    prisma.conversation.update.mockResolvedValue({
-      id: "conv-1",
-      status: "ABANDONED",
-      endedAt: new Date("2026-04-07T12:00:00.000Z"),
-      collectedData: {},
-    } as never);
-
-    await service.completeVoiceConversationByCallSid({
-      tenantId: "tenant-1",
-      callSid: "CA123",
-      source: "disconnect",
-    });
-
-    expect(prisma.conversation.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "conv-1" },
-        data: expect.objectContaining({
-          status: "ABANDONED",
-          endedAt: expect.any(Date),
-          collectedData: expect.objectContaining({
-            voiceLifecycle: expect.objectContaining({
-              endSource: "disconnect",
-              endedAt: expect.any(String),
-            }),
-          }),
-        }),
-      }),
-    );
+    expect(service.getVoiceSmsHandoff(collectedData)).toBeNull();
+    expect(service.getVoiceComfortRisk(collectedData).response).toBeNull();
+    expect(service.getVoiceUrgencyConfirmation(collectedData).response).toBeNull();
   });
 });

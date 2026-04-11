@@ -20,6 +20,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { LoggingService } from "../logging/logging.service";
 import { IntakeLinkService } from "./intake-link.service";
+import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { JobsService } from "../jobs/jobs.service";
 import { SmsService } from "../sms/sms.service";
@@ -70,6 +71,7 @@ export class PaymentsService {
     private readonly sanitizationService: SanitizationService,
     private readonly loggingService: LoggingService,
     private readonly intakeLinkService: IntakeLinkService,
+    private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
     private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly jobsService: JobsService,
@@ -94,6 +96,17 @@ export class PaymentsService {
       >;
     }
     return this.voiceConversationStateService;
+  }
+
+  private get lifecycleService(): Pick<
+    ConversationLifecycleService,
+    "linkJobToConversation"
+  > {
+    const legacy = this.conversationsService as Partial<ConversationLifecycleService>;
+    if (typeof legacy.linkJobToConversation === "function") {
+      return legacy as Pick<ConversationLifecycleService, "linkJobToConversation">;
+    }
+    return this.conversationLifecycleService;
   }
 
   async getIntakePageData(token: string): Promise<{
@@ -524,7 +537,7 @@ export class PaymentsService {
       sessionId: params.sessionId,
       rawArgs,
     });
-    await this.conversationsService.linkJobToConversation({
+    await this.lifecycleService.linkJobToConversation({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       jobId: job.id,

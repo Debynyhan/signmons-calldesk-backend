@@ -172,7 +172,7 @@ Methods moving to the voice module:
 
 ### TODO-6 — Extract `ConversationLifecycleService` from `ConversationsService`
 **Principle:** SRP
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 After TODO-5, `ConversationsService` still contains conversation creation and
@@ -399,7 +399,7 @@ that cannot be unit-tested in isolation.
 - [x] TODO-3   `TenantPromptBuilder`
 - [x] TODO-4   `TenantFeePolicySynchronizer`
 - [x] TODO-5   `VoiceConversationStateService`
-- [ ] TODO-6   `ConversationLifecycleService`
+- [x] TODO-6   `ConversationLifecycleService`
 - [ ] TODO-7   `IntakeFeeCalculator`
 - [ ] TODO-8   `StripeEventProcessor`
 - [ ] TODO-9   `VoiceIntakeSmsService`

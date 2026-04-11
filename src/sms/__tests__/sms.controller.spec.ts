@@ -4,6 +4,7 @@ import request from "supertest";
 import appConfig from "../../config/app.config";
 import { envValidationSchema } from "../../config/env.validation";
 import { SmsModule } from "../sms.module";
+import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../../conversations/conversations.service";
 import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
 import { AiService } from "../../ai/ai.service";
@@ -24,6 +25,7 @@ describe("SmsController", () => {
       id: "conversation-1",
       tenantId: "tenant-1",
     });
+    const ensureSmsConversation = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -44,6 +46,8 @@ describe("SmsController", () => {
         promoteNameFromSms,
         promoteAddressFromSms,
       })
+      .overrideProvider(ConversationLifecycleService)
+      .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(AiService)
@@ -92,6 +96,7 @@ describe("SmsController", () => {
       id: "conversation-1",
       tenantId: "tenant-1",
     });
+    const ensureSmsConversation = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -112,6 +117,8 @@ describe("SmsController", () => {
         promoteNameFromSms,
         promoteAddressFromSms,
       })
+      .overrideProvider(ConversationLifecycleService)
+      .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(AiService)
@@ -157,6 +164,7 @@ describe("SmsController", () => {
     const promoteNameFromSms = jest.fn();
     const promoteAddressFromSms = jest.fn();
     const getConversationById = jest.fn().mockResolvedValue(null);
+    const ensureSmsConversation = jest.fn();
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -177,6 +185,8 @@ describe("SmsController", () => {
         promoteNameFromSms,
         promoteAddressFromSms,
       })
+      .overrideProvider(ConversationLifecycleService)
+      .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(AiService)
@@ -243,6 +253,9 @@ describe("SmsController", () => {
         promoteNameFromSms,
         promoteAddressFromSms,
         getConversationBySmsSid,
+      })
+      .overrideProvider(ConversationLifecycleService)
+      .useValue({
         ensureSmsConversation,
       })
       .overrideProvider(TENANTS_SERVICE)
