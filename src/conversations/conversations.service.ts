@@ -14,102 +14,31 @@ import {
   buildAiRouteState,
   type AiRouteIntent,
 } from "../ai/routing/ai-route-state";
-
-type VoiceNameStatus = "MISSING" | "CANDIDATE" | "CONFIRMED";
-type VoiceNameCandidate = {
-  value: string | null;
-  sourceEventId: string | null;
-  createdAt: string | null;
-};
-type VoiceNameConfirmed = {
-  value: string | null;
-  sourceEventId: string | null;
-  confirmedAt: string | null;
-};
-type VoiceNameState = {
-  candidate: VoiceNameCandidate;
-  confirmed: VoiceNameConfirmed;
-  status: VoiceNameStatus;
-  locked: boolean;
-  attemptCount: number;
-  corrections?: number;
-  lastConfidence?: number | null;
-  spellPromptedAt?: number | null;
-  spellPromptedTurnIndex?: number | null;
-  spellPromptCount?: number;
-  firstNameSpelled?: string | null;
-};
-type VoiceAddressStatus = "MISSING" | "CANDIDATE" | "CONFIRMED" | "FAILED";
-type VoiceAddressState = {
-  candidate: string | null;
-  confirmed: string | null;
-  houseNumber?: string | null;
-  street?: string | null;
-  city?: string | null;
-  state?: string | null;
-  zip?: string | null;
-  status: VoiceAddressStatus;
-  locked: boolean;
-  attemptCount: number;
-  confidence?: number;
-  sourceEventId?: string | null;
-  needsLocality?: boolean;
-  smsConfirmNeeded?: boolean;
-};
-type VoiceSmsPhoneSource = "twilio_ani" | "user_spoken";
-type VoiceSmsPhoneState = {
-  value: string | null;
-  source: VoiceSmsPhoneSource | null;
-  confirmed: boolean;
-  confirmedAt: string | null;
-  attemptCount: number;
-  lastPromptedAt?: string | null;
-};
-type VoiceSmsHandoff = {
-  reason: string;
-  messageOverride?: string | null;
-  createdAt: string;
-};
-type VoiceComfortRiskResponse = "YES" | "NO";
-type VoiceComfortRisk = {
-  askedAt: string | null;
-  response: VoiceComfortRiskResponse | null;
-  sourceEventId: string | null;
-};
-type VoiceUrgencyConfirmationResponse = "YES" | "NO";
-type VoiceUrgencyConfirmation = {
-  askedAt: string | null;
-  response: VoiceUrgencyConfirmationResponse | null;
-  sourceEventId: string | null;
-};
-type VoiceFieldConfirmation = {
-  field: "name" | "address";
-  value: string;
-  confirmedAt: string;
-  sourceEventId: string;
-  channel: "VOICE" | "SMS";
-};
-type VoiceListeningField =
-  | "name"
-  | "address"
-  | "confirmation"
-  | "sms_phone"
-  | "booking"
-  | "callback"
-  | "comfort_risk"
-  | "urgency_confirm";
-type VoiceListeningWindow = {
-  field: VoiceListeningField;
-  sourceEventId: string | null;
-  expiresAt: string;
-  targetField?:
-    | "name"
-    | "address"
-    | "booking"
-    | "callback"
-    | "comfort_risk"
-    | "urgency_confirm";
-};
+import { ConversationsRepository } from "./conversations.repository";
+import { ConversationCustomerResolver } from "./conversation-customer-resolver";
+import {
+  getDefaultVoiceAddressState,
+  getDefaultVoiceNameState,
+  getDefaultVoiceSmsPhoneState,
+  getVoiceAddressStateFromCollectedData,
+  getVoiceComfortRiskFromCollectedData,
+  getVoiceNameStateFromCollectedData,
+  getVoiceSmsHandoffFromCollectedData,
+  getVoiceSmsPhoneStateFromCollectedData,
+  getVoiceUrgencyConfirmationFromCollectedData,
+  mergeLockedVoiceAddressState,
+  mergeLockedVoiceNameState,
+  parseVoiceAddressState,
+  parseVoiceNameState,
+  type VoiceAddressState,
+  type VoiceComfortRisk,
+  type VoiceFieldConfirmation,
+  type VoiceListeningWindow,
+  type VoiceNameState,
+  type VoiceSmsHandoff,
+  type VoiceSmsPhoneState,
+  type VoiceUrgencyConfirmation,
+} from "./voice-conversation-state.codec";
 type VoiceTurnTiming = {
   recordedAt: string;
   sttFinalMs: number | null;
@@ -132,14 +61,23 @@ type VoiceTurnTiming = {
 
 @Injectable()
 export class ConversationsService {
+  private readonly repository: ConversationsRepository;
+  private readonly customerResolver: ConversationCustomerResolver;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sanitizationService: SanitizationService,
     private readonly loggingService: LoggingService,
-  ) {}
+  ) {
+    this.repository = new ConversationsRepository(this.prisma);
+    this.customerResolver = new ConversationCustomerResolver(
+      this.repository,
+      this.loggingService,
+    );
+  }
 
   async ensureConversation(tenantId: string, sessionId: string) {
-    const existing = await this.prisma.conversation.findFirst({
+    const existing = await this.repository.findConversationFirst({
       where: {
         tenantId,
         collectedData: {
@@ -153,11 +91,12 @@ export class ConversationsService {
       return existing;
     }
 
-    const safeSessionId = this.sanitizationService.sanitizeIdentifier(sessionId);
+    const safeSessionId =
+      this.sanitizationService.sanitizeIdentifier(sessionId);
     const safeTenantId = this.sanitizationService.sanitizeIdentifier(tenantId);
 
     const placeholderPhone = `unknown-${safeSessionId ?? randomUUID()}`;
-    const customer = await this.prisma.customer.create({
+    const customer = await this.repository.createCustomer({
       data: {
         id: randomUUID(),
         tenantId: safeTenantId ?? tenantId,
@@ -171,7 +110,7 @@ export class ConversationsService {
       },
     });
 
-    return this.prisma.conversation.create({
+    return this.repository.createConversation({
       data: {
         id: randomUUID(),
         tenantId,
@@ -183,7 +122,7 @@ export class ConversationsService {
         collectedData: {
           sessionId,
           source: "WEBCHAT",
-          address: this.getDefaultAddressState(),
+          address: getDefaultVoiceAddressState(),
         } as Prisma.InputJsonValue,
       },
     });
@@ -197,13 +136,13 @@ export class ConversationsService {
     const normalizedFrom = this.sanitizationService.normalizePhoneE164(
       params.fromNumber,
     );
-    const customer = await this.resolveSmsCustomer({
+    const customer = await this.customerResolver.resolveSmsCustomer({
       tenantId: params.tenantId,
       normalizedPhone: normalizedFrom,
       smsSid: params.smsSid,
     });
 
-    const existing = await this.prisma.conversation.findFirst({
+    const existing = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         customerId: customer.id,
@@ -214,26 +153,21 @@ export class ConversationsService {
     });
 
     if (existing) {
-      const current = (existing.collectedData ?? {}) as Record<
-        string,
-        unknown
-      >;
+      const current = (existing.collectedData ?? {}) as Record<string, unknown>;
       const sessionId =
         typeof current.sessionId === "string" && current.sessionId.trim()
           ? current.sessionId
           : existing.id;
       const needsSessionId = sessionId !== current.sessionId;
-      const needsFrom =
-        normalizedFrom && current.smsFrom !== normalizedFrom;
-      const needsSid =
-        params.smsSid && existing.twilioSmsSid !== params.smsSid;
+      const needsFrom = normalizedFrom && current.smsFrom !== normalizedFrom;
+      const needsSid = params.smsSid && existing.twilioSmsSid !== params.smsSid;
       if (needsSessionId || needsFrom || needsSid) {
         const merged: Prisma.InputJsonValue = {
           ...current,
           ...(needsSessionId ? { sessionId } : {}),
           ...(needsFrom ? { smsFrom: normalizedFrom } : {}),
         };
-        const updated = await this.prisma.conversation.update({
+        const updated = await this.repository.updateConversation({
           where: { id: existing.id },
           data: {
             collectedData: merged,
@@ -247,7 +181,7 @@ export class ConversationsService {
     }
 
     const sessionId = randomUUID();
-    const conversation = await this.prisma.conversation.create({
+    const conversation = await this.repository.createConversation({
       data: {
         id: randomUUID(),
         tenantId: params.tenantId,
@@ -274,7 +208,7 @@ export class ConversationsService {
     requestId?: string;
     callerPhone?: string;
   }) {
-    const existing = await this.prisma.conversation.findFirst({
+    const existing = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
@@ -300,18 +234,19 @@ export class ConversationsService {
       const needsCallerPhone =
         Boolean(normalizedCallerPhone) && !existingCallerPhone;
       const needsSmsPhone = !current.smsPhone;
-      const smsPhoneSeed =
-        existingCallerPhone ?? normalizedCallerPhone ?? null;
+      const smsPhoneSeed = existingCallerPhone ?? normalizedCallerPhone ?? null;
       if (needsConsent || needsRequestId || needsCallerPhone || needsSmsPhone) {
         const merged = {
           ...current,
           ...(needsRequestId ? { requestId: params.requestId } : {}),
           ...(needsCallerPhone ? { callerPhone: normalizedCallerPhone } : {}),
-          ...(current.name ? {} : { name: this.getDefaultNameState() }),
-          ...(current.address ? {} : { address: this.getDefaultAddressState() }),
+          ...(current.name ? {} : { name: getDefaultVoiceNameState() }),
+          ...(current.address
+            ? {}
+            : { address: getDefaultVoiceAddressState() }),
           ...(needsSmsPhone
             ? {
-                smsPhone: this.getDefaultSmsPhoneState(smsPhoneSeed),
+                smsPhone: getDefaultVoiceSmsPhoneState(smsPhoneSeed),
               }
             : {}),
           ...(needsConsent
@@ -325,7 +260,7 @@ export class ConversationsService {
               }
             : {}),
         } as Prisma.InputJsonValue;
-        return this.prisma.conversation.update({
+        return this.repository.updateConversation({
           where: { id: existing.id },
           data: { collectedData: merged, updatedAt: new Date() },
         });
@@ -336,13 +271,13 @@ export class ConversationsService {
     const normalizedCallerPhone = params.callerPhone
       ? this.sanitizationService.normalizePhoneE164(params.callerPhone)
       : undefined;
-    const customer = await this.resolveVoiceCustomer({
+    const customer = await this.customerResolver.resolveVoiceCustomer({
       tenantId: params.tenantId,
       callSid: params.callSid,
       normalizedPhone: normalizedCallerPhone,
     });
 
-    return this.prisma.conversation.create({
+    return this.repository.createConversation({
       data: {
         id: randomUUID(),
         tenantId: params.tenantId,
@@ -355,11 +290,9 @@ export class ConversationsService {
           source: "VOICE",
           requestId: params.requestId,
           callerPhone: normalizedCallerPhone,
-          smsPhone: this.getDefaultSmsPhoneState(
-            normalizedCallerPhone ?? null,
-          ),
-          name: this.getDefaultNameState(),
-          address: this.getDefaultAddressState(),
+          smsPhone: getDefaultVoiceSmsPhoneState(normalizedCallerPhone ?? null),
+          name: getDefaultVoiceNameState(),
+          address: getDefaultVoiceAddressState(),
           voiceConsent: {
             granted: true,
             method: "implied",
@@ -376,7 +309,7 @@ export class ConversationsService {
     tenantId: string;
     callSid: string;
   }) {
-    return this.prisma.conversation.findFirst({
+    return this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
@@ -384,11 +317,8 @@ export class ConversationsService {
     });
   }
 
-  async getConversationBySmsSid(params: {
-    tenantId: string;
-    smsSid: string;
-  }) {
-    return this.prisma.conversation.findFirst({
+  async getConversationBySmsSid(params: { tenantId: string; smsSid: string }) {
+    return this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         twilioSmsSid: params.smsSid,
@@ -396,8 +326,11 @@ export class ConversationsService {
     });
   }
 
-  async getConversationById(params: { tenantId: string; conversationId: string }) {
-    return this.prisma.conversation.findFirst({
+  async getConversationById(params: {
+    tenantId: string;
+    conversationId: string;
+  }) {
+    return this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -410,7 +343,7 @@ export class ConversationsService {
     conversationId: string;
     intent: AiRouteIntent;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -422,13 +355,16 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const merged: Prisma.InputJsonValue = {
       ...current,
       aiRoute: buildAiRouteState(params.intent),
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -448,7 +384,7 @@ export class ConversationsService {
       return null;
     }
 
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
@@ -459,7 +395,10 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const merged = {
       ...current,
       lastTranscript: normalized,
@@ -469,7 +408,7 @@ export class ConversationsService {
         : {}),
     } as Prisma.InputJsonValue;
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
     });
@@ -480,206 +419,7 @@ export class ConversationsService {
     conversationId: string;
     issue: { value: string; sourceEventId: string; createdAt: string };
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        id: params.conversationId,
-      },
-      select: { id: true, collectedData: true },
-    });
-
-    if (!conversation) {
-      return null;
-    }
-
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
-    const existing = current.issueCandidate as
-      | { value?: string | null }
-      | undefined;
-    if (existing?.value) {
-      return conversation;
-    }
-
-    const merged = {
-      ...current,
-      issueCandidate: params.issue,
-    } as Prisma.InputJsonValue;
-
-    return this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { collectedData: merged, updatedAt: new Date() },
-      select: { id: true, collectedData: true },
-    });
-  }
-
-  async incrementVoiceTurn(params: {
-    tenantId: string;
-    conversationId: string;
-    now?: Date;
-  }): Promise<{
-    conversation: { id: string; collectedData: Prisma.JsonValue };
-    voiceTurnCount: number;
-    voiceStartedAt: string;
-  } | null> {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        id: params.conversationId,
-      },
-      select: { id: true, collectedData: true },
-    });
-
-    if (!conversation) {
-      return null;
-    }
-
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
-    const previousCount =
-      typeof current.voiceTurnCount === "number" ? current.voiceTurnCount : 0;
-    const now = params.now ?? new Date();
-    const startedAt =
-      typeof current.voiceStartedAt === "string"
-        ? current.voiceStartedAt
-        : now.toISOString();
-    const nextCount = previousCount + 1;
-
-    const merged: Prisma.InputJsonValue = {
-      ...current,
-      voiceTurnCount: nextCount,
-      voiceStartedAt: startedAt,
-    };
-
-    const updated = await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { collectedData: merged, updatedAt: new Date() },
-      select: { id: true, collectedData: true },
-    });
-
-    return {
-      conversation: updated,
-      voiceTurnCount: nextCount,
-      voiceStartedAt: startedAt,
-    };
-  }
-
-  getVoiceNameState(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): VoiceNameState {
-    if (!collectedData || typeof collectedData !== "object") {
-      return this.getDefaultNameState();
-    }
-    const data = collectedData as Record<string, unknown>;
-    return this.parseNameState(data.name);
-  }
-
-  getVoiceSmsPhoneState(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): VoiceSmsPhoneState {
-    if (!collectedData || typeof collectedData !== "object") {
-      return this.getDefaultSmsPhoneState(null);
-    }
-    const data = collectedData as Record<string, unknown>;
-    if (data.smsPhone) {
-      return this.parseSmsPhoneState(data.smsPhone);
-    }
-    const fallback =
-      typeof data.callerPhone === "string" ? data.callerPhone : null;
-    return this.getDefaultSmsPhoneState(fallback);
-  }
-
-  getVoiceSmsHandoff(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): VoiceSmsHandoff | null {
-    if (!collectedData || typeof collectedData !== "object") {
-      return null;
-    }
-    const data = collectedData as Record<string, unknown>;
-    const raw = data.voiceSmsHandoff;
-    if (!raw || typeof raw !== "object") {
-      return null;
-    }
-    const record = raw as Record<string, unknown>;
-    if (typeof record.reason !== "string") {
-      return null;
-    }
-    return {
-      reason: record.reason,
-      messageOverride:
-        typeof record.messageOverride === "string"
-          ? record.messageOverride
-          : null,
-      createdAt:
-        typeof record.createdAt === "string"
-          ? record.createdAt
-          : new Date().toISOString(),
-    };
-  }
-
-  getVoiceAddressState(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): VoiceAddressState {
-    if (!collectedData || typeof collectedData !== "object") {
-      return this.getDefaultAddressState();
-    }
-    const data = collectedData as Record<string, unknown>;
-    return this.parseAddressState(data.address);
-  }
-
-  getVoiceComfortRisk(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): VoiceComfortRisk {
-    if (!collectedData || typeof collectedData !== "object") {
-      return { askedAt: null, response: null, sourceEventId: null };
-    }
-    const data = collectedData as Record<string, unknown>;
-    const raw = data.voiceComfortRisk;
-    if (!raw || typeof raw !== "object") {
-      return { askedAt: null, response: null, sourceEventId: null };
-    }
-    const record = raw as Partial<VoiceComfortRisk>;
-    const response =
-      record.response === "YES" || record.response === "NO"
-        ? record.response
-        : null;
-    return {
-      askedAt: typeof record.askedAt === "string" ? record.askedAt : null,
-      response,
-      sourceEventId:
-        typeof record.sourceEventId === "string" ? record.sourceEventId : null,
-    };
-  }
-
-  getVoiceUrgencyConfirmation(
-    collectedData: Prisma.JsonValue | null | undefined,
-  ): VoiceUrgencyConfirmation {
-    if (!collectedData || typeof collectedData !== "object") {
-      return { askedAt: null, response: null, sourceEventId: null };
-    }
-    const data = collectedData as Record<string, unknown>;
-    const raw = data.voiceUrgencyConfirmation;
-    if (!raw || typeof raw !== "object") {
-      return { askedAt: null, response: null, sourceEventId: null };
-    }
-    const record = raw as Partial<VoiceUrgencyConfirmation>;
-    const response =
-      record.response === "YES" || record.response === "NO"
-        ? record.response
-        : null;
-    return {
-      askedAt: typeof record.askedAt === "string" ? record.askedAt : null,
-      response,
-      sourceEventId:
-        typeof record.sourceEventId === "string" ? record.sourceEventId : null,
-    };
-  }
-
-  async updateVoiceNameState(params: {
-    tenantId: string;
-    conversationId: string;
-    nameState: VoiceNameState;
-    confirmation?: VoiceFieldConfirmation;
-  }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -695,10 +435,142 @@ export class ConversationsService {
       string,
       unknown
     >;
-    const currentName = this.parseNameState(current.name);
-    const nextName = this.mergeNameState(currentName, params.nameState);
-    const confirmations = Array.isArray(current.fieldConfirmations)
-      ? [...current.fieldConfirmations]
+    const existing = current.issueCandidate as
+      | { value?: string | null }
+      | undefined;
+    if (existing?.value) {
+      return conversation;
+    }
+
+    const merged = {
+      ...current,
+      issueCandidate: params.issue,
+    } as Prisma.InputJsonValue;
+
+    return this.repository.updateConversation({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async incrementVoiceTurn(params: {
+    tenantId: string;
+    conversationId: string;
+    now?: Date;
+  }): Promise<{
+    conversation: { id: string; collectedData: Prisma.JsonValue };
+    voiceTurnCount: number;
+    voiceStartedAt: string;
+  } | null> {
+    const conversation = await this.repository.findConversationFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const previousCount =
+      typeof current.voiceTurnCount === "number" ? current.voiceTurnCount : 0;
+    const now = params.now ?? new Date();
+    const startedAt =
+      typeof current.voiceStartedAt === "string"
+        ? current.voiceStartedAt
+        : now.toISOString();
+    const nextCount = previousCount + 1;
+
+    const merged: Prisma.InputJsonValue = {
+      ...current,
+      voiceTurnCount: nextCount,
+      voiceStartedAt: startedAt,
+    };
+
+    const updated = await this.repository.updateConversation({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+
+    return {
+      conversation: updated,
+      voiceTurnCount: nextCount,
+      voiceStartedAt: startedAt,
+    };
+  }
+
+  getVoiceNameState(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceNameState {
+    return getVoiceNameStateFromCollectedData(collectedData);
+  }
+
+  getVoiceSmsPhoneState(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceSmsPhoneState {
+    return getVoiceSmsPhoneStateFromCollectedData(collectedData);
+  }
+
+  getVoiceSmsHandoff(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceSmsHandoff | null {
+    return getVoiceSmsHandoffFromCollectedData(collectedData);
+  }
+
+  getVoiceAddressState(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceAddressState {
+    return getVoiceAddressStateFromCollectedData(collectedData);
+  }
+
+  getVoiceComfortRisk(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceComfortRisk {
+    return getVoiceComfortRiskFromCollectedData(collectedData);
+  }
+
+  getVoiceUrgencyConfirmation(
+    collectedData: Prisma.JsonValue | null | undefined,
+  ): VoiceUrgencyConfirmation {
+    return getVoiceUrgencyConfirmationFromCollectedData(collectedData);
+  }
+
+  async updateVoiceNameState(params: {
+    tenantId: string;
+    conversationId: string;
+    nameState: VoiceNameState;
+    confirmation?: VoiceFieldConfirmation;
+  }) {
+    const conversation = await this.repository.findConversationFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const currentName = parseVoiceNameState(current.name);
+    const nextName = mergeLockedVoiceNameState(currentName, params.nameState);
+    const confirmations: Prisma.InputJsonValue[] = Array.isArray(
+      current.fieldConfirmations,
+    )
+      ? (current.fieldConfirmations.slice() as Prisma.InputJsonValue[])
       : [];
     const confirmation = params.confirmation;
     if (confirmation) {
@@ -722,7 +594,7 @@ export class ConversationsService {
       ...(confirmations.length ? { fieldConfirmations: confirmations } : {}),
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -734,7 +606,7 @@ export class ConversationsService {
     conversationId: string;
     phoneState: VoiceSmsPhoneState;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -746,13 +618,16 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const merged: Prisma.InputJsonValue = {
       ...current,
       smsPhone: params.phoneState,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -764,7 +639,7 @@ export class ConversationsService {
     conversationId: string;
     handoff: VoiceSmsHandoff;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -776,13 +651,16 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const merged: Prisma.InputJsonValue = {
       ...current,
       voiceSmsHandoff: params.handoff,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -794,7 +672,7 @@ export class ConversationsService {
     conversationId: string;
     comfortRisk: Partial<VoiceComfortRisk>;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -806,10 +684,11 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
-    const existing = this.getVoiceComfortRisk(
-      current as Prisma.JsonValue,
-    );
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const existing = this.getVoiceComfortRisk(current as Prisma.JsonValue);
     const next: VoiceComfortRisk = {
       askedAt:
         typeof params.comfortRisk.askedAt === "string"
@@ -831,7 +710,7 @@ export class ConversationsService {
       voiceComfortRisk: next,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -843,7 +722,7 @@ export class ConversationsService {
     conversationId: string;
     urgencyConfirmation: Partial<VoiceUrgencyConfirmation>;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -855,7 +734,10 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const existing = this.getVoiceUrgencyConfirmation(
       current as Prisma.JsonValue,
     );
@@ -880,7 +762,7 @@ export class ConversationsService {
       voiceUrgencyConfirmation: next,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -891,36 +773,7 @@ export class ConversationsService {
     tenantId: string;
     conversationId: string;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: params.tenantId,
-        id: params.conversationId,
-      },
-      select: { id: true, collectedData: true },
-    });
-
-    if (!conversation) {
-      return null;
-    }
-
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
-    const { voiceSmsHandoff: _ignored, ...rest } = current;
-    const merged = rest as Prisma.InputJsonValue;
-
-    return this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { collectedData: merged, updatedAt: new Date() },
-      select: { id: true, collectedData: true },
-    });
-  }
-
-  async updateVoiceAddressState(params: {
-    tenantId: string;
-    conversationId: string;
-    addressState: VoiceAddressState;
-    confirmation?: VoiceFieldConfirmation;
-  }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -936,13 +789,48 @@ export class ConversationsService {
       string,
       unknown
     >;
-    const currentAddress = this.parseAddressState(current.address);
-    const nextAddress = this.mergeAddressState(
+    const mergedRecord: Record<string, unknown> = { ...current };
+    delete mergedRecord.voiceSmsHandoff;
+    const merged = mergedRecord as Prisma.InputJsonValue;
+
+    return this.repository.updateConversation({
+      where: { id: conversation.id },
+      data: { collectedData: merged, updatedAt: new Date() },
+      select: { id: true, collectedData: true },
+    });
+  }
+
+  async updateVoiceAddressState(params: {
+    tenantId: string;
+    conversationId: string;
+    addressState: VoiceAddressState;
+    confirmation?: VoiceFieldConfirmation;
+  }) {
+    const conversation = await this.repository.findConversationFirst({
+      where: {
+        tenantId: params.tenantId,
+        id: params.conversationId,
+      },
+      select: { id: true, collectedData: true },
+    });
+
+    if (!conversation) {
+      return null;
+    }
+
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const currentAddress = parseVoiceAddressState(current.address);
+    const nextAddress = mergeLockedVoiceAddressState(
       currentAddress,
       params.addressState,
     );
-    const confirmations = Array.isArray(current.fieldConfirmations)
-      ? [...current.fieldConfirmations]
+    const confirmations: Prisma.InputJsonValue[] = Array.isArray(
+      current.fieldConfirmations,
+    )
+      ? (current.fieldConfirmations.slice() as Prisma.InputJsonValue[])
       : [];
     const confirmation = params.confirmation;
     if (confirmation) {
@@ -966,7 +854,7 @@ export class ConversationsService {
       ...(confirmations.length ? { fieldConfirmations: confirmations } : {}),
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -978,7 +866,7 @@ export class ConversationsService {
     conversationId: string;
     window: VoiceListeningWindow;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -990,13 +878,16 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const merged: Prisma.InputJsonValue = {
       ...current,
       voiceListeningWindow: params.window,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -1007,7 +898,7 @@ export class ConversationsService {
     tenantId: string;
     conversationId: string;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -1019,11 +910,15 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
-    const { voiceListeningWindow: _ignored, ...rest } = current;
-    const merged = rest as Prisma.InputJsonValue;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const mergedRecord: Record<string, unknown> = { ...current };
+    delete mergedRecord.voiceListeningWindow;
+    const merged = mergedRecord as Prisma.InputJsonValue;
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -1035,7 +930,7 @@ export class ConversationsService {
     conversationId: string;
     eventId: string;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -1047,13 +942,16 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const merged: Prisma.InputJsonValue = {
       ...current,
       voiceLastEventId: params.eventId,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -1066,7 +964,7 @@ export class ConversationsService {
     timing: Omit<VoiceTurnTiming, "recordedAt"> & { recordedAt?: string };
     maxHistory?: number;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
@@ -1078,7 +976,10 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const existingHistoryRaw = Array.isArray(current.voiceTurnTimings)
       ? current.voiceTurnTimings
       : [];
@@ -1097,7 +998,7 @@ export class ConversationsService {
       voiceTurnTimings: nextHistory,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: { collectedData: merged, updatedAt: new Date() },
       select: { id: true, collectedData: true },
@@ -1112,7 +1013,7 @@ export class ConversationsService {
     hangupRequestedAt?: string | null;
     hangupToEndMs?: number | null;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         twilioCallSid: params.callSid,
@@ -1124,7 +1025,10 @@ export class ConversationsService {
       return null;
     }
 
-    const current = (conversation.collectedData ?? {}) as Record<string, unknown>;
+    const current = (conversation.collectedData ?? {}) as Record<
+      string,
+      unknown
+    >;
     const lifecycleCurrent =
       current.voiceLifecycle && typeof current.voiceLifecycle === "object"
         ? (current.voiceLifecycle as Record<string, unknown>)
@@ -1151,9 +1055,9 @@ export class ConversationsService {
       hangupToEndMs:
         typeof params.hangupToEndMs === "number"
           ? params.hangupToEndMs
-          : (typeof lifecycleCurrent.hangupToEndMs === "number"
-              ? lifecycleCurrent.hangupToEndMs
-              : null),
+          : typeof lifecycleCurrent.hangupToEndMs === "number"
+            ? lifecycleCurrent.hangupToEndMs
+            : null,
       updatedAt: new Date().toISOString(),
     };
     const merged: Prisma.InputJsonValue = {
@@ -1161,7 +1065,7 @@ export class ConversationsService {
       voiceLifecycle: lifecycleNext,
     };
 
-    return this.prisma.conversation.update({
+    return this.repository.updateConversation({
       where: { id: conversation.id },
       data: {
         status,
@@ -1180,7 +1084,7 @@ export class ConversationsService {
     sourceEventId: string;
     confirmedAt?: string;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -1196,7 +1100,7 @@ export class ConversationsService {
       string,
       unknown
     >;
-    const currentName = this.parseNameState(current.name);
+    const currentName = parseVoiceNameState(current.name);
     const confirmedAt = params.confirmedAt ?? new Date().toISOString();
     const nextNameState: VoiceNameState = {
       ...currentName,
@@ -1230,7 +1134,7 @@ export class ConversationsService {
     sourceEventId: string;
     confirmedAt?: string;
   }) {
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.repository.findConversationFirst({
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
@@ -1246,7 +1150,7 @@ export class ConversationsService {
       string,
       unknown
     >;
-    const currentAddress = this.parseAddressState(current.address);
+    const currentAddress = parseVoiceAddressState(current.address);
     const confirmedAt = params.confirmedAt ?? new Date().toISOString();
     const nextAddressState: VoiceAddressState = {
       ...currentAddress,
@@ -1270,427 +1174,23 @@ export class ConversationsService {
     });
   }
 
-  private async resolveVoiceCustomer(params: {
-    tenantId: string;
-    callSid: string;
-    normalizedPhone?: string;
-  }) {
-    if (params.normalizedPhone) {
-      const existing = await this.prisma.customer.findFirst({
-        where: { tenantId: params.tenantId, phone: params.normalizedPhone },
-      });
-      if (existing) {
-        return existing;
-      }
-      try {
-        return await this.prisma.customer.create({
-          data: {
-            id: randomUUID(),
-            tenantId: params.tenantId,
-            phone: params.normalizedPhone,
-            fullName: "Unknown Caller",
-            aiMetadata: {
-              source: "VOICE",
-              status: "PROSPECT",
-              callSid: params.callSid,
-            } as Prisma.InputJsonValue,
-          },
-        });
-      } catch (error) {
-        this.loggingService.warn(
-          {
-            event: "voice_customer_create_failed",
-            tenantId: params.tenantId,
-            phone: params.normalizedPhone,
-          },
-          ConversationsService.name,
-        );
-        const fallback = await this.prisma.customer.findFirst({
-          where: { tenantId: params.tenantId, phone: params.normalizedPhone },
-        });
-        if (fallback) {
-          return fallback;
-        }
-      }
-    }
-
-    const placeholderPhone = `unknown-voice-${params.callSid}`;
-    return this.prisma.customer.create({
-      data: {
-        id: randomUUID(),
-        tenantId: params.tenantId,
-        phone: placeholderPhone,
-        fullName: "Unknown Caller",
-        aiMetadata: {
-          source: "VOICE",
-          status: "PROSPECT",
-          callSid: params.callSid,
-        } as Prisma.InputJsonValue,
-      },
-    });
-  }
-
-  private async resolveSmsCustomer(params: {
-    tenantId: string;
-    normalizedPhone?: string;
-    smsSid?: string;
-  }) {
-    if (params.normalizedPhone) {
-      const existing = await this.prisma.customer.findFirst({
-        where: {
-          tenantId: params.tenantId,
-          phone: params.normalizedPhone,
-        },
-      });
-      if (existing) {
-        if (!existing.consentToText) {
-          return this.prisma.customer.update({
-            where: { id: existing.id },
-            data: {
-              consentToText: true,
-              consentToTextAt: new Date(),
-              updatedAt: new Date(),
-            },
-          });
-        }
-        return existing;
-      }
-      try {
-        return await this.prisma.customer.create({
-          data: {
-            id: randomUUID(),
-            tenantId: params.tenantId,
-            phone: params.normalizedPhone,
-            fullName: "Unknown Caller",
-            consentToText: true,
-            consentToTextAt: new Date(),
-            aiMetadata: {
-              source: "SMS",
-              status: "PROSPECT",
-              smsSid: params.smsSid,
-            } as Prisma.InputJsonValue,
-          },
-        });
-      } catch (error) {
-        this.loggingService.warn(
-          {
-            event: "sms_customer_create_failed",
-            tenantId: params.tenantId,
-            phone: params.normalizedPhone,
-          },
-          ConversationsService.name,
-        );
-        const fallback = await this.prisma.customer.findFirst({
-          where: {
-            tenantId: params.tenantId,
-            phone: params.normalizedPhone,
-          },
-        });
-        if (fallback) {
-          return fallback;
-        }
-      }
-    }
-
-    const placeholderPhone = `unknown-sms-${params.smsSid ?? randomUUID()}`;
-    return this.prisma.customer.create({
-      data: {
-        id: randomUUID(),
-        tenantId: params.tenantId,
-        phone: placeholderPhone,
-        fullName: "Unknown Caller",
-        consentToText: true,
-        consentToTextAt: new Date(),
-        aiMetadata: {
-          source: "SMS",
-          status: "PROSPECT",
-          smsSid: params.smsSid,
-        } as Prisma.InputJsonValue,
-      },
-    });
-  }
-
-  private getDefaultNameState(): VoiceNameState {
-    return {
-      candidate: { value: null, sourceEventId: null, createdAt: null },
-      confirmed: { value: null, sourceEventId: null, confirmedAt: null },
-      status: "MISSING",
-      locked: false,
-      attemptCount: 0,
-      corrections: 0,
-      lastConfidence: null,
-      spellPromptedAt: null,
-      spellPromptedTurnIndex: null,
-      spellPromptCount: 0,
-      firstNameSpelled: null,
-    };
-  }
-
-  private getDefaultAddressState(): VoiceAddressState {
-    return {
-      candidate: null,
-      confirmed: null,
-      houseNumber: null,
-      street: null,
-      city: null,
-      state: null,
-      zip: null,
-      status: "MISSING",
-      locked: false,
-      attemptCount: 0,
-      confidence: undefined,
-      sourceEventId: null,
-      needsLocality: false,
-      smsConfirmNeeded: false,
-    };
-  }
-
-  private getDefaultSmsPhoneState(
-    value: string | null,
-  ): VoiceSmsPhoneState {
-    return {
-      value,
-      source: value ? "twilio_ani" : null,
-      confirmed: false,
-      confirmedAt: null,
-      attemptCount: 0,
-      lastPromptedAt: null,
-    };
-  }
-
-  private parseNameState(value: unknown): VoiceNameState {
-    const defaults = this.getDefaultNameState();
-    if (!value || typeof value !== "object") {
-      return defaults;
-    }
-    const data = value as Partial<VoiceNameState>;
-    const candidate = data.candidate ?? defaults.candidate;
-    const confirmed = data.confirmed ?? defaults.confirmed;
-    const status =
-      data.status === "CANDIDATE" || data.status === "CONFIRMED"
-        ? data.status
-        : "MISSING";
-    const corrections =
-      typeof data.corrections === "number" && data.corrections >= 0
-        ? data.corrections
-        : 0;
-    const lastConfidence =
-      typeof data.lastConfidence === "number" ? data.lastConfidence : null;
-    const spellPromptedAt =
-      typeof data.spellPromptedAt === "number" ? data.spellPromptedAt : null;
-    const spellPromptedTurnIndex =
-      typeof data.spellPromptedTurnIndex === "number"
-        ? data.spellPromptedTurnIndex
-        : null;
-    const spellPromptCount =
-      typeof data.spellPromptCount === "number" && data.spellPromptCount >= 0
-        ? data.spellPromptCount
-        : 0;
-    const firstNameSpelled =
-      typeof data.firstNameSpelled === "string" ? data.firstNameSpelled : null;
-    return {
-      candidate: {
-        value: typeof candidate.value === "string" ? candidate.value : null,
-        sourceEventId:
-          typeof candidate.sourceEventId === "string"
-            ? candidate.sourceEventId
-            : null,
-        createdAt:
-          typeof candidate.createdAt === "string" ? candidate.createdAt : null,
-      },
-      confirmed: {
-        value: typeof confirmed.value === "string" ? confirmed.value : null,
-        sourceEventId:
-          typeof confirmed.sourceEventId === "string"
-            ? confirmed.sourceEventId
-            : null,
-        confirmedAt:
-          typeof confirmed.confirmedAt === "string"
-            ? confirmed.confirmedAt
-            : null,
-      },
-      status,
-      locked: Boolean(data.locked),
-      attemptCount:
-        typeof data.attemptCount === "number" && data.attemptCount >= 0
-          ? data.attemptCount
-          : 0,
-      corrections,
-      lastConfidence,
-      spellPromptedAt,
-      spellPromptedTurnIndex,
-      spellPromptCount,
-      firstNameSpelled,
-    };
-  }
-
-  private parseAddressState(value: unknown): VoiceAddressState {
-    const defaults = this.getDefaultAddressState();
-    if (!value || typeof value !== "object") {
-      return defaults;
-    }
-    const data = value as Record<string, unknown>;
-    const candidateRaw = data.candidate;
-    const confirmedRaw = data.confirmed;
-    let candidate =
-      typeof candidateRaw === "string" ? candidateRaw : defaults.candidate;
-    let confirmed =
-      typeof confirmedRaw === "string" ? confirmedRaw : defaults.confirmed;
-    let sourceEventId =
-      typeof data.sourceEventId === "string" ? data.sourceEventId : null;
-    const confidence =
-      typeof data.confidence === "number" ? data.confidence : undefined;
-    const needsLocality =
-      typeof data.needsLocality === "boolean" ? data.needsLocality : false;
-    const smsConfirmNeeded =
-      typeof data.smsConfirmNeeded === "boolean"
-        ? data.smsConfirmNeeded
-        : false;
-    const houseNumber =
-      typeof data.houseNumber === "string" ? data.houseNumber : null;
-    const street = typeof data.street === "string" ? data.street : null;
-    const city = typeof data.city === "string" ? data.city : null;
-    const state = typeof data.state === "string" ? data.state : null;
-    const zip = typeof data.zip === "string" ? data.zip : null;
-    if (candidateRaw && typeof candidateRaw === "object") {
-      const legacyCandidate = candidateRaw as {
-        value?: unknown;
-        sourceEventId?: unknown;
-      };
-      if (typeof legacyCandidate.value === "string") {
-        candidate = legacyCandidate.value;
-      }
-      if (
-        typeof legacyCandidate.sourceEventId === "string" &&
-        !sourceEventId
-      ) {
-        sourceEventId = legacyCandidate.sourceEventId;
-      }
-    }
-    if (confirmedRaw && typeof confirmedRaw === "object") {
-      const legacyConfirmed = confirmedRaw as {
-        value?: unknown;
-        sourceEventId?: unknown;
-      };
-      if (typeof legacyConfirmed.value === "string") {
-        confirmed = legacyConfirmed.value;
-      }
-      if (
-        typeof legacyConfirmed.sourceEventId === "string" &&
-        !sourceEventId
-      ) {
-        sourceEventId = legacyConfirmed.sourceEventId;
-      }
-    }
-    const status =
-      data.status === "CANDIDATE" ||
-      data.status === "CONFIRMED" ||
-      data.status === "FAILED"
-        ? data.status
-        : "MISSING";
-    return {
-      candidate: candidate ?? null,
-      confirmed: confirmed ?? null,
-      houseNumber,
-      street,
-      city,
-      state,
-      zip,
-      status,
-      locked: Boolean(data.locked),
-      attemptCount:
-        typeof data.attemptCount === "number" && data.attemptCount >= 0
-          ? data.attemptCount
-          : 0,
-      confidence,
-      sourceEventId,
-      needsLocality,
-      smsConfirmNeeded,
-    };
-  }
-
-  private parseSmsPhoneState(value: unknown): VoiceSmsPhoneState {
-    if (!value || typeof value !== "object") {
-      return this.getDefaultSmsPhoneState(null);
-    }
-    const data = value as Partial<VoiceSmsPhoneState>;
-    const rawValue = typeof data.value === "string" ? data.value : null;
-    const source =
-      data.source === "twilio_ani" || data.source === "user_spoken"
-        ? data.source
-        : rawValue
-          ? "twilio_ani"
-          : null;
-    return {
-      value: rawValue,
-      source,
-      confirmed: Boolean(data.confirmed),
-      confirmedAt:
-        typeof data.confirmedAt === "string" ? data.confirmedAt : null,
-      attemptCount:
-        typeof data.attemptCount === "number" && data.attemptCount >= 0
-          ? data.attemptCount
-          : 0,
-      lastPromptedAt:
-        typeof data.lastPromptedAt === "string" ? data.lastPromptedAt : null,
-    };
-  }
-
-  private mergeNameState(
-    current: VoiceNameState,
-    next: VoiceNameState,
-  ): VoiceNameState {
-    if (current.locked && current.confirmed.value) {
-      return {
-        ...current,
-        status: "CONFIRMED",
-        locked: true,
-      };
-    }
-    return next;
-  }
-
-  private mergeAddressState(
-    current: VoiceAddressState,
-    next: VoiceAddressState,
-  ): VoiceAddressState {
-    if (current.locked && current.confirmed) {
-      return {
-        ...current,
-        status: "CONFIRMED",
-        locked: true,
-      };
-    }
-    return next;
-  }
-
   async linkJobToConversation(params: {
     tenantId: string;
     conversationId: string;
     jobId: string;
     relationType?: ConversationJobRelation;
   }) {
-    try {
-      return await this.prisma.conversationJobLink.create({
-        data: {
-          id: randomUUID(),
-          tenantId: params.tenantId,
-          conversationId: params.conversationId,
-          conversationTenantId: params.tenantId,
-          jobId: params.jobId,
-          jobTenantId: params.tenantId,
-          relationType:
-            params.relationType ?? ConversationJobRelation.CREATED_FROM,
-        },
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        return null;
-      }
-      throw error;
-    }
+    return this.repository.createConversationJobLinkOrNullOnConflict({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        conversationId: params.conversationId,
+        conversationTenantId: params.tenantId,
+        jobId: params.jobId,
+        jobTenantId: params.tenantId,
+        relationType:
+          params.relationType ?? ConversationJobRelation.CREATED_FROM,
+      },
+    });
   }
 }
