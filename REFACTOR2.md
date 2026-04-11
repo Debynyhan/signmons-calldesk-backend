@@ -197,7 +197,7 @@ completion logic (~400 lines) that is a separate concern from state queries:
 
 ### TODO-7 — Extract `IntakeFeeCalculator` from `PaymentsService`
 **Principle:** SRP, SoC
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `PaymentsService.resolveIntakeContext()` (line 373, ~72 lines) is pure business
@@ -400,7 +400,7 @@ that cannot be unit-tested in isolation.
 - [x] TODO-4   `TenantFeePolicySynchronizer`
 - [x] TODO-5   `VoiceConversationStateService`
 - [x] TODO-6   `ConversationLifecycleService`
-- [ ] TODO-7   `IntakeFeeCalculator`
+- [x] TODO-7   `IntakeFeeCalculator`
 - [ ] TODO-8   `StripeEventProcessor`
 - [ ] TODO-9   `VoiceIntakeSmsService`
 - [ ] TODO-10  `CreateJobPayloadValidator`

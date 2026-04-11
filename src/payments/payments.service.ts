@@ -3,7 +3,6 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
@@ -20,33 +19,15 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { LoggingService } from "../logging/logging.service";
 import { IntakeLinkService } from "./intake-link.service";
+import {
+  IntakeFeeCalculatorService,
+} from "./intake-fee-calculator.service";
 import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../conversations/conversations.service";
 import { JobsService } from "../jobs/jobs.service";
 import { SmsService } from "../sms/sms.service";
-import { TENANTS_SERVICE } from "../tenants/tenants.constants";
-import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
-import { DEFAULT_FEE_POLICY } from "../tenants/fee-policy";
 import { VoiceConversationStateService } from "../voice/voice-conversation-state.service";
 import type { IntakeCheckoutDto } from "./dto/intake-checkout.dto";
-
-type IntakeContext = {
-  tenantId: string;
-  conversationId: string;
-  customerPhone: string | null;
-  callerPhone: string | null;
-  fullName: string | null;
-  address: string | null;
-  issue: string | null;
-  isEmergency: boolean;
-  displayName: string;
-  serviceFeeCents: number;
-  emergencyFeeCents: number;
-  creditWindowHours: number;
-  currency: string;
-  existingJobId: string | null;
-  collectedData: Prisma.JsonValue | null;
-};
 
 type VoiceIntakePaymentState = {
   linkSentAt?: string;
@@ -71,13 +52,12 @@ export class PaymentsService {
     private readonly sanitizationService: SanitizationService,
     private readonly loggingService: LoggingService,
     private readonly intakeLinkService: IntakeLinkService,
+    private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
     private readonly conversationLifecycleService: ConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
     private readonly voiceConversationStateService: VoiceConversationStateService,
     private readonly jobsService: JobsService,
     private readonly smsService: SmsService,
-    @Inject(TENANTS_SERVICE)
-    private readonly tenantsService: TenantsService,
   ) {}
 
   private get stateService(): Pick<
@@ -120,7 +100,7 @@ export class PaymentsService {
     totalCents: number;
     currency: string;
   }> {
-    const context = await this.resolveIntakeContext(token);
+    const context = await this.intakeFeeCalculator.resolveIntakeContext(token);
     return {
       token,
       displayName: context.displayName,
@@ -129,7 +109,10 @@ export class PaymentsService {
       issue: context.issue ?? "",
       phone: context.customerPhone ?? context.callerPhone ?? "",
       emergency: context.isEmergency,
-      totalCents: this.computeTotalCents(context, context.isEmergency),
+      totalCents: this.intakeFeeCalculator.computeTotalCents(
+        context,
+        context.isEmergency,
+      ),
       currency: context.currency,
     };
   }
@@ -138,7 +121,9 @@ export class PaymentsService {
     token: string;
     input: IntakeCheckoutDto;
   }): Promise<{ checkoutUrl: string; expiresAt: string }> {
-    const context = await this.resolveIntakeContext(params.token);
+    const context = await this.intakeFeeCalculator.resolveIntakeContext(
+      params.token,
+    );
     const fullName =
       this.sanitizeText(params.input.fullName) ??
       this.sanitizeText(context.fullName) ??
@@ -187,7 +172,10 @@ export class PaymentsService {
       isEmergency,
     });
 
-    const totalCents = this.computeTotalCents(context, isEmergency);
+    const totalCents = this.intakeFeeCalculator.computeTotalCents(
+      context,
+      isEmergency,
+    );
     const stripe = this.getStripeClientOrThrow();
     const currency = context.currency.toLowerCase();
     const intakeUrl = this.intakeLinkService.buildIntakeUrl(params.token);
@@ -307,15 +295,14 @@ export class PaymentsService {
       conversationId: params.conversationId,
     });
     const intakeUrl = this.intakeLinkService.buildIntakeUrl(tokenData.token);
-    const feePolicy =
-      (await this.tenantsService.getTenantFeePolicy(params.tenantId)) ??
-      DEFAULT_FEE_POLICY;
-    const totalCents = Math.max(
-      0,
-      feePolicy.serviceFeeCents +
-        (params.isEmergency ? feePolicy.emergencyFeeCents : 0),
+    const intakeContext = await this.intakeFeeCalculator.resolveIntakeContext(
+      tokenData.token,
     );
-    const amount = this.formatFeeAmount(totalCents);
+    const totalCents = this.intakeFeeCalculator.computeTotalCents(
+      intakeContext,
+      params.isEmergency,
+    );
+    const amount = this.intakeFeeCalculator.formatFeeAmount(totalCents);
     const body = `Thanks for calling ${params.displayName}. Confirm your details and pay ${amount} to dispatch: ${intakeUrl}`;
 
     const messageSid = await this.smsService.sendMessage({
@@ -335,7 +322,7 @@ export class PaymentsService {
         intakeUrl,
         tokenExpiresAt: tokenData.expiresAt,
         amountCents: totalCents,
-        currency: feePolicy.currency.toLowerCase(),
+        currency: intakeContext.currency.toLowerCase(),
       },
     });
 
@@ -403,80 +390,6 @@ export class PaymentsService {
     return { received: true };
   }
 
-  private async resolveIntakeContext(token: string): Promise<IntakeContext> {
-    const parsed = this.intakeLinkService.verifyConversationToken(token);
-    if (!parsed) {
-      throw new UnauthorizedException("Invalid or expired intake link.");
-    }
-
-    const conversation = await this.prisma.conversation.findFirst({
-      where: {
-        tenantId: parsed.tid,
-        id: parsed.cid,
-      },
-      include: {
-        customer: true,
-        jobLinks: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-      },
-    });
-    if (!conversation) {
-      throw new NotFoundException("Conversation not found.");
-    }
-
-    const tenant = await this.tenantsService.getTenantById(parsed.tid);
-    if (!tenant) {
-      throw new NotFoundException("Tenant not found.");
-    }
-
-    const policy =
-      (await this.tenantsService.getTenantFeePolicy(parsed.tid)) ??
-      DEFAULT_FEE_POLICY;
-    const collectedData = conversation.collectedData ?? null;
-    const nameState = this.conversationsService.getVoiceNameState(collectedData);
-    const addressState =
-      this.conversationsService.getVoiceAddressState(collectedData);
-    const phoneState = this.conversationsService.getVoiceSmsPhoneState(
-      collectedData,
-    );
-    const urgency =
-      this.conversationsService.getVoiceUrgencyConfirmation(collectedData);
-    const issue = this.extractIssue(collectedData);
-
-    const fullName =
-      this.sanitizeText(nameState.confirmed.value) ??
-      this.sanitizeText(nameState.candidate.value) ??
-      this.sanitizeText(conversation.customer?.fullName) ??
-      null;
-    const address =
-      this.sanitizeText(addressState.confirmed) ??
-      this.sanitizeText(addressState.candidate) ??
-      null;
-    const customerPhone = this.normalizePhone(phoneState.value);
-    const callerPhone = this.extractCallerPhone(collectedData);
-    const displayName = this.resolveTenantDisplayName(tenant.settings, tenant.name);
-
-    return {
-      tenantId: parsed.tid,
-      conversationId: parsed.cid,
-      customerPhone,
-      callerPhone,
-      fullName,
-      address,
-      issue,
-      isEmergency: urgency.response === "YES",
-      displayName,
-      serviceFeeCents: policy.serviceFeeCents,
-      emergencyFeeCents: policy.emergencyFeeCents,
-      creditWindowHours: policy.creditWindowHours,
-      currency: policy.currency.toUpperCase(),
-      existingJobId: conversation.jobLinks[0]?.jobId ?? null,
-      collectedData,
-    };
-  }
-
   private async persistSmsIntakeFields(params: {
     tenantId: string;
     conversationId: string;
@@ -527,7 +440,7 @@ export class PaymentsService {
       customerName: params.fullName,
       phone: params.phone,
       address: params.address,
-      issueCategory: this.inferIssueCategory(params.issue),
+      issueCategory: this.intakeFeeCalculator.inferIssueCategory(params.issue),
       urgency: params.isEmergency ? JobUrgency.EMERGENCY : JobUrgency.STANDARD,
       description: params.issue,
       preferredTime: "asap",
@@ -810,67 +723,6 @@ export class PaymentsService {
     return this.stripeClient;
   }
 
-  private computeTotalCents(
-    context: {
-      serviceFeeCents: number;
-      emergencyFeeCents: number;
-    },
-    isEmergency: boolean,
-  ): number {
-    return Math.max(
-      0,
-      context.serviceFeeCents + (isEmergency ? context.emergencyFeeCents : 0),
-    );
-  }
-
-  private inferIssueCategory(issue: string): string {
-    const normalized = issue.toLowerCase();
-    if (/\b(heat|furnace|boiler)\b/.test(normalized)) {
-      return "HEATING";
-    }
-    if (/\b(ac|cool|air conditioning|compressor)\b/.test(normalized)) {
-      return "COOLING";
-    }
-    if (/\b(pipe|drain|leak|water|plumb)\b/.test(normalized)) {
-      return "PLUMBING";
-    }
-    if (/\b(outlet|breaker|electric|panel|power)\b/.test(normalized)) {
-      return "ELECTRICAL";
-    }
-    return "GENERAL";
-  }
-
-  private resolveTenantDisplayName(settings: unknown, fallback: string): string {
-    if (settings && typeof settings === "object") {
-      const value = (settings as { displayName?: unknown }).displayName;
-      if (typeof value === "string" && value.trim()) {
-        return value.trim();
-      }
-    }
-    return fallback;
-  }
-
-  private extractIssue(collectedData: Prisma.JsonValue | null): string | null {
-    if (!collectedData || typeof collectedData !== "object") {
-      return null;
-    }
-    const issueCandidate = (collectedData as Record<string, unknown>)
-      .issueCandidate;
-    if (!issueCandidate || typeof issueCandidate !== "object") {
-      return null;
-    }
-    const value = (issueCandidate as { value?: unknown }).value;
-    return typeof value === "string" && value.trim() ? value.trim() : null;
-  }
-
-  private extractCallerPhone(collectedData: Prisma.JsonValue | null): string | null {
-    if (!collectedData || typeof collectedData !== "object") {
-      return null;
-    }
-    const value = (collectedData as Record<string, unknown>).callerPhone;
-    return typeof value === "string" ? this.normalizePhone(value) : null;
-  }
-
   private sanitizeText(value: string | null | undefined): string | null {
     if (!value) {
       return null;
@@ -885,11 +737,6 @@ export class PaymentsService {
     }
     const normalized = this.sanitizationService.normalizePhoneE164(value);
     return normalized || null;
-  }
-
-  private formatFeeAmount(cents: number): string {
-    const dollars = Math.max(0, cents) / 100;
-    return `$${dollars.toFixed(2)}`;
   }
 
   private getVoiceIntakePaymentState(

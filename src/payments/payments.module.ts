@@ -7,6 +7,7 @@ import { LoggingModule } from "../logging/logging.module";
 import { SmsModule } from "../sms/sms.module";
 import { ConversationsModule } from "../conversations/conversations.module";
 import { IntakeLinkService } from "./intake-link.service";
+import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 import { PaymentsService } from "./payments.service";
 import { PaymentsController } from "./payments.controller";
 
@@ -21,7 +22,7 @@ import { PaymentsController } from "./payments.controller";
     ConversationsModule,
   ],
   controllers: [PaymentsController],
-  providers: [IntakeLinkService, PaymentsService],
+  providers: [IntakeLinkService, IntakeFeeCalculatorService, PaymentsService],
   exports: [IntakeLinkService, PaymentsService],
 })
 export class PaymentsModule {}
