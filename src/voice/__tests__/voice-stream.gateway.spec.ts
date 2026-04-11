@@ -4,9 +4,7 @@ import type { AppConfig } from "../../config/app.config";
 import { VOICE_STREAM_PATH } from "../voice-streaming.utils";
 import { VoiceStreamGateway } from "../voice-stream.gateway";
 
-const buildConfig = (
-  overrides: Partial<AppConfig> = {},
-): AppConfig =>
+const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
   ({
     voiceStreamingEnabled: true,
     voiceSttProvider: "google",
@@ -59,7 +57,9 @@ describe("VoiceStreamGateway provider selection", () => {
     };
     conversationsService = {
       ensureVoiceConsentConversation: jest.fn(),
-      appendVoiceTurnTiming: jest.fn().mockResolvedValue({ id: "conversation-1" }),
+      appendVoiceTurnTiming: jest
+        .fn()
+        .mockResolvedValue({ id: "conversation-1" }),
       completeVoiceConversationByCallSid: jest
         .fn()
         .mockResolvedValue({ id: "conversation-1" }),
@@ -81,9 +81,11 @@ describe("VoiceStreamGateway provider selection", () => {
       completeCall: jest.fn().mockResolvedValue(true),
     };
     voiceTurnService = {
-      handleStreamingTurn: jest.fn().mockResolvedValue(
-        '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thanks for calling.</Say></Response>',
-      ),
+      handleStreamingTurn: jest
+        .fn()
+        .mockResolvedValue(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thanks for calling.</Say></Response>',
+        ),
     };
     voiceFillerAudioService = {
       getFillerUrl: jest.fn().mockReturnValue(null),
@@ -94,21 +96,23 @@ describe("VoiceStreamGateway provider selection", () => {
     };
   });
 
+  const buildGateway = (configOverrides: Partial<AppConfig> = {}) =>
+    new VoiceStreamGateway(buildConfig(configOverrides), {
+      tenantsService: tenantsService as never,
+      conversationsService: conversationsService as never,
+      googleSpeechService: googleSpeechService as never,
+      googleTtsService: googleTtsService as never,
+      voiceCallService: voiceCallService as never,
+      voiceTurnService: voiceTurnService as never,
+      voiceFillerAudioService: voiceFillerAudioService as never,
+      loggingService: loggingService as never,
+    } as never);
+
   it("closes the socket when STT provider is not Google", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceStreamingEnabled: true,
-        voiceSttProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceStreamingEnabled: true,
+      voiceSttProvider: "twilio",
+    });
 
     const client = {
       close: jest.fn(),
@@ -136,20 +140,10 @@ describe("VoiceStreamGateway provider selection", () => {
     voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${longReply}</Say></Response>`,
     );
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "google",
-        voiceTtsShortSayMaxChars: 80,
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "google",
+      voiceTtsShortSayMaxChars: 80,
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",
@@ -181,20 +175,10 @@ describe("VoiceStreamGateway provider selection", () => {
     voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
       '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Thanks for calling.</Say></Response>',
     );
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "google",
-        voiceTtsShortSayMaxChars: 80,
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "google",
+      voiceTtsShortSayMaxChars: 80,
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",
@@ -222,20 +206,10 @@ describe("VoiceStreamGateway provider selection", () => {
     voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${questionReply}</Say></Response>`,
     );
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "google",
-        voiceTtsShortSayMaxChars: 40,
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "google",
+      voiceTtsShortSayMaxChars: 40,
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",
@@ -249,7 +223,11 @@ describe("VoiceStreamGateway provider selection", () => {
       closed: false,
     };
 
-    await (gateway as any).handleFinalTranscript(session, "it stopped working", 0.93);
+    await (gateway as any).handleFinalTranscript(
+      session,
+      "it stopped working",
+      0.93,
+    );
 
     expect(googleTtsService.synthesizeToObjectPath).not.toHaveBeenCalled();
     const twiml = voiceCallService.updateCallTwiml.mock.calls[0]?.[1] as string;
@@ -263,20 +241,10 @@ describe("VoiceStreamGateway provider selection", () => {
     voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
       `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${closingReply}</Say><Hangup/></Response>`,
     );
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "google",
-        voiceTtsShortSayMaxChars: 80,
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "google",
+      voiceTtsShortSayMaxChars: 80,
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",
@@ -304,20 +272,10 @@ describe("VoiceStreamGateway provider selection", () => {
     voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
       '<?xml version="1.0" encoding="UTF-8"?><Response><Pause length="1"/></Response>',
     );
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "google",
-        voiceTtsShortSayMaxChars: 80,
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "google",
+      voiceTtsShortSayMaxChars: 80,
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",
@@ -331,7 +289,11 @@ describe("VoiceStreamGateway provider selection", () => {
       closed: false,
     };
 
-    await (gateway as any).handleFinalTranscript(session, "furnace issue", 0.93);
+    await (gateway as any).handleFinalTranscript(
+      session,
+      "furnace issue",
+      0.93,
+    );
 
     expect(googleTtsService.synthesizeToObjectPath).not.toHaveBeenCalled();
     const twiml = voiceCallService.updateCallTwiml.mock.calls[0]?.[1] as string;
@@ -361,19 +323,9 @@ describe("VoiceStreamGateway provider selection", () => {
       voiceTurnService.handleStreamingTurn.mockResolvedValueOnce(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Closing now.</Say><Hangup/></Response>',
       );
-      const gateway = new VoiceStreamGateway(
-        buildConfig({
-          voiceTtsProvider: "twilio",
-        }),
-        tenantsService as never,
-        conversationsService as never,
-        googleSpeechService as never,
-        googleTtsService as never,
-        voiceCallService as never,
-        voiceTurnService as never,
-        voiceFillerAudioService as never,
-        loggingService as never,
-      );
+      const gateway = buildGateway({
+        voiceTtsProvider: "twilio",
+      });
       const session = {
         callSid: "CA123",
         streamSid: "MZ123",
@@ -402,19 +354,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("reuses cached Google TTS URLs for identical text", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "google",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "google",
+    });
 
     const text =
       "This is a longer message that should be cached for repeated playback in the same runtime process.";
@@ -443,19 +385,9 @@ describe("VoiceStreamGateway provider selection", () => {
       .mockImplementationOnce(async () => firstTurn)
       .mockResolvedValueOnce(secondTwiml);
 
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",
@@ -498,19 +430,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("emits SLA warnings when turn latency breaches thresholds", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
     const getTurnLatencyBreachesSpy = jest.spyOn(
       gateway as any,
       "getTurnLatencyBreaches",
@@ -543,19 +465,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("keeps mixed filler-plus-issue transcripts", () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
 
     expect(
       (gateway as any).isFillerTranscript("uh my furnace has no heat"),
@@ -565,19 +477,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("swallows late stream errors after cleanup", () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
     const client = { close: jest.fn() } as unknown as WebSocket;
     const stream = new PassThrough();
     (gateway as any).sessions.set(client, {
@@ -599,19 +501,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("marks the conversation completed when Twilio sends stop", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
     const client = { close: jest.fn() } as unknown as WebSocket;
     const stream = new PassThrough();
 
@@ -634,7 +526,9 @@ describe("VoiceStreamGateway provider selection", () => {
     });
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(conversationsService.completeVoiceConversationByCallSid).toHaveBeenCalledWith(
+    expect(
+      conversationsService.completeVoiceConversationByCallSid,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         callSid: "CA123",
@@ -644,19 +538,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("marks the conversation completed when websocket disconnects", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
     const client = { close: jest.fn() } as unknown as WebSocket;
     const stream = new PassThrough();
 
@@ -676,7 +560,9 @@ describe("VoiceStreamGateway provider selection", () => {
     (gateway as any).handleDisconnect(client);
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(conversationsService.completeVoiceConversationByCallSid).toHaveBeenCalledWith(
+    expect(
+      conversationsService.completeVoiceConversationByCallSid,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         callSid: "CA123",
@@ -686,19 +572,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("restarts Google STT stream after recoverable 408 timeout", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
 
     const client = {
       close: jest.fn(),
@@ -735,9 +611,9 @@ describe("VoiceStreamGateway provider selection", () => {
     const activeSession = (gateway as any).sessions.get(client);
     expect(activeSession?.speechStream).toBe(secondStream);
     expect(client.close).not.toHaveBeenCalled();
-    expect(googleSpeechService.createStreamingRecognizeStream).toHaveBeenCalledTimes(
-      2,
-    );
+    expect(
+      googleSpeechService.createStreamingRecognizeStream,
+    ).toHaveBeenCalledTimes(2);
     expect(loggingService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "voice.stream.speech_restarted",
@@ -747,23 +623,15 @@ describe("VoiceStreamGateway provider selection", () => {
       }),
       VoiceStreamGateway.name,
     );
-    expect(() => firstStream.emit("error", new Error("late timeout"))).not.toThrow();
+    expect(() =>
+      firstStream.emit("error", new Error("late timeout")),
+    ).not.toThrow();
   });
 
   it("closes the socket when recoverable speech timeout cannot be restarted", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
 
     const client = {
       close: jest.fn(),
@@ -809,19 +677,9 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   it("uses <Say> when TTS provider is not Google", async () => {
-    const gateway = new VoiceStreamGateway(
-      buildConfig({
-        voiceTtsProvider: "twilio",
-      }),
-      tenantsService as never,
-      conversationsService as never,
-      googleSpeechService as never,
-      googleTtsService as never,
-      voiceCallService as never,
-      voiceTurnService as never,
-      voiceFillerAudioService as never,
-      loggingService as never,
-    );
+    const gateway = buildGateway({
+      voiceTtsProvider: "twilio",
+    });
     const session = {
       callSid: "CA123",
       streamSid: "MZ123",

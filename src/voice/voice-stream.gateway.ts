@@ -7,16 +7,7 @@ import {
 import { protos } from "@google-cloud/speech";
 import type { RawData, WebSocket } from "ws";
 import appConfig, { type AppConfig } from "../config/app.config";
-import { LoggingService } from "../logging/logging.service";
-import { GoogleSpeechService } from "../google/google-speech.service";
-import { GoogleTtsService } from "../google/google-tts.service";
-import { ConversationsService } from "../conversations/conversations.service";
-import { VoiceCallService } from "./voice-call.service";
-import { VoiceTurnService } from "./voice-turn.service";
-import { VoiceFillerAudioService } from "./voice-filler-audio.service";
 import { VOICE_STREAM_PATH } from "./voice-streaming.utils";
-import { TENANTS_SERVICE } from "../tenants/tenants.constants";
-import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { VoiceStreamCallLifecycleRuntime } from "./voice-stream-call-lifecycle.runtime";
 import { VoiceStreamSpeechRuntime } from "./voice-stream-speech.runtime";
 import { VoiceStreamStartRuntime } from "./voice-stream-start.runtime";
@@ -29,6 +20,7 @@ import {
   type TwilioStreamStop,
 } from "./voice-stream-transport.runtime";
 import type { VoiceStreamSession } from "./voice-stream.types";
+import { VoiceStreamDependencies } from "./voice-stream.dependencies";
 
 @WebSocketGateway({ path: VOICE_STREAM_PATH })
 export class VoiceStreamGateway
@@ -46,15 +38,7 @@ export class VoiceStreamGateway
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
-    @Inject(TENANTS_SERVICE)
-    private readonly tenantsService: TenantsService,
-    private readonly conversationsService: ConversationsService,
-    private readonly googleSpeechService: GoogleSpeechService,
-    private readonly googleTtsService: GoogleTtsService,
-    private readonly voiceCallService: VoiceCallService,
-    private readonly voiceTurnService: VoiceTurnService,
-    private readonly voiceFillerAudioService: VoiceFillerAudioService,
-    private readonly loggingService: LoggingService,
+    private readonly dependencies: VoiceStreamDependencies,
   ) {
     this.callLifecycleRuntime = new VoiceStreamCallLifecycleRuntime(
       this.conversationsService,
@@ -99,7 +83,41 @@ export class VoiceStreamGateway
         getGoogleTtsPlayback: async (text) => this.getGoogleTtsPlayback(text),
       },
     );
-    this.transportRuntime = new VoiceStreamTransportRuntime(this.loggingService);
+    this.transportRuntime = new VoiceStreamTransportRuntime(
+      this.loggingService,
+    );
+  }
+
+  private get tenantsService() {
+    return this.dependencies.tenantsService;
+  }
+
+  private get conversationsService() {
+    return this.dependencies.conversationsService;
+  }
+
+  private get googleSpeechService() {
+    return this.dependencies.googleSpeechService;
+  }
+
+  private get googleTtsService() {
+    return this.dependencies.googleTtsService;
+  }
+
+  private get voiceCallService() {
+    return this.dependencies.voiceCallService;
+  }
+
+  private get voiceTurnService() {
+    return this.dependencies.voiceTurnService;
+  }
+
+  private get voiceFillerAudioService() {
+    return this.dependencies.voiceFillerAudioService;
+  }
+
+  private get loggingService() {
+    return this.dependencies.loggingService;
   }
 
   handleConnection(client: WebSocket) {
@@ -192,7 +210,10 @@ export class VoiceStreamGateway
     if (!session) {
       return;
     }
-    if (session.closed || !this.speechRuntime.isWritableStream(session.speechStream)) {
+    if (
+      session.closed ||
+      !this.speechRuntime.isWritableStream(session.speechStream)
+    ) {
       return;
     }
     const payload = message.media.payload;
@@ -223,19 +244,24 @@ export class VoiceStreamGateway
     session: VoiceStreamSession,
     speechStream: NodeJS.ReadWriteStream,
   ) {
-    this.speechRuntime.attachSpeechStreamHandlers(client, session, speechStream, {
-      onData: (activeSession, data) => {
-        this.handleSpeechData(activeSession, data);
+    this.speechRuntime.attachSpeechStreamHandlers(
+      client,
+      session,
+      speechStream,
+      {
+        onData: (activeSession, data) => {
+          this.handleSpeechData(activeSession, data);
+        },
+        onFatal: (fatalClient) => {
+          this.cleanupSession(fatalClient);
+          try {
+            fatalClient.close();
+          } catch {
+            // Best effort socket close.
+          }
+        },
       },
-      onFatal: (fatalClient) => {
-        this.cleanupSession(fatalClient);
-        try {
-          fatalClient.close();
-        } catch {
-          // Best effort socket close.
-        }
-      },
-    });
+    );
   }
 
   private handleSpeechData(

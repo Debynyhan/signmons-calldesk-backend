@@ -7,20 +7,8 @@ import {
 } from "@prisma/client";
 import type { TenantFeePolicy as PrismaTenantFeePolicy } from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
-import { TENANTS_SERVICE } from "../tenants/tenants.constants";
-import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { ConversationsService } from "../conversations/conversations.service";
-import { CallLogService } from "../logging/call-log.service";
-import { LoggingService } from "../logging/logging.service";
-import { AiService } from "../ai/ai.service";
-import { SanitizationService } from "../sanitization/sanitization.service";
-import { CsrStrategy, CsrStrategySelector } from "./csr-strategy.selector";
-import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
-import { VoicePromptComposerService } from "./voice-prompt-composer.service";
-import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
-import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
-import { VoiceUrgencySlotService } from "./voice-urgency-slot.service";
-import { PaymentsService } from "../payments/payments.service";
+import { CsrStrategy } from "./csr-strategy.selector";
 import {
   buildNameClarificationPrompt,
   extractNameCandidateDeterministic,
@@ -96,6 +84,7 @@ import { VoiceTurnSideQuestionHelperRuntime } from "./voice-turn-side-question-h
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
 import { VoiceTurnHandoffRuntime } from "./voice-turn-handoff.runtime";
+import { VoiceTurnDependencies } from "./voice-turn.dependencies";
 
 type VoiceListeningField =
   | "name"
@@ -174,20 +163,7 @@ export class VoiceTurnService {
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
-    @Inject(TENANTS_SERVICE)
-    private readonly tenantsService: TenantsService,
-    private readonly conversationsService: ConversationsService,
-    private readonly callLogService: CallLogService,
-    private readonly aiService: AiService,
-    private readonly loggingService: LoggingService,
-    private readonly sanitizationService: SanitizationService,
-    private readonly csrStrategySelector: CsrStrategySelector,
-    private readonly voicePromptComposer: VoicePromptComposerService,
-    private readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
-    private readonly voiceSmsHandoffService: VoiceSmsHandoffService,
-    private readonly voiceSmsPhoneSlotService: VoiceSmsPhoneSlotService,
-    private readonly voiceUrgencySlotService: VoiceUrgencySlotService,
-    private readonly paymentsService: PaymentsService,
+    private readonly dependencies: VoiceTurnDependencies,
   ) {
     this.turnPreludeRuntime = new VoiceTurnPreludeRuntime(
       this.config,
@@ -806,6 +782,62 @@ export class VoiceTurnService {
       getVoiceNameCandidate: (nameState) =>
         this.getVoiceNameCandidate(nameState),
     });
+  }
+
+  private get tenantsService() {
+    return this.dependencies.tenantsService;
+  }
+
+  private get conversationsService() {
+    return this.dependencies.conversationsService;
+  }
+
+  private get callLogService() {
+    return this.dependencies.callLogService;
+  }
+
+  private get aiService() {
+    return this.dependencies.aiService;
+  }
+
+  private get loggingService() {
+    return this.dependencies.loggingService;
+  }
+
+  private get sanitizationService() {
+    return this.dependencies.sanitizationService;
+  }
+
+  private get csrStrategySelector() {
+    return this.dependencies.csrStrategySelector;
+  }
+
+  private get voicePromptComposer() {
+    return this.dependencies.voicePromptComposer;
+  }
+
+  private get voiceHandoffPolicy() {
+    return this.dependencies.voiceHandoffPolicy;
+  }
+
+  private get voiceSmsHandoffService() {
+    return this.dependencies.voiceSmsHandoffService;
+  }
+
+  private get voiceSmsPhoneSlotService() {
+    return this.dependencies.voiceSmsPhoneSlotService;
+  }
+
+  private get voiceUrgencySlotService() {
+    return this.dependencies.voiceUrgencySlotService;
+  }
+
+  private get paymentsService() {
+    return this.dependencies.paymentsService;
+  }
+
+  private get voiceAddressPromptService() {
+    return this.dependencies.voiceAddressPromptService;
   }
 
   public async handleTurn(params: {
@@ -2426,123 +2458,16 @@ export class VoiceTurnService {
     return voiceAddressCandidatePolicy.isLikelyAddressCandidate(stripped);
   }
 
-  private buildAskHouseNumberTwiml(
-    strategy?: CsrStrategy,
-    street?: string | null,
-  ): string {
-    const prefix = street ? `I heard ${street}. ` : "";
-    const core = `${prefix}What's the house number?`;
-    return this.voicePromptComposer.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, core),
-      {
-        timeout: 8,
-      },
-    );
-  }
-
-  private buildAskStreetTwiml(
-    strategy?: CsrStrategy,
-    houseNumber?: string | null,
-  ): string {
-    const prefix = houseNumber ? `I heard ${houseNumber}. ` : "";
-    const core = `${prefix}What's the street name?`;
-    return this.voicePromptComposer.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, core),
-      {
-        timeout: 8,
-      },
-    );
-  }
-
-  private buildAskStreetAddressTwiml(strategy?: CsrStrategy): string {
-    const core = "What's the street address?";
-    return this.voicePromptComposer.buildSayGatherTwiml(
-      this.applyCsrStrategy(strategy, core),
-      {
-        timeout: 8,
-      },
-    );
-  }
-
   private buildAddressPromptForState(
     addressState: ReturnType<ConversationsService["getVoiceAddressState"]>,
     strategy?: CsrStrategy,
   ): string {
-    if (voiceAddressCandidatePolicy.hasStructuredAddressParts(addressState)) {
-      const missing =
-        voiceAddressCandidatePolicy.getAddressMissingParts(addressState);
-      if (missing.houseNumber && addressState.street) {
-        return this.buildAskHouseNumberTwiml(strategy, addressState.street);
-      }
-      if (missing.street && addressState.houseNumber) {
-        return this.buildAskStreetTwiml(strategy, addressState.houseNumber);
-      }
-      if (missing.houseNumber && missing.street) {
-        if (!missing.locality) {
-          return this.buildAskStreetAddressTwiml(strategy);
-        }
-        return this.voicePromptComposer.buildAskAddressTwiml(strategy);
-      }
-      if (missing.houseNumber || missing.street) {
-        return this.voicePromptComposer.buildAskAddressTwiml(strategy);
-      }
-      if (missing.locality) {
-        return this.voicePromptComposer.buildAddressLocalityPromptTwiml(
-          strategy,
-        );
-      }
-      if (addressState.candidate) {
-        return this.voicePromptComposer.buildAddressConfirmationTwiml(
-          addressState.candidate,
-          strategy,
-        );
-      }
-      return this.voicePromptComposer.buildAskAddressTwiml(strategy);
-    }
-
-    if (addressState.candidate) {
-      if (
-        voiceAddressCandidatePolicy.isIncompleteAddress(addressState.candidate)
-      ) {
-        return this.voicePromptComposer.buildIncompleteAddressTwiml(
-          addressState.candidate,
-          strategy,
-        );
-      }
-      if (
-        voiceAddressCandidatePolicy.isMissingLocality(addressState.candidate)
-      ) {
-        return this.voicePromptComposer.buildAddressLocalityPromptTwiml(
-          strategy,
-        );
-      }
-      return this.voicePromptComposer.buildAddressConfirmationTwiml(
-        addressState.candidate,
-        strategy,
-      );
-    }
-    return this.voicePromptComposer.buildAskAddressTwiml(strategy);
-  }
-
-  private toTitleCase(value: string): string {
-    return value
-      .split(" ")
-      .map((part) => {
-        const [head, ...rest] = part.split(/([-'])/);
-        const rebuilt = [head, ...rest]
-          .map((segment) => {
-            if (segment === "-" || segment === "'") {
-              return segment;
-            }
-            if (!segment) {
-              return "";
-            }
-            return `${segment[0].toUpperCase()}${segment.slice(1)}`;
-          })
-          .join("");
-        return rebuilt;
-      })
-      .join(" ");
+    return this.voiceAddressPromptService.buildAddressPromptForState({
+      addressState,
+      strategy,
+      applyCsrStrategy: (runtimeStrategy, message) =>
+        this.applyCsrStrategy(runtimeStrategy, message),
+    });
   }
 
   private getBodyValue(req: Request, ...keys: string[]): unknown {
