@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import {
   CommunicationChannel,
   Prisma,
@@ -2423,44 +2423,6 @@ export class VoiceTurnService {
     });
   }
 
-  private getBodyValue(req: Request, ...keys: string[]): unknown {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    for (const key of keys) {
-      if (Object.prototype.hasOwnProperty.call(body, key)) {
-        return body[key];
-      }
-    }
-    return undefined;
-  }
-
-  public extractToNumber(req: Request): string | null {
-    const value = this.getBodyValue(req, "To", "to");
-    return typeof value === "string" ? value : null;
-  }
-
-  public getRequestId(req: Request): string | undefined {
-    return typeof req.headers["x-request-id"] === "string"
-      ? req.headers["x-request-id"]
-      : undefined;
-  }
-
-  public extractCallSid(req: Request): string | null {
-    const value = this.getBodyValue(req, "CallSid", "callSid");
-    return typeof value === "string" ? value : null;
-  }
-
-  public extractSpeechResult(req: Request): string | null {
-    const value = this.getBodyValue(req, "SpeechResult", "speechResult");
-    return typeof value === "string" ? value : null;
-  }
-
-  public extractConfidence(req: Request): string | null {
-    const value = this.getBodyValue(req, "Confidence", "confidence");
-    return typeof value === "string" || typeof value === "number"
-      ? String(value)
-      : null;
-  }
-
   private normalizeConfidence(
     value: string | number | null | undefined,
   ): number | undefined {
@@ -2478,11 +2440,6 @@ export class VoiceTurnService {
       return parsed / 100;
     }
     return undefined;
-  }
-
-  public extractFromNumber(req: Request): string | null {
-    const value = this.getBodyValue(req, "From", "from");
-    return typeof value === "string" ? value : null;
   }
 
   private buildTwiml(message: string): string {

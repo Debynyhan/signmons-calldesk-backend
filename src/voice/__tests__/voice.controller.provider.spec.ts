@@ -3,9 +3,7 @@ import type { AppConfig } from "../../config/app.config";
 import { VoiceController } from "../voice.controller";
 import { VOICE_STREAM_PATH } from "../voice-streaming.utils";
 
-const buildConfig = (
-  overrides: Partial<AppConfig> = {},
-): AppConfig =>
+const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
   ({
     environment: "development",
     voiceEnabled: true,
@@ -32,14 +30,16 @@ describe("VoiceController provider selection", () => {
   let conversationsService: {
     ensureVoiceConsentConversation: jest.Mock;
   };
-  let voiceTurnService: {
-    replyWithNoHandoff: jest.Mock;
-    disabledTwiml: jest.Mock;
+  let voiceWebhookParser: {
     extractToNumber: jest.Mock;
-    getTenantDisplayName: jest.Mock;
     extractCallSid: jest.Mock;
     getRequestId: jest.Mock;
     extractFromNumber: jest.Mock;
+  };
+  let voiceTurnService: {
+    replyWithNoHandoff: jest.Mock;
+    disabledTwiml: jest.Mock;
+    getTenantDisplayName: jest.Mock;
     buildConsentMessage: jest.Mock;
     buildConsentTwiml: jest.Mock;
     replyWithTwiml: jest.Mock;
@@ -62,14 +62,16 @@ describe("VoiceController provider selection", () => {
         .fn()
         .mockResolvedValue({ id: "conversation-1" }),
     };
-    voiceTurnService = {
-      replyWithNoHandoff: jest.fn(),
-      disabledTwiml: jest.fn(),
+    voiceWebhookParser = {
       extractToNumber: jest.fn().mockReturnValue("+12167448929"),
-      getTenantDisplayName: jest.fn().mockReturnValue("Leizurely HVAC"),
       extractCallSid: jest.fn().mockReturnValue("CA123"),
       getRequestId: jest.fn().mockReturnValue("req-1"),
       extractFromNumber: jest.fn().mockReturnValue("+12165550000"),
+    };
+    voiceTurnService = {
+      replyWithNoHandoff: jest.fn(),
+      disabledTwiml: jest.fn(),
+      getTenantDisplayName: jest.fn().mockReturnValue("Leizurely HVAC"),
       buildConsentMessage: jest
         .fn()
         .mockReturnValue("Thank you for calling Leizurely HVAC."),
@@ -99,6 +101,7 @@ describe("VoiceController provider selection", () => {
       }),
       tenantsService as never,
       conversationsService as never,
+      voiceWebhookParser as never,
       voiceTurnService as never,
       voiceConsentAudioService as never,
       loggingService as never,
@@ -106,7 +109,9 @@ describe("VoiceController provider selection", () => {
 
     await controller.handleInbound({} as Request, {} as Response);
 
-    expect(conversationsService.ensureVoiceConsentConversation).toHaveBeenCalledWith({
+    expect(
+      conversationsService.ensureVoiceConsentConversation,
+    ).toHaveBeenCalledWith({
       tenantId: "tenant-1",
       callSid: "CA123",
       requestId: "req-1",
@@ -143,6 +148,7 @@ describe("VoiceController provider selection", () => {
       }),
       tenantsService as never,
       conversationsService as never,
+      voiceWebhookParser as never,
       voiceTurnService as never,
       voiceConsentAudioService as never,
       loggingService as never,

@@ -19,6 +19,7 @@ import {
   buildStreamingTwiml,
   VOICE_STREAM_PATH,
 } from "./voice-streaming.utils";
+import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
 import { VoiceTurnService } from "./voice-turn.service";
 import { VoiceConsentAudioService } from "./voice-consent-audio.service";
 
@@ -30,6 +31,7 @@ export class VoiceController {
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
     private readonly conversationsService: ConversationsService,
+    private readonly voiceWebhookParser: VoiceWebhookParserService,
     private readonly voiceTurnService: VoiceTurnService,
     private readonly voiceConsentAudioService: VoiceConsentAudioService,
     private readonly loggingService: LoggingService,
@@ -45,7 +47,7 @@ export class VoiceController {
         twimlOverride: this.voiceTurnService.disabledTwiml(),
       });
     }
-    const toNumber = this.voiceTurnService.extractToNumber(req);
+    const toNumber = this.voiceWebhookParser.extractToNumber(req);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
@@ -56,7 +58,7 @@ export class VoiceController {
       });
     }
     const displayName = this.voiceTurnService.getTenantDisplayName(tenant);
-    const callSid = this.voiceTurnService.extractCallSid(req);
+    const callSid = this.voiceWebhookParser.extractCallSid(req);
     if (!callSid) {
       return this.voiceTurnService.replyWithNoHandoff({
         res,
@@ -64,9 +66,9 @@ export class VoiceController {
         reason: "missing_call_sid",
       });
     }
-    const requestId = this.voiceTurnService.getRequestId(req);
+    const requestId = this.voiceWebhookParser.getRequestId(req);
     const callerPhone =
-      this.voiceTurnService.extractFromNumber(req) ?? undefined;
+      this.voiceWebhookParser.extractFromNumber(req) ?? undefined;
     const conversation =
       await this.conversationsService.ensureVoiceConsentConversation({
         tenantId: tenant.id,
@@ -158,7 +160,7 @@ export class VoiceController {
       });
     }
 
-    const callSid = this.voiceTurnService.extractCallSid(req);
+    const callSid = this.voiceWebhookParser.extractCallSid(req);
     if (!callSid) {
       return this.voiceTurnService.replyWithNoHandoff({
         res,
@@ -169,7 +171,8 @@ export class VoiceController {
 
     const requestId =
       typeof req.query.leadId === "string" ? req.query.leadId : undefined;
-    const callerPhone = this.voiceTurnService.extractToNumber(req) ?? undefined;
+    const callerPhone =
+      this.voiceWebhookParser.extractToNumber(req) ?? undefined;
     const conversation =
       await this.conversationsService.ensureVoiceConsentConversation({
         tenantId: tenant.id,
@@ -238,7 +241,7 @@ export class VoiceController {
         twimlOverride: this.voiceTurnService.disabledTwiml(),
       });
     }
-    const toNumber = this.voiceTurnService.extractToNumber(req);
+    const toNumber = this.voiceWebhookParser.extractToNumber(req);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
@@ -248,7 +251,7 @@ export class VoiceController {
         reason: "tenant_not_found",
       });
     }
-    const callSid = this.voiceTurnService.extractCallSid(req);
+    const callSid = this.voiceWebhookParser.extractCallSid(req);
     if (!callSid) {
       return this.voiceTurnService.replyWithNoHandoff({
         res,
@@ -256,9 +259,9 @@ export class VoiceController {
         reason: "missing_call_sid",
       });
     }
-    const speechResult = this.voiceTurnService.extractSpeechResult(req);
-    const confidence = this.voiceTurnService.extractConfidence(req);
-    const requestId = this.voiceTurnService.getRequestId(req);
+    const speechResult = this.voiceWebhookParser.extractSpeechResult(req);
+    const confidence = this.voiceWebhookParser.extractConfidence(req);
+    const requestId = this.voiceWebhookParser.getRequestId(req);
     return this.voiceTurnService.handleTurn({
       res,
       tenant,
@@ -279,14 +282,14 @@ export class VoiceController {
         twimlOverride: this.voiceTurnService.disabledTwiml(),
       });
     }
-    const toNumber = this.voiceTurnService.extractToNumber(req);
+    const toNumber = this.voiceWebhookParser.extractToNumber(req);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
     const displayName = tenant
       ? this.voiceTurnService.getTenantDisplayName(tenant)
       : undefined;
-    const callSid = this.voiceTurnService.extractCallSid(req) ?? undefined;
+    const callSid = this.voiceWebhookParser.extractCallSid(req) ?? undefined;
     const payload = (req.body ?? {}) as Record<string, unknown>;
     const errorCode =
       typeof payload.ErrorCode === "string" ? payload.ErrorCode : undefined;
@@ -333,7 +336,8 @@ export class VoiceController {
 
   private useGoogleStreamingStt(): boolean {
     return (
-      this.config.voiceSttProvider === "google" && this.config.googleSpeechEnabled
+      this.config.voiceSttProvider === "google" &&
+      this.config.googleSpeechEnabled
     );
   }
 

@@ -24,6 +24,7 @@ import { VoiceAddressPromptService } from "./voice-address-prompt.service";
 import { VoiceTurnDependencies } from "./voice-turn.dependencies";
 import { VoiceStreamDependencies } from "./voice-stream.dependencies";
 import { VoiceUtteranceService } from "./voice-utterance.service";
+import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { VoiceUtteranceService } from "./voice-utterance.service";
     VoiceSmsHandoffService,
     VoiceSmsPhoneSlotService,
     VoiceUtteranceService,
+    VoiceWebhookParserService,
     VoiceUrgencySlotService,
     VoiceAddressPromptService,
     VoiceTurnDependencies,
