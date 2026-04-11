@@ -13,6 +13,7 @@ import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
 import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
 import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
+import { VoiceUtteranceService } from "./voice-utterance.service";
 import { VoiceUrgencySlotService } from "./voice-urgency-slot.service";
 
 @Injectable()
@@ -30,6 +31,7 @@ export class VoiceTurnDependencies {
     public readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
     public readonly voiceSmsHandoffService: VoiceSmsHandoffService,
     public readonly voiceSmsPhoneSlotService: VoiceSmsPhoneSlotService,
+    public readonly voiceUtteranceService: VoiceUtteranceService,
     public readonly voiceUrgencySlotService: VoiceUrgencySlotService,
     public readonly paymentsService: PaymentsService,
     public readonly voiceAddressPromptService: VoiceAddressPromptService,

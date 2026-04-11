@@ -51,19 +51,6 @@ import {
   getRequestContext,
   setRequestContextData,
 } from "../common/context/request-context";
-import {
-  isAffirmativeUtterance as isAffirmativeUtterancePolicy,
-  isBookingIntent as isBookingIntentPolicy,
-  isDuplicateTranscript as isDuplicateTranscriptPolicy,
-  isFrustrationRequest as isFrustrationRequestPolicy,
-  isHangupRequest as isHangupRequestPolicy,
-  isHumanTransferRequest as isHumanTransferRequestPolicy,
-  isLikelyQuestion as isLikelyQuestionPolicy,
-  isNegativeUtterance as isNegativeUtterancePolicy,
-  isSlowDownRequest as isSlowDownRequestPolicy,
-  isSmsDifferentNumberRequest as isSmsDifferentNumberRequestPolicy,
-  resolveBinaryUtterance as resolveBinaryUtterancePolicy,
-} from "./voice-utterance.policy";
 import { VoiceTurnPreludeRuntime } from "./voice-turn-prelude.runtime";
 import { VoiceTurnContextRuntime } from "./voice-turn-context.runtime";
 import { VoiceTurnEarlyRoutingRuntime } from "./voice-turn-early-routing.runtime";
@@ -187,15 +174,18 @@ export class VoiceTurnService {
             isConfirmationWindow:
               this.getVoiceListeningWindow(collectedData)?.field ===
               "confirmation",
-            isSlowDownRequest: (value) => this.isSlowDownRequest(value),
-            isFrustrationRequest: (value) => this.isFrustrationRequest(value),
+            isSlowDownRequest: (value) =>
+              this.voiceUtteranceService.isSlowDownRequest(value),
+            isFrustrationRequest: (value) =>
+              this.voiceUtteranceService.isFrustrationRequest(value),
             isHumanTransferRequest: (value) =>
-              this.isHumanTransferRequest(value),
+              this.voiceUtteranceService.isHumanTransferRequest(value),
             isSmsDifferentNumberRequest: (value) =>
-              this.isSmsDifferentNumberRequest(value),
-            isHangupRequest: (value) => this.isHangupRequest(value),
+              this.voiceUtteranceService.isSmsDifferentNumberRequest(value),
+            isHangupRequest: (value) =>
+              this.voiceUtteranceService.isHangupRequest(value),
             resolveBinaryUtterance: (value) =>
-              this.resolveBinaryUtterance(value),
+              this.voiceUtteranceService.resolveBinaryUtterance(value),
             normalizeNameCandidate: (value) =>
               normalizeNameCandidate(value, this.sanitizationService),
             isValidNameCandidate: (value) => isValidNameCandidate(value),
@@ -210,7 +200,11 @@ export class VoiceTurnService {
               isVoiceSmsNumberConfirmation(value),
           }),
         isDuplicateTranscript: (collectedData, transcript, now) =>
-          this.isDuplicateTranscript(collectedData, transcript, now),
+          this.voiceUtteranceService.isDuplicateTranscript(
+            collectedData,
+            transcript,
+            now,
+          ),
         normalizeConfidence: (value) => this.normalizeConfidence(value),
         getTenantDisplayName: (tenant) => this.getTenantDisplayName(tenant),
         buildRepromptTwiml: () => this.voicePromptComposer.buildRepromptTwiml(),
@@ -262,8 +256,9 @@ export class VoiceTurnService {
     });
     this.turnEarlyRoutingRuntime = new VoiceTurnEarlyRoutingRuntime({
       resolveBinaryUtterance: (transcript) =>
-        this.resolveBinaryUtterance(transcript),
-      isBookingIntent: (transcript) => this.isBookingIntent(transcript),
+        this.voiceUtteranceService.resolveBinaryUtterance(transcript),
+      isBookingIntent: (transcript) =>
+        this.voiceUtteranceService.isBookingIntent(transcript),
       clearVoiceListeningWindow: (params) =>
         this.clearVoiceListeningWindow(params),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
@@ -309,7 +304,8 @@ export class VoiceTurnService {
     });
     this.turnInterruptRuntime = new VoiceTurnInterruptRuntime(
       {
-        isSlowDownRequest: (transcript) => this.isSlowDownRequest(transcript),
+        isSlowDownRequest: (transcript) =>
+          this.voiceUtteranceService.isSlowDownRequest(transcript),
         replyWithListeningWindow: (params) =>
           this.replyWithListeningWindow(params),
         buildTakeYourTimeTwiml: (field, strategy) =>
@@ -319,19 +315,20 @@ export class VoiceTurnService {
           this.voicePromptComposer.buildSayGatherTwiml(message),
       },
       {
-        isHangupRequest: (transcript) => this.isHangupRequest(transcript),
+        isHangupRequest: (transcript) =>
+          this.voiceUtteranceService.isHangupRequest(transcript),
         clearIssuePromptAttempts: (callSid) =>
           this.clearIssuePromptAttempts(callSid),
         replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
         buildTwiml: (message) => this.buildTwiml(message),
         isHumanTransferRequest: (transcript) =>
-          this.isHumanTransferRequest(transcript),
+          this.voiceUtteranceService.isHumanTransferRequest(transcript),
         replyWithListeningWindow: (params) =>
           this.replyWithListeningWindow(params),
         buildCallbackOfferTwiml: (strategy) =>
           this.voicePromptComposer.buildCallbackOfferTwiml(strategy),
         isSmsDifferentNumberRequest: (transcript) =>
-          this.isSmsDifferentNumberRequest(transcript),
+          this.voiceUtteranceService.isSmsDifferentNumberRequest(transcript),
         updateVoiceSmsHandoff: (params) =>
           this.conversationsService.updateVoiceSmsHandoff(params),
         updateVoiceSmsPhoneState: (params) =>
@@ -345,7 +342,8 @@ export class VoiceTurnService {
         normalizeWhitespace: (value) =>
           this.sanitizationService.normalizeWhitespace(value),
         stripConfirmationPrefix: (value) => this.stripConfirmationPrefix(value),
-        isLikelyQuestion: (value) => this.isLikelyQuestion(value),
+        isLikelyQuestion: (value) =>
+          this.voiceUtteranceService.isLikelyQuestion(value),
         getTenantFeePolicySafe: (tenantId) =>
           this.getTenantFeePolicySafe(tenantId),
         getTenantFeeConfig: (policy) =>
@@ -623,7 +621,8 @@ export class VoiceTurnService {
         this.issuePromptAttemptsByCall.set(callSid, count),
       clearIssuePromptAttempts: (callSid) =>
         this.clearIssuePromptAttempts(callSid),
-      isLikelyQuestion: (value) => this.isLikelyQuestion(value),
+      isLikelyQuestion: (value) =>
+        this.voiceUtteranceService.isLikelyQuestion(value),
       updateVoiceIssueCandidate: (params) =>
         this.conversationsService.updateVoiceIssueCandidate(params),
       shouldDiscloseFees: (params) => this.shouldDiscloseFees(params),
@@ -735,8 +734,10 @@ export class VoiceTurnService {
       isHumanFallbackMessage: (message) =>
         this.turnHandoffRuntime.isHumanFallbackMessage(message),
       replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
-      isLikelyQuestion: (transcript) => this.isLikelyQuestion(transcript),
-      isBookingIntent: (transcript) => this.isBookingIntent(transcript),
+      isLikelyQuestion: (transcript) =>
+        this.voiceUtteranceService.isLikelyQuestion(transcript),
+      isBookingIntent: (transcript) =>
+        this.voiceUtteranceService.isBookingIntent(transcript),
       replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
       logVoiceOutcome: (params) =>
         this.turnHandoffRuntime.logVoiceOutcome(params),
@@ -747,9 +748,9 @@ export class VoiceTurnService {
     });
     this.turnSideQuestionRuntime = new VoiceTurnSideQuestionRuntime({
       resolveBinaryUtterance: (transcript) =>
-        this.resolveBinaryUtterance(transcript),
+        this.voiceUtteranceService.resolveBinaryUtterance(transcript),
       isFrustrationRequest: (transcript) =>
-        this.isFrustrationRequest(transcript),
+        this.voiceUtteranceService.isFrustrationRequest(transcript),
       clearVoiceListeningWindow: (params) =>
         this.clearVoiceListeningWindow(params),
       replyWithSideQuestionAndContinue: (params) =>
@@ -826,6 +827,10 @@ export class VoiceTurnService {
 
   private get voiceSmsPhoneSlotService() {
     return this.dependencies.voiceSmsPhoneSlotService;
+  }
+
+  private get voiceUtteranceService() {
+    return this.dependencies.voiceUtteranceService;
   }
 
   private get voiceUrgencySlotService() {
@@ -1085,7 +1090,8 @@ export class VoiceTurnService {
     ) {
       expectedField = "address";
     }
-    const yesNoIntent = this.resolveBinaryUtterance(normalizedSpeech);
+    const yesNoIntent =
+      this.voiceUtteranceService.resolveBinaryUtterance(normalizedSpeech);
     if (
       !expectedField &&
       !addressReady &&
@@ -1110,7 +1116,8 @@ export class VoiceTurnService {
       existingIssueCandidate?.value ??
         (hasIssueCandidate ? issueCandidate : ""),
     );
-    const isQuestionUtterance = this.isLikelyQuestion(normalizedSpeech);
+    const isQuestionUtterance =
+      this.voiceUtteranceService.isLikelyQuestion(normalizedSpeech);
     const turnPlan = reduceVoiceTurnPlanner(
       {
         expectedField,
@@ -1175,7 +1182,8 @@ export class VoiceTurnService {
       const existingIssueSummary = existingIssueCandidate?.value
         ? this.buildIssueAcknowledgement(existingIssueCandidate.value)
         : null;
-      const bookingIntent = this.isBookingIntent(normalizedSpeech);
+      const bookingIntent =
+        this.voiceUtteranceService.isBookingIntent(normalizedSpeech);
       const isOpeningTurn =
         !expectedField &&
         nameState.status === "MISSING" &&
@@ -1648,8 +1656,10 @@ export class VoiceTurnService {
   private buildFallbackIssueCandidate(value: string): string | null {
     return buildVoiceFallbackIssueCandidate(value, {
       normalizeIssueCandidate: (input) => this.normalizeIssueCandidate(input),
-      isLikelyQuestion: (input) => this.isLikelyQuestion(input),
-      resolveBinaryUtterance: (input) => this.resolveBinaryUtterance(input),
+      isLikelyQuestion: (input) =>
+        this.voiceUtteranceService.isLikelyQuestion(input),
+      resolveBinaryUtterance: (input) =>
+        this.voiceUtteranceService.resolveBinaryUtterance(input),
     });
   }
 
@@ -2344,40 +2354,6 @@ export class VoiceTurnService {
     }
   }
 
-  private isLikelyQuestion(transcript: string): boolean {
-    return isLikelyQuestionPolicy(transcript);
-  }
-
-  private isBookingIntent(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isBookingIntentPolicy(normalized);
-  }
-
-  private isSlowDownRequest(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isSlowDownRequestPolicy(normalized);
-  }
-
-  private isFrustrationRequest(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isFrustrationRequestPolicy(normalized);
-  }
-
-  private isHumanTransferRequest(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isHumanTransferRequestPolicy(normalized);
-  }
-
-  private isSmsDifferentNumberRequest(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isSmsDifferentNumberRequestPolicy(normalized);
-  }
-
-  private isHangupRequest(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isHangupRequestPolicy(normalized);
-  }
-
   private isOpeningGreetingOnly(transcript: string): boolean {
     const normalized = this.normalizeConfirmationUtterance(transcript);
     if (!normalized) {
@@ -2394,29 +2370,6 @@ export class VoiceTurnService {
     return /^(?:hi|hello|hey|good (?:morning|afternoon|evening)|are you there|can you hear me|you there|testing|did you get that)[\s,.!?]*$/.test(
       normalized,
     );
-  }
-
-  private isAffirmativeUtterance(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isAffirmativeUtterancePolicy(normalized);
-  }
-
-  private resolveBinaryUtterance(transcript: string): "YES" | "NO" | null {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return resolveBinaryUtterancePolicy(normalized);
-  }
-
-  private isNegativeUtterance(transcript: string): boolean {
-    const normalized = this.normalizeConfirmationUtterance(transcript);
-    return isNegativeUtterancePolicy(normalized);
-  }
-
-  private isDuplicateTranscript(
-    collectedData: unknown,
-    transcript: string,
-    now: Date,
-  ): boolean {
-    return isDuplicateTranscriptPolicy(collectedData, transcript, now);
   }
 
   private normalizeCsrStrategyForTurn(

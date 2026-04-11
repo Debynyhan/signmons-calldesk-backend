@@ -23,6 +23,7 @@ import { PaymentsModule } from "../payments/payments.module";
 import { VoiceAddressPromptService } from "./voice-address-prompt.service";
 import { VoiceTurnDependencies } from "./voice-turn.dependencies";
 import { VoiceStreamDependencies } from "./voice-stream.dependencies";
+import { VoiceUtteranceService } from "./voice-utterance.service";
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { VoiceStreamDependencies } from "./voice-stream.dependencies";
     VoiceHandoffPolicyService,
     VoiceSmsHandoffService,
     VoiceSmsPhoneSlotService,
+    VoiceUtteranceService,
     VoiceUrgencySlotService,
     VoiceAddressPromptService,
     VoiceTurnDependencies,
