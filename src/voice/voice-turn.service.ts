@@ -237,8 +237,9 @@ export class VoiceTurnService {
           this.isDuplicateTranscript(collectedData, transcript, now),
         normalizeConfidence: (value) => this.normalizeConfidence(value),
         getTenantDisplayName: (tenant) => this.getTenantDisplayName(tenant),
-        buildRepromptTwiml: () => this.buildRepromptTwiml(),
-        buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+        buildRepromptTwiml: () => this.voicePromptComposer.buildRepromptTwiml(),
+        buildSayGatherTwiml: (message) =>
+          this.voicePromptComposer.buildSayGatherTwiml(message),
         replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
         replyWithNoHandoff: (params) => this.replyWithNoHandoff(params),
         replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
@@ -290,14 +291,15 @@ export class VoiceTurnService {
       clearVoiceListeningWindow: (params) =>
         this.clearVoiceListeningWindow(params),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
-      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      buildSayGatherTwiml: (message) =>
+        this.voicePromptComposer.buildSayGatherTwiml(message),
       replyWithListeningWindow: (params) =>
         this.replyWithListeningWindow(params),
       buildBookingPromptTwiml: (strategy) =>
-        this.buildBookingPromptTwiml(strategy),
+        this.voicePromptComposer.buildBookingPromptTwiml(strategy),
       replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
       buildCallbackOfferTwiml: (strategy) =>
-        this.buildCallbackOfferTwiml(strategy),
+        this.voicePromptComposer.buildCallbackOfferTwiml(strategy),
       handleExpectedUrgencyField: (params) =>
         this.voiceUrgencySlotService.handleExpectedField(params),
       continueAfterSideQuestionWithIssueRouting: (params) =>
@@ -320,11 +322,12 @@ export class VoiceTurnService {
         ),
       handleExpectedSmsPhoneField: (params) =>
         this.voiceSmsPhoneSlotService.handleExpectedField(params),
-      replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
+      replyWithSmsHandoff: (params) =>
+        this.turnHandoffRuntime.replyWithSmsHandoff(params),
       replyWithListeningWindow: (params) =>
         this.replyWithListeningWindow(params),
       buildAskSmsNumberTwiml: (strategy) =>
-        this.buildAskSmsNumberTwiml(strategy),
+        this.voicePromptComposer.buildAskSmsNumberTwiml(strategy),
       replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
       loggerContext: VoiceTurnService.name,
     });
@@ -334,9 +337,10 @@ export class VoiceTurnService {
         replyWithListeningWindow: (params) =>
           this.replyWithListeningWindow(params),
         buildTakeYourTimeTwiml: (field, strategy) =>
-          this.buildTakeYourTimeTwiml(field, strategy),
+          this.voicePromptComposer.buildTakeYourTimeTwiml(field, strategy),
         replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
-        buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+        buildSayGatherTwiml: (message) =>
+          this.voicePromptComposer.buildSayGatherTwiml(message),
       },
       {
         isHangupRequest: (transcript) => this.isHangupRequest(transcript),
@@ -349,7 +353,7 @@ export class VoiceTurnService {
         replyWithListeningWindow: (params) =>
           this.replyWithListeningWindow(params),
         buildCallbackOfferTwiml: (strategy) =>
-          this.buildCallbackOfferTwiml(strategy),
+          this.voicePromptComposer.buildCallbackOfferTwiml(strategy),
         isSmsDifferentNumberRequest: (transcript) =>
           this.isSmsDifferentNumberRequest(transcript),
         updateVoiceSmsHandoff: (params) =>
@@ -357,7 +361,7 @@ export class VoiceTurnService {
         updateVoiceSmsPhoneState: (params) =>
           this.conversationsService.updateVoiceSmsPhoneState(params),
         buildAskSmsNumberTwiml: (strategy) =>
-          this.buildAskSmsNumberTwiml(strategy),
+          this.voicePromptComposer.buildAskSmsNumberTwiml(strategy),
       },
     );
     this.turnSideQuestionHelperRuntime = new VoiceTurnSideQuestionHelperRuntime(
@@ -379,7 +383,8 @@ export class VoiceTurnService {
             return null;
           }
         },
-        buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
+        buildAskNameTwiml: (strategy) =>
+          this.voicePromptComposer.buildAskNameTwiml(strategy),
         prependPrefaceToGatherTwiml: (preface, twiml) =>
           this.prependPrefaceToGatherTwiml(preface, twiml),
         replyWithListeningWindow: (params) =>
@@ -387,11 +392,11 @@ export class VoiceTurnService {
         buildAddressPromptForState: (addressState, strategy) =>
           this.buildAddressPromptForState(addressState, strategy),
         buildAskSmsNumberTwiml: (strategy) =>
-          this.buildAskSmsNumberTwiml(strategy),
+          this.voicePromptComposer.buildAskSmsNumberTwiml(strategy),
         buildBookingPromptTwiml: (strategy) =>
-          this.buildBookingPromptTwiml(strategy),
+          this.voicePromptComposer.buildBookingPromptTwiml(strategy),
         buildCallbackOfferTwiml: (strategy) =>
-          this.buildCallbackOfferTwiml(strategy),
+          this.voicePromptComposer.buildCallbackOfferTwiml(strategy),
       },
     );
     this.turnNameOpeningRuntime = new VoiceTurnNameOpeningRuntime({
@@ -413,7 +418,8 @@ export class VoiceTurnService {
           transcript,
         ),
       replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
-      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      buildSayGatherTwiml: (message) =>
+        this.voicePromptComposer.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
     });
@@ -446,8 +452,10 @@ export class VoiceTurnService {
       isLikelyNameCandidate: (value) => isLikelyNameCandidate(value),
       shouldPromptForNameSpelling: (state, candidate) =>
         shouldPromptForNameSpelling(state, candidate, this.sanitizationService),
-      buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
-      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      buildAskNameTwiml: (strategy) =>
+        this.voicePromptComposer.buildAskNameTwiml(strategy),
+      buildSayGatherTwiml: (message) =>
+        this.voicePromptComposer.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
     });
@@ -467,7 +475,7 @@ export class VoiceTurnService {
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
       buildSayGatherTwiml: (message, options) =>
-        this.buildSayGatherTwiml(message, options),
+        this.voicePromptComposer.buildSayGatherTwiml(message, options),
       replyWithListeningWindow: (params) =>
         this.replyWithListeningWindow(params),
       log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
@@ -518,7 +526,8 @@ export class VoiceTurnService {
         this.getVoiceIssueCandidate(collectedData),
       continueAfterSideQuestionWithIssueRouting: (params) =>
         this.continueAfterSideQuestionWithIssueRouting(params),
-      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      buildSayGatherTwiml: (message) =>
+        this.voicePromptComposer.buildSayGatherTwiml(message),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
       log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
     });
@@ -544,7 +553,10 @@ export class VoiceTurnService {
         replyWithListeningWindow: (params) =>
           this.replyWithListeningWindow(params),
         buildAddressSoftConfirmationTwiml: (candidate, strategy) =>
-          this.buildAddressSoftConfirmationTwiml(candidate, strategy),
+          this.voicePromptComposer.buildAddressSoftConfirmationTwiml(
+            candidate,
+            strategy,
+          ),
         resolveConfirmation: (utterance, currentCandidate, fieldType) =>
           this.resolveConfirmation(utterance, currentCandidate, fieldType),
         routeAddressCompleteness: (params) =>
@@ -558,7 +570,7 @@ export class VoiceTurnService {
         replyWithAddressPromptWindow: (params) =>
           this.replyWithAddressPromptWindow(params),
         buildYesNoRepromptTwiml: (strategy) =>
-          this.buildYesNoRepromptTwiml(strategy),
+          this.voicePromptComposer.buildYesNoRepromptTwiml(strategy),
       });
     this.turnAddressRoutingRuntime = new VoiceTurnAddressRoutingRuntime({
       sanitizer: this.sanitizationService,
@@ -567,7 +579,7 @@ export class VoiceTurnService {
       replyWithListeningWindow: (params) =>
         this.replyWithListeningWindow(params),
       buildSayGatherTwiml: (message, options) =>
-        this.buildSayGatherTwiml(message, options),
+        this.voicePromptComposer.buildSayGatherTwiml(message, options),
       buildAddressPromptForState: (addressState, strategy) =>
         this.buildAddressPromptForState(addressState, strategy),
       updateVoiceAddressState: (params) =>
@@ -604,7 +616,7 @@ export class VoiceTurnService {
         getTenantFeePolicySafe: (tenantId) =>
           this.getTenantFeePolicySafe(tenantId),
         buildSmsHandoffMessageForContext: (params) =>
-          this.buildSmsHandoffMessageForContext({
+          this.voiceHandoffPolicy.buildSmsHandoffMessageForContext({
             feePolicy: params.feePolicy as PrismaTenantFeePolicy | null,
             includeFees: params.includeFees,
             isEmergency: params.isEmergency,
@@ -614,11 +626,13 @@ export class VoiceTurnService {
           this.isUrgencyEmergency(collectedData),
         getVoiceNameCandidate: (nameState) =>
           this.getVoiceNameCandidate(nameState),
-        replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
+        replyWithSmsHandoff: (params) =>
+          this.turnHandoffRuntime.replyWithSmsHandoff(params),
         replyWithIssueCaptureRecovery: (params) =>
           this.replyWithIssueCaptureRecovery(params),
         replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
-        buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+        buildSayGatherTwiml: (message) =>
+          this.voicePromptComposer.buildSayGatherTwiml(message),
       });
     this.turnIssueRecoveryRuntime = new VoiceTurnIssueRecoveryRuntime({
       getVoiceIssueCandidate: (collectedData) =>
@@ -640,7 +654,7 @@ export class VoiceTurnService {
       getTenantFeePolicySafe: (tenantId) =>
         this.getTenantFeePolicySafe(tenantId),
       buildSmsHandoffMessageForContext: (params) =>
-        this.buildSmsHandoffMessageForContext({
+        this.voiceHandoffPolicy.buildSmsHandoffMessageForContext({
           feePolicy: params.feePolicy as PrismaTenantFeePolicy | null,
           includeFees: params.includeFees,
           isEmergency: params.isEmergency,
@@ -650,9 +664,11 @@ export class VoiceTurnService {
         this.isUrgencyEmergency(collectedData),
       getVoiceNameCandidate: (nameState) =>
         this.getVoiceNameCandidate(nameState),
-      replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
+      replyWithSmsHandoff: (params) =>
+        this.turnHandoffRuntime.replyWithSmsHandoff(params),
       log: (payload, context) => this.loggingService.log(payload, context),
-      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
+      buildSayGatherTwiml: (message) =>
+        this.voicePromptComposer.buildSayGatherTwiml(message),
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
@@ -669,8 +685,9 @@ export class VoiceTurnService {
       replyWithListeningWindow: (params) =>
         this.replyWithListeningWindow(params),
       buildSayGatherTwiml: (message, options) =>
-        this.buildSayGatherTwiml(message, options),
-      buildAskSmsNumberTwiml: () => this.buildAskSmsNumberTwiml(),
+        this.voicePromptComposer.buildSayGatherTwiml(message, options),
+      buildAskSmsNumberTwiml: () =>
+        this.voicePromptComposer.buildAskSmsNumberTwiml(),
       sendVoiceHandoffIntakeLink: (params) =>
         this.paymentsService.sendVoiceHandoffIntakeLink(params),
       isUrgencyEmergency: (collectedData) =>
@@ -687,7 +704,7 @@ export class VoiceTurnService {
       applyCsrStrategy: (strategy, message) =>
         this.applyCsrStrategy(strategy, message),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
-      buildNoHandoffTwiml: () => this.unroutableTwiml(),
+      buildNoHandoffTwiml: () => this.voicePromptComposer.unroutableTwiml(),
       log: (payload) => this.loggingService.log(payload, VoiceTurnService.name),
       warn: (payload) =>
         this.loggingService.warn(payload, VoiceTurnService.name),
@@ -717,12 +734,12 @@ export class VoiceTurnService {
           ),
         ),
       buildSmsHandoffMessage: (callerFirstName) =>
-        this.buildSmsHandoffMessage(callerFirstName),
+        this.voiceHandoffPolicy.buildSmsHandoffMessage(callerFirstName),
       shouldDiscloseFees: (params) => this.shouldDiscloseFees(params),
       getTenantFeePolicySafe: (tenantId) =>
         this.getTenantFeePolicySafe(tenantId),
       buildSmsHandoffMessageForContext: (params) =>
-        this.buildSmsHandoffMessageForContext({
+        this.voiceHandoffPolicy.buildSmsHandoffMessageForContext({
           feePolicy: params.feePolicy as PrismaTenantFeePolicy | null,
           includeFees: params.includeFees,
           isEmergency: params.isEmergency,
@@ -732,17 +749,21 @@ export class VoiceTurnService {
         this.isUrgencyEmergency(collectedData),
       getVoiceNameCandidate: (nameState) =>
         this.getVoiceNameCandidate(nameState),
-      replyWithSmsHandoff: (params) => this.replyWithSmsHandoff(params),
+      replyWithSmsHandoff: (params) =>
+        this.turnHandoffRuntime.replyWithSmsHandoff(params),
       normalizeConfirmationUtterance: (value) =>
         this.normalizeConfirmationUtterance(value),
       replyWithTwiml: (res, twiml) => this.replyWithTwiml(res, twiml),
-      buildSayGatherTwiml: (message) => this.buildSayGatherTwiml(message),
-      isHumanFallbackMessage: (message) => this.isHumanFallbackMessage(message),
+      buildSayGatherTwiml: (message) =>
+        this.voicePromptComposer.buildSayGatherTwiml(message),
+      isHumanFallbackMessage: (message) =>
+        this.turnHandoffRuntime.isHumanFallbackMessage(message),
       replyWithHumanFallback: (params) => this.replyWithHumanFallback(params),
       isLikelyQuestion: (transcript) => this.isLikelyQuestion(transcript),
       isBookingIntent: (transcript) => this.isBookingIntent(transcript),
       replyWithBookingOffer: (params) => this.replyWithBookingOffer(params),
-      logVoiceOutcome: (params) => this.logVoiceOutcome(params),
+      logVoiceOutcome: (params) =>
+        this.turnHandoffRuntime.logVoiceOutcome(params),
       buildTwiml: (message) => this.buildTwiml(message),
       replyWithNoHandoff: (params) => this.replyWithNoHandoff(params),
       warn: (payload, context) => this.loggingService.warn(payload, context),
@@ -761,7 +782,8 @@ export class VoiceTurnService {
         ),
       getVoiceIssueCandidate: (collectedData) =>
         this.getVoiceIssueCandidate(collectedData),
-      buildAskNameTwiml: (strategy) => this.buildAskNameTwiml(strategy),
+      buildAskNameTwiml: (strategy) =>
+        this.voicePromptComposer.buildAskNameTwiml(strategy),
       prependPrefaceToGatherTwiml: (preface, twiml) =>
         this.prependPrefaceToGatherTwiml(preface, twiml),
       replyWithListeningWindow: (params) =>
@@ -1139,7 +1161,8 @@ export class VoiceTurnService {
         turnIndex,
         nameState,
         existingIssueSummary,
-        buildSpellNameTwiml: () => this.buildSpellNameTwiml(csrStrategy),
+        buildSpellNameTwiml: () =>
+          this.voicePromptComposer.buildSpellNameTwiml(csrStrategy),
       });
       const spellingResponse = await this.turnNameSpellingRuntime.handle({
         normalizedSpeech,
@@ -1153,7 +1176,8 @@ export class VoiceTurnService {
         acknowledgeNameAndMoveOn: nameFlowSession.acknowledgeNameAndMoveOn,
         replyWithNameTwiml: nameFlowSession.replyWithNameTwiml,
         replyWithAddressPrompt: () => nameFlowSession.replyWithAddressPrompt(),
-        buildSpellNameTwiml: () => this.buildSpellNameTwiml(csrStrategy),
+        buildSpellNameTwiml: () =>
+          this.voicePromptComposer.buildSpellNameTwiml(csrStrategy),
       });
       if (spellingResponse) {
         return spellingResponse;
@@ -1328,89 +1352,12 @@ export class VoiceTurnService {
     return this.voicePromptComposer.disabledTwiml();
   }
 
-  private unroutableTwiml(): string {
-    return this.voicePromptComposer.unroutableTwiml();
-  }
-
   public buildConsentMessage(displayName: string): string {
     return this.voicePromptComposer.buildConsentMessage(displayName);
   }
 
   public buildConsentTwiml(displayName: string): string {
     return this.voicePromptComposer.buildConsentTwiml(displayName);
-  }
-
-  private buildSayGatherTwiml(
-    message: string,
-    options?: { timeout?: number; bargeIn?: boolean },
-  ): string {
-    return this.voicePromptComposer.buildSayGatherTwiml(message, options);
-  }
-
-  private buildRepromptTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildRepromptTwiml(strategy);
-  }
-
-  private buildNameConfirmationTwiml(
-    candidate: string,
-    strategy?: CsrStrategy,
-  ): string {
-    return this.voicePromptComposer.buildNameConfirmationTwiml(
-      candidate,
-      strategy,
-    );
-  }
-
-  private buildNameSoftConfirmationTwiml(
-    candidate: string,
-    strategy?: CsrStrategy,
-  ): string {
-    return this.voicePromptComposer.buildNameSoftConfirmationTwiml(
-      candidate,
-      strategy,
-    );
-  }
-
-  private buildAskNameTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildAskNameTwiml(strategy);
-  }
-
-  private buildSpellNameTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildSpellNameTwiml(strategy);
-  }
-
-  private buildAskSmsNumberTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildAskSmsNumberTwiml(strategy);
-  }
-
-  private buildTakeYourTimeTwiml(
-    field: "name" | "address" | "sms_phone",
-    strategy?: CsrStrategy,
-  ): string {
-    return this.voicePromptComposer.buildTakeYourTimeTwiml(field, strategy);
-  }
-
-  private buildBookingPromptTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildBookingPromptTwiml(strategy);
-  }
-
-  private buildCallbackOfferTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildCallbackOfferTwiml(strategy);
-  }
-
-  private buildComfortRiskTwiml(
-    strategy?: CsrStrategy,
-    context?: {
-      callerName?: string | null;
-      issueCandidate?: string | null;
-    },
-  ): string {
-    return this.voicePromptComposer.buildComfortRiskTwiml(strategy, {
-      callerName: context?.callerName,
-      issueSummary: context?.issueCandidate
-        ? this.buildIssueAcknowledgement(context.issueCandidate)
-        : null,
-    });
   }
 
   private buildUrgencyConfirmTwiml(
@@ -1426,95 +1373,6 @@ export class VoiceTurnService {
         ? this.buildIssueAcknowledgement(context.issueCandidate)
         : null,
     });
-  }
-
-  private buildAddressConfirmationTwiml(
-    candidate: string,
-    strategy?: CsrStrategy,
-  ): string {
-    return this.voicePromptComposer.buildAddressConfirmationTwiml(
-      candidate,
-      strategy,
-    );
-  }
-
-  private buildAddressSoftConfirmationTwiml(
-    candidate: string,
-    strategy?: CsrStrategy,
-  ): string {
-    return this.voicePromptComposer.buildAddressSoftConfirmationTwiml(
-      candidate,
-      strategy,
-    );
-  }
-
-  private buildAddressLocalityPromptTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildAddressLocalityPromptTwiml(strategy);
-  }
-
-  private buildAskAddressTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildAskAddressTwiml(strategy);
-  }
-
-  private buildIncompleteAddressTwiml(
-    candidate: string,
-    strategy?: CsrStrategy,
-  ): string {
-    return this.voicePromptComposer.buildIncompleteAddressTwiml(
-      candidate,
-      strategy,
-    );
-  }
-
-  private buildYesNoRepromptTwiml(strategy?: CsrStrategy): string {
-    return this.voicePromptComposer.buildYesNoRepromptTwiml(strategy);
-  }
-
-  private buildSmsHandoffMessage(callerFirstName?: string): string {
-    return this.voiceHandoffPolicy.buildSmsHandoffMessage(callerFirstName);
-  }
-
-  private buildSmsHandoffMessageWithFees(params: {
-    feePolicy: PrismaTenantFeePolicy | null;
-    isEmergency: boolean;
-    callerFirstName?: string;
-  }): string {
-    return this.voiceHandoffPolicy.buildSmsHandoffMessageWithFees(params);
-  }
-
-  private buildSmsHandoffMessageForContext(params: {
-    feePolicy: PrismaTenantFeePolicy | null;
-    includeFees: boolean;
-    isEmergency: boolean;
-    callerFirstName?: string;
-  }): string {
-    return this.voiceHandoffPolicy.buildSmsHandoffMessageForContext(params);
-  }
-
-  private isHumanFallbackMessage(message: string): boolean {
-    return this.turnHandoffRuntime.isHumanFallbackMessage(message);
-  }
-
-  private logVoiceOutcome(params: {
-    outcome: "sms_handoff" | "human_fallback" | "no_handoff";
-    tenantId?: string;
-    conversationId?: string;
-    callSid?: string;
-    reason: string;
-  }) {
-    this.turnHandoffRuntime.logVoiceOutcome(params);
-  }
-
-  private async replyWithSmsHandoff(params: {
-    res?: Response;
-    tenantId: string;
-    conversationId: string;
-    callSid: string;
-    displayName: string;
-    reason: string;
-    messageOverride?: string;
-  }) {
-    return this.turnHandoffRuntime.replyWithSmsHandoff(params);
   }
 
   public async replyWithHumanFallback(params: {
@@ -1590,7 +1448,9 @@ export class VoiceTurnService {
       conversationId: params.conversationId,
       field: "address",
       sourceEventId: params.currentEventId,
-      twiml: this.buildAddressLocalityPromptTwiml(params.strategy),
+      twiml: this.voicePromptComposer.buildAddressLocalityPromptTwiml(
+        params.strategy,
+      ),
     });
   }
 
@@ -1647,15 +1507,16 @@ export class VoiceTurnService {
       const feePolicy = includeFees
         ? await this.getTenantFeePolicySafe(params.tenantId)
         : null;
-      const smsMessage = this.buildSmsHandoffMessageForContext({
-        feePolicy,
-        includeFees,
-        isEmergency: this.isUrgencyEmergency(params.collectedData),
-        callerFirstName: this.getVoiceNameCandidate(params.nameState)
-          ?.split(" ")
-          .filter(Boolean)[0],
-      });
-      return this.replyWithSmsHandoff({
+      const smsMessage =
+        this.voiceHandoffPolicy.buildSmsHandoffMessageForContext({
+          feePolicy,
+          includeFees,
+          isEmergency: this.isUrgencyEmergency(params.collectedData),
+          callerFirstName: this.getVoiceNameCandidate(params.nameState)
+            ?.split(" ")
+            .filter(Boolean)[0],
+        });
+      return this.turnHandoffRuntime.replyWithSmsHandoff({
         res: params.res,
         tenantId: params.tenantId,
         conversationId: params.conversationId,
@@ -1670,7 +1531,9 @@ export class VoiceTurnService {
       "No problem—I'll confirm the address by text after we finish. What's been going on with the system?";
     return this.replyWithTwiml(
       params.res,
-      this.buildSayGatherTwiml(this.applyCsrStrategy(params.strategy, message)),
+      this.voicePromptComposer.buildSayGatherTwiml(
+        this.applyCsrStrategy(params.strategy, message),
+      ),
     );
   }
 
@@ -2092,22 +1955,32 @@ export class VoiceTurnService {
       addressState: params.addressState,
       strategy: params.strategy,
       buildAskNameTwiml: (strategy) =>
-        this.buildAskNameTwiml(strategy as CsrStrategy | undefined),
+        this.voicePromptComposer.buildAskNameTwiml(
+          strategy as CsrStrategy | undefined,
+        ),
       buildAddressPromptForState: (addressState, strategy) =>
         this.buildAddressPromptForState(
           addressState,
           strategy as CsrStrategy | undefined,
         ),
       buildAskSmsNumberTwiml: (strategy) =>
-        this.buildAskSmsNumberTwiml(strategy as CsrStrategy | undefined),
+        this.voicePromptComposer.buildAskSmsNumberTwiml(
+          strategy as CsrStrategy | undefined,
+        ),
       buildBookingPromptTwiml: (strategy) =>
-        this.buildBookingPromptTwiml(strategy as CsrStrategy | undefined),
+        this.voicePromptComposer.buildBookingPromptTwiml(
+          strategy as CsrStrategy | undefined,
+        ),
       buildCallbackOfferTwiml: (strategy) =>
-        this.buildCallbackOfferTwiml(strategy as CsrStrategy | undefined),
+        this.voicePromptComposer.buildCallbackOfferTwiml(
+          strategy as CsrStrategy | undefined,
+        ),
       buildUrgencyConfirmTwiml: (strategy) =>
         this.buildUrgencyConfirmTwiml(strategy as CsrStrategy | undefined),
       buildRepromptTwiml: (strategy) =>
-        this.buildRepromptTwiml(strategy as CsrStrategy | undefined),
+        this.voicePromptComposer.buildRepromptTwiml(
+          strategy as CsrStrategy | undefined,
+        ),
     });
   }
 
@@ -2257,7 +2130,7 @@ export class VoiceTurnService {
       field: "confirmation",
       targetField: "address",
       sourceEventId: params.sourceEventId,
-      twiml: this.buildAddressConfirmationTwiml(
+      twiml: this.voicePromptComposer.buildAddressConfirmationTwiml(
         params.candidate,
         params.strategy,
       ),
@@ -2559,9 +2432,12 @@ export class VoiceTurnService {
   ): string {
     const prefix = street ? `I heard ${street}. ` : "";
     const core = `${prefix}What's the house number?`;
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
-      timeout: 8,
-    });
+    return this.voicePromptComposer.buildSayGatherTwiml(
+      this.applyCsrStrategy(strategy, core),
+      {
+        timeout: 8,
+      },
+    );
   }
 
   private buildAskStreetTwiml(
@@ -2570,16 +2446,22 @@ export class VoiceTurnService {
   ): string {
     const prefix = houseNumber ? `I heard ${houseNumber}. ` : "";
     const core = `${prefix}What's the street name?`;
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
-      timeout: 8,
-    });
+    return this.voicePromptComposer.buildSayGatherTwiml(
+      this.applyCsrStrategy(strategy, core),
+      {
+        timeout: 8,
+      },
+    );
   }
 
   private buildAskStreetAddressTwiml(strategy?: CsrStrategy): string {
     const core = "What's the street address?";
-    return this.buildSayGatherTwiml(this.applyCsrStrategy(strategy, core), {
-      timeout: 8,
-    });
+    return this.voicePromptComposer.buildSayGatherTwiml(
+      this.applyCsrStrategy(strategy, core),
+      {
+        timeout: 8,
+      },
+    );
   }
 
   private buildAddressPromptForState(
@@ -2599,28 +2481,30 @@ export class VoiceTurnService {
         if (!missing.locality) {
           return this.buildAskStreetAddressTwiml(strategy);
         }
-        return this.buildAskAddressTwiml(strategy);
+        return this.voicePromptComposer.buildAskAddressTwiml(strategy);
       }
       if (missing.houseNumber || missing.street) {
-        return this.buildAskAddressTwiml(strategy);
+        return this.voicePromptComposer.buildAskAddressTwiml(strategy);
       }
       if (missing.locality) {
-        return this.buildAddressLocalityPromptTwiml(strategy);
+        return this.voicePromptComposer.buildAddressLocalityPromptTwiml(
+          strategy,
+        );
       }
       if (addressState.candidate) {
-        return this.buildAddressConfirmationTwiml(
+        return this.voicePromptComposer.buildAddressConfirmationTwiml(
           addressState.candidate,
           strategy,
         );
       }
-      return this.buildAskAddressTwiml(strategy);
+      return this.voicePromptComposer.buildAskAddressTwiml(strategy);
     }
 
     if (addressState.candidate) {
       if (
         voiceAddressCandidatePolicy.isIncompleteAddress(addressState.candidate)
       ) {
-        return this.buildIncompleteAddressTwiml(
+        return this.voicePromptComposer.buildIncompleteAddressTwiml(
           addressState.candidate,
           strategy,
         );
@@ -2628,14 +2512,16 @@ export class VoiceTurnService {
       if (
         voiceAddressCandidatePolicy.isMissingLocality(addressState.candidate)
       ) {
-        return this.buildAddressLocalityPromptTwiml(strategy);
+        return this.voicePromptComposer.buildAddressLocalityPromptTwiml(
+          strategy,
+        );
       }
-      return this.buildAddressConfirmationTwiml(
+      return this.voicePromptComposer.buildAddressConfirmationTwiml(
         addressState.candidate,
         strategy,
       );
     }
-    return this.buildAskAddressTwiml(strategy);
+    return this.voicePromptComposer.buildAskAddressTwiml(strategy);
   }
 
   private toTitleCase(value: string): string {
