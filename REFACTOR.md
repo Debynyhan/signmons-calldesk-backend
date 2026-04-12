@@ -3,6 +3,14 @@
 Goal: make the voice module extensible, modular, and easy to test without touching FSM logic.
 Each TODO is a standalone PR. Do them in order — later steps depend on earlier seams.
 
+Status: Archived (completed phase).
+
+This file documents the completed voice refactor track.
+
+For active planning and execution, use:
+- `REFACTOR3.md` as the current structural hardening plan
+- `REFACTOR2.md` as completed cross-module extraction history
+
 ---
 
 ## Principles being applied
@@ -214,3 +222,30 @@ requires modifying the service — violates OCP. The lambdas create tight implic
 3. **No logic changes** — if behavior needs to change, that's a separate PR
 4. **Green CI required** before merging each step
 5. **Do TODO-7 last** — the constructor refactor is safest after all other seams are extracted
+
+---
+
+## Project-Level DoD and Guardrails (Current)
+
+These guardrails apply to active refactor tracks (`REFACTOR3.md` and onward),
+and should be enforced before merge.
+
+### Definition of done
+
+- Core voice path has no class over ~1200 lines.
+- Constructor fan-in is capped:
+  - Orchestration classes: <= 8 injected dependencies
+  - Domain services: <= 5 injected dependencies
+- Domain rules are covered by pure-function tests and replay tests.
+- Transport, business logic, and persistence concerns are separated.
+- Existing call-quality behavior remains green.
+
+### Architecture guardrails
+
+- No transitional compatibility shims in production paths:
+  - `as Partial<...Service>`
+  - `hasLegacy...` service switching
+- No manual dependency instantiation inside Nest services
+  (for example, `new Repository(...)` in service constructors).
+- Build, lint, and targeted replay suites must pass before merge.
+- Architecture checks should run in CI as a required gate.
