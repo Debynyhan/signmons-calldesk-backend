@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import {
   Prisma,
 } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
 import {
   buildAiRouteState,
   type AiRouteIntent,
@@ -25,11 +24,7 @@ import {
 
 @Injectable()
 export class ConversationsService {
-  private readonly repository: ConversationsRepository;
-
-  constructor(private readonly prisma: PrismaService) {
-    this.repository = new ConversationsRepository(this.prisma);
-  }
+  constructor(private readonly repository: ConversationsRepository) {}
 
   async getVoiceConversationByCallSid(params: {
     tenantId: string;

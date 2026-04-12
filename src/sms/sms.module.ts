@@ -8,6 +8,7 @@ import { AdminApiGuard } from "../common/guards/admin-api.guard";
 import { AiModule } from "../ai/ai.module";
 import { TenantsModule } from "../tenants/tenants.module";
 import { LoggingModule } from "../logging/logging.module";
+import { SmsInboundUseCase } from "./sms-inbound.use-case";
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { LoggingModule } from "../logging/logging.module";
     LoggingModule,
   ],
   controllers: [SmsController],
-  providers: [SmsService, AdminApiGuard],
+  providers: [SmsService, AdminApiGuard, SmsInboundUseCase],
   exports: [SmsService],
 })
 export class SmsModule {}

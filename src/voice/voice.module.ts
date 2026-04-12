@@ -31,6 +31,9 @@ import { VoiceListeningWindowService } from "./voice-listening-window.service";
 import { VoiceCallStateService } from "./voice-call-state.service";
 import { TwilioSignatureGuard } from "./twilio-signature.guard";
 import { VoiceTurnRuntimeFactory } from "./voice-turn-runtime.factory";
+import { VoiceTurnPipeline } from "./voice-turn-pipeline.service";
+import { VOICE_TURN_STEPS } from "./voice-turn.constants";
+import { VoiceInboundUseCase } from "./voice-inbound.use-case";
 
 @Module({
   imports: [
@@ -67,6 +70,13 @@ import { VoiceTurnRuntimeFactory } from "./voice-turn-runtime.factory";
     VoiceCallStateService,
     TwilioSignatureGuard,
     VoiceTurnRuntimeFactory,
+    VoiceTurnPipeline,
+    {
+      provide: VOICE_TURN_STEPS,
+      useFactory: (factory: VoiceTurnRuntimeFactory) => factory.buildSteps(),
+      inject: [VoiceTurnRuntimeFactory],
+    },
+    VoiceInboundUseCase,
   ],
   controllers: [VoiceController],
 })

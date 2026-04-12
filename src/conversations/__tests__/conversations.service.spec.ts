@@ -1,32 +1,31 @@
 import { ConversationsService } from "../conversations.service";
-import type { PrismaService } from "../../prisma/prisma.service";
+import type { ConversationsRepository } from "../conversations.repository";
 
 describe("ConversationsService", () => {
-  let prisma: {
-    conversation: { findFirst: jest.Mock; update: jest.Mock };
+  let repository: {
+    findConversationFirst: jest.Mock;
+    updateConversation: jest.Mock;
   };
   let service: ConversationsService;
 
   beforeEach(() => {
-    prisma = {
-      conversation: {
-        findFirst: jest.fn(),
-        update: jest.fn(),
-      },
+    repository = {
+      findConversationFirst: jest.fn(),
+      updateConversation: jest.fn(),
     };
 
-    service = new ConversationsService(prisma as unknown as PrismaService);
+    service = new ConversationsService(repository as unknown as ConversationsRepository);
   });
 
   it("stores ai route intent in collectedData without overwriting existing fields", async () => {
-    prisma.conversation.findFirst.mockResolvedValue({
+    repository.findConversationFirst.mockResolvedValue({
       id: "conv-1",
       collectedData: { sessionId: "sess-1", source: "WEBCHAT" },
-    } as never);
-    prisma.conversation.update.mockResolvedValue({
+    });
+    repository.updateConversation.mockResolvedValue({
       id: "conv-1",
       collectedData: {},
-    } as never);
+    });
 
     await service.setAiRouteIntent({
       tenantId: "tenant-1",
@@ -34,7 +33,7 @@ describe("ConversationsService", () => {
       intent: "BOOKING",
     });
 
-    expect(prisma.conversation.update).toHaveBeenCalledWith(
+    expect(repository.updateConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "conv-1" },
         data: expect.objectContaining({

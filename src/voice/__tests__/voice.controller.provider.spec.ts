@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { AppConfig } from "../../config/app.config";
-import { VoiceController } from "../voice.controller";
+import { VoiceInboundUseCase } from "../voice-inbound.use-case";
 import { VOICE_STREAM_PATH } from "../voice-streaming.utils";
 
 const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
@@ -18,7 +18,7 @@ const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
     ...overrides,
   }) as AppConfig;
 
-describe("VoiceController provider selection", () => {
+describe("VoiceInboundUseCase provider selection", () => {
   const tenant = {
     id: "tenant-1",
     name: "Leizurely HVAC",
@@ -116,7 +116,7 @@ describe("VoiceController provider selection", () => {
   });
 
   it("uses streaming TwiML when Google STT is selected and enabled", async () => {
-    const controller = new VoiceController(
+    const useCase = new VoiceInboundUseCase(
       buildConfig({
         voiceStreamingEnabled: true,
         voiceSttProvider: "google",
@@ -133,7 +133,7 @@ describe("VoiceController provider selection", () => {
       loggingService as never,
     );
 
-    await controller.handleInbound({} as Request, {} as Response);
+    await useCase.handleInbound({} as Request, {} as Response);
 
     expect(
       conversationsService.ensureVoiceConsentConversation,
@@ -154,7 +154,7 @@ describe("VoiceController provider selection", () => {
         tenantId: "tenant-1",
         callSid: "CA123",
       }),
-      VoiceController.name,
+      VoiceInboundUseCase.name,
     );
     const twiml = voiceResponse.replyWithTwiml.mock.calls[0]?.[1] as string;
     expect(twiml).toContain(
@@ -165,7 +165,7 @@ describe("VoiceController provider selection", () => {
   });
 
   it("falls back to standard consent TwiML when non-Google STT provider is selected", async () => {
-    const controller = new VoiceController(
+    const useCase = new VoiceInboundUseCase(
       buildConfig({
         voiceStreamingEnabled: true,
         voiceSttProvider: "twilio",
@@ -182,7 +182,7 @@ describe("VoiceController provider selection", () => {
       loggingService as never,
     );
 
-    await controller.handleInbound({} as Request, {} as Response);
+    await useCase.handleInbound({} as Request, {} as Response);
 
     expect(voicePromptComposer.buildConsentTwiml).toHaveBeenCalledWith(
       "Leizurely HVAC",

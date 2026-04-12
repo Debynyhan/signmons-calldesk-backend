@@ -12,8 +12,6 @@ import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiPromptOrchestrationService } from "./prompts/prompt-orchestration.service";
-import { ToolExecutorRegistryService } from "./tools/tool-executor.registry";
-import type { RegisteredToolExecutionResult } from "./tools/tool.types";
 import { CallLogService } from "../logging/call-log.service";
 import appConfig from "../config/app.config";
 import { getRequestContext } from "../common/context/request-context";
@@ -26,19 +24,13 @@ import type {
   AiChatMessageParam,
   AiToolCall,
 } from "./types/ai-completion.types";
+import { ToolDispatchService, type ToolDispatchResult } from "./tool-dispatch.service";
 
-export type TriageOrchestratorResult =
-  | RegisteredToolExecutionResult
-  | {
-      status: "tool_called";
-      toolName: string;
-      rawArgs: string | null;
-    }
-  | {
-      status: "unsupported_tool";
-      toolName: string;
-      rawArgs?: string;
-    };
+export type TriageOrchestratorResult = ToolDispatchResult | {
+  status: "tool_called";
+  toolName: string;
+  rawArgs: string | null;
+};
 
 export interface TriageRunParams {
   tenantId: string;
@@ -60,7 +52,7 @@ export class TriageOrchestratorService {
     private readonly loggingService: LoggingService,
     private readonly toolSelector: ToolSelectorService,
     private readonly promptOrchestration: AiPromptOrchestrationService,
-    private readonly toolExecutorRegistry: ToolExecutorRegistryService,
+    private readonly toolDispatch: ToolDispatchService,
     private readonly callLogService: CallLogService,
     private readonly errorHandler: AiErrorHandler,
     @Inject(appConfig.KEY)
@@ -173,17 +165,17 @@ export class TriageOrchestratorService {
         if (validation.type === "tool") {
           const toolCall = validation.toolCall;
           if (this.isFunctionToolCall(toolCall) && toolCall.function?.name) {
-            const toolResult = await this.handleToolCall(
+            const toolResult = await this.toolDispatch.dispatch({
               tenantId,
               sessionId,
               conversationId,
-              toolCall.function.name,
-              toolCall.function.arguments ?? undefined,
-              responseModel,
+              name: toolCall.function.name,
+              rawArgs: toolCall.function.arguments ?? undefined,
+              model: responseModel,
               channel,
               routeContinuationCount,
-              effectiveRouteIntent,
-            );
+              currentRouteIntent: effectiveRouteIntent,
+            });
 
             if (
               toolResult &&
@@ -263,93 +255,6 @@ export class TriageOrchestratorService {
     function: { name: string; arguments?: string | null };
   } {
     return toolCall.type === "function" && typeof toolCall.function === "object";
-  }
-
-  private async handleToolCall(
-    tenantId: string,
-    sessionId: string,
-    conversationId: string,
-    name: string,
-    rawArgs?: string,
-    model?: string,
-    channel?: CommunicationChannel,
-    routeContinuationCount?: number,
-    currentRouteIntent?: AiRouteIntent | null,
-  ): Promise<TriageOrchestratorResult> {
-    try {
-      this.logAiTrace("log", tenantId, "ai.tool_dispatch", {
-        toolName: name,
-        channel,
-        model,
-        routeContinuationCount,
-        currentRouteIntent,
-      });
-      const executor = this.toolExecutorRegistry.get(name);
-      if (!executor) {
-        this.logAiTrace("warn", tenantId, "ai.unsupported_tool_called", {
-          toolName: name,
-          channel,
-          model,
-        });
-        return {
-          status: "unsupported_tool",
-          toolName: name,
-          rawArgs,
-        };
-      }
-      const result = await executor.execute({
-        tenantId,
-        sessionId,
-        conversationId,
-        rawArgs,
-        model,
-        channel,
-        routeContinuationCount,
-        currentRouteIntent,
-      });
-      this.logAiTrace("log", tenantId, "ai.tool_result", {
-        toolName: name,
-        channel,
-        model,
-        status: (result as { status?: string }).status,
-      });
-      return result;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : typeof error === "string" ? error : "";
-      if (
-        name === "route_conversation" &&
-        error instanceof BadRequestException &&
-        message.includes("Repeated route tool call")
-      ) {
-        this.logAiTrace("warn", tenantId, "ai.route_loop_guard_triggered", {
-          channel,
-          model,
-          routeContinuationCount,
-          currentRouteIntent,
-        });
-      }
-      this.logAiTrace("warn", tenantId, "ai.tool_error", {
-        toolName: name,
-        channel,
-        model,
-        errorType: error instanceof Error ? error.name : typeof error,
-      });
-      if (error instanceof BadRequestException) {
-        this.logAiEvent(tenantId, "ai.invalid_output", {
-          model,
-          reason: "tool_args_invalid",
-        });
-      }
-      this.errorHandler.handle(error, {
-        tenantId,
-        toolName: name,
-        stage: "tool_call",
-        metadata: {
-          rawArgsLength: rawArgs?.length ?? 0,
-        },
-      });
-    }
   }
 
   private validateAssistantMessage(

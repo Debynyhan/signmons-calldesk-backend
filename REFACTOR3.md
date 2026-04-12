@@ -131,7 +131,7 @@ module's provider list, making the wiring invisible.
 
 ### TODO-3a — Extract `VoiceInboundUseCase` from `VoiceController`
 **Principle:** SoC — transport ≠ use-case
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `VoiceController` has 11 constructor params and contains use-case logic
@@ -153,7 +153,7 @@ The same inbound logic is also partially duplicated in the streaming gateway.
 
 ### TODO-3b — Extract `SmsInboundUseCase` from `SmsController`
 **Principle:** SoC — transport ≠ use-case
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `SmsController` (299 lines, two `as Partial<...>` shims) contains use-case logic
@@ -173,7 +173,7 @@ is merged so you have the pattern to follow.
 
 ### TODO-4 — Decompose `VoiceTurnService.processTurn` into a step pipeline
 **Principle:** OCP, SRP — adding a new turn step should not require editing `processTurn`
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `processTurn` (line 264, ~300 lines) is a linear chain of 20+ runtime calls connected
@@ -275,7 +275,7 @@ the sms/payments modules. Same problem as 6b.
 
 ### TODO-7 — Extract `ToolDispatchService` from `TriageOrchestratorService`
 **Principle:** SRP — `run()` should not own tool dispatch internals
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `TriageOrchestratorService.run()` owns: router-flow decision, while-loop control,
@@ -397,13 +397,14 @@ Do TODO-8 and TODO-9 last — guardrails are only meaningful once the violations
 ## Completion checklist
 
 - [x] TODO-1  Remove shims (10 `as Partial<...>` + 3 `hasLegacy*` guards = 13 sites)
-- [ ] TODO-2  Inject `ConversationsRepository` via DI
-- [ ] TODO-3a `VoiceInboundUseCase`
-- [ ] TODO-3b `SmsInboundUseCase`
-- [ ] TODO-4  `VoiceTurnPipeline` + `IVoiceTurnStep`
+- [x] TODO-2  Fix `ConversationsService` DIP violation (inject `ConversationsRepository`)
+- [x] TODO-2  Inject `ConversationsRepository` via DI
+- [x] TODO-3a `VoiceInboundUseCase`
+- [x] TODO-3b `SmsInboundUseCase`
+- [x] TODO-4  `VoiceTurnPipeline` + `IVoiceTurnStep`
 - [ ] TODO-5  Split `VoiceTurnRuntimeFactory` (4 sub-factories)
 - [ ] TODO-6  `ICallLogService` + `IConversationLifecycleService` + `IVoiceConversationStateService` interfaces + tokens
-- [ ] TODO-7  `ToolDispatchService`
+- [x] TODO-7  `ToolDispatchService`
 - [ ] TODO-8  CI architecture guardrails (line count, constructor, shim, manual-new gates)
 - [ ] TODO-9  Module boundary gate (extend arch-check script)
 

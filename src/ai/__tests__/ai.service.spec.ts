@@ -24,6 +24,7 @@ import { RouteConversationToolExecutor } from "../tools/route-conversation.execu
 import { AiCreateJobToolExecutor } from "../tools/create-job.executor";
 import { AiExtractionService } from "../ai-extraction.service";
 import { TriageOrchestratorService } from "../triage-orchestrator.service";
+import { ToolDispatchService } from "../tool-dispatch.service";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn((path: string) => {
@@ -231,7 +232,7 @@ describe("AiService", () => {
         loggingService,
         toolSelector as unknown as ToolSelectorService,
         promptOrchestration,
-        toolExecutorRegistry,
+        new ToolDispatchService(loggingService, toolExecutorRegistry, errorHandler),
         callLogService,
         errorHandler,
         config,
@@ -800,14 +801,14 @@ describe("AiService", () => {
         tenantId,
         reason: "tool_args_invalid",
       }),
-      TriageOrchestratorService.name,
+      ToolDispatchService.name,
     );
     expect(loggingService.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "ai.route_loop_guard_triggered",
         tenantId,
       }),
-      TriageOrchestratorService.name,
+      ToolDispatchService.name,
     );
   });
 
@@ -881,7 +882,7 @@ describe("AiService", () => {
         tenantId,
         toolName: "lookup_price_range",
       }),
-      TriageOrchestratorService.name,
+      ToolDispatchService.name,
     );
   });
 

@@ -1,6 +1,7 @@
 import { jest } from "@jest/globals";
 import { BadRequestException } from "@nestjs/common";
 import { TriageOrchestratorService } from "../triage-orchestrator.service";
+import { ToolDispatchService } from "../tool-dispatch.service";
 import { SanitizationService } from "../../sanitization/sanitization.service";
 import { CallLogService } from "../../logging/call-log.service";
 import type { IAiProvider } from "../interfaces/ai-provider.interface";
@@ -37,6 +38,7 @@ describe("TriageOrchestratorService", () => {
   let toolSelector: { getEnabledToolsForTenant: jest.Mock };
   let promptOrchestration: AiPromptOrchestrationService;
   let toolExecutorRegistry: ToolExecutorRegistryService;
+  let toolDispatch: ToolDispatchService;
   let callLogService: jest.Mocked<CallLogService>;
   let errorHandler: jest.Mocked<AiErrorHandler>;
   let config: ReturnType<typeof appConfig>;
@@ -119,12 +121,14 @@ describe("TriageOrchestratorService", () => {
       clearSession: jest.fn(),
     } as unknown as jest.Mocked<CallLogService>;
 
+    toolDispatch = new ToolDispatchService(loggingService, toolExecutorRegistry, errorHandler);
+
     service = new TriageOrchestratorService(
       aiProvider,
       loggingService,
       toolSelector as unknown as ToolSelectorService,
       promptOrchestration,
-      toolExecutorRegistry,
+      toolDispatch,
       callLogService,
       errorHandler,
       config,
@@ -284,7 +288,7 @@ describe("TriageOrchestratorService", () => {
     );
     expect(loggingService.warn).toHaveBeenCalledWith(
       expect.objectContaining({ event: "ai.unsupported_tool_called", toolName: "unknown_tool" }),
-      TriageOrchestratorService.name,
+      ToolDispatchService.name,
     );
   });
 
