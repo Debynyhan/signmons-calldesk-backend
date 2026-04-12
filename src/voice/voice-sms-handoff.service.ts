@@ -24,39 +24,12 @@ export type VoiceSmsHandoffPreparationResult =
 
 @Injectable()
 export class VoiceSmsHandoffService {
-  private readonly stateServiceDependency?: VoiceConversationStateService;
-
   constructor(
     private readonly conversationsService: ConversationsService,
     private readonly loggingService: LoggingService,
     private readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
-    voiceConversationStateService?: VoiceConversationStateService,
-  ) {
-    this.stateServiceDependency = voiceConversationStateService;
-  }
-
-  private get stateService(): Pick<
-    VoiceConversationStateService,
-    "updateVoiceSmsPhoneState" | "updateVoiceSmsHandoff" | "clearVoiceSmsHandoff"
-  > {
-    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
-    if (
-      typeof legacy.updateVoiceSmsPhoneState === "function" &&
-      typeof legacy.updateVoiceSmsHandoff === "function" &&
-      typeof legacy.clearVoiceSmsHandoff === "function"
-    ) {
-      return legacy as Pick<
-        VoiceConversationStateService,
-        | "updateVoiceSmsPhoneState"
-        | "updateVoiceSmsHandoff"
-        | "clearVoiceSmsHandoff"
-      >;
-    }
-    return this.stateServiceDependency as Pick<
-      VoiceConversationStateService,
-      "updateVoiceSmsPhoneState" | "updateVoiceSmsHandoff" | "clearVoiceSmsHandoff"
-    >;
-  }
+    private readonly voiceConversationStateService: VoiceConversationStateService,
+  ) {}
 
   async prepare(params: {
     tenantId: string;
@@ -80,7 +53,7 @@ export class VoiceSmsHandoffService {
         const fallbackPhone = phoneState.value ?? callerPhone;
         if (fallbackPhone) {
           // Pre-populate ANI/stored number and ask for explicit confirmation first.
-          await this.stateService.updateVoiceSmsPhoneState({
+          await this.voiceConversationStateService.updateVoiceSmsPhoneState({
             tenantId: params.tenantId,
             conversationId: params.conversationId,
             phoneState: {
@@ -91,7 +64,7 @@ export class VoiceSmsHandoffService {
               lastPromptedAt: new Date().toISOString(),
             },
           });
-          await this.stateService.updateVoiceSmsHandoff({
+          await this.voiceConversationStateService.updateVoiceSmsHandoff({
             tenantId: params.tenantId,
             conversationId: params.conversationId,
             handoff: {
@@ -117,7 +90,7 @@ export class VoiceSmsHandoffService {
           };
         }
 
-        await this.stateService.updateVoiceSmsHandoff({
+        await this.voiceConversationStateService.updateVoiceSmsHandoff({
           tenantId: params.tenantId,
           conversationId: params.conversationId,
           handoff: {
@@ -126,7 +99,7 @@ export class VoiceSmsHandoffService {
             createdAt: new Date().toISOString(),
           },
         });
-        await this.stateService.updateVoiceSmsPhoneState({
+        await this.voiceConversationStateService.updateVoiceSmsPhoneState({
           tenantId: params.tenantId,
           conversationId: params.conversationId,
           phoneState: {
@@ -150,7 +123,7 @@ export class VoiceSmsHandoffService {
       }
     }
 
-    await this.stateService.clearVoiceSmsHandoff({
+    await this.voiceConversationStateService.clearVoiceSmsHandoff({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
     });

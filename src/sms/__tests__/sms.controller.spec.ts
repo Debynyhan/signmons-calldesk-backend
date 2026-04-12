@@ -6,6 +6,7 @@ import { envValidationSchema } from "../../config/env.validation";
 import { SmsModule } from "../sms.module";
 import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../../conversations/conversations.service";
+import { VoiceConversationStateService } from "../../voice/voice-conversation-state.service";
 import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
 import { AiService } from "../../ai/ai.service";
 import { SmsService } from "../sms.service";
@@ -41,11 +42,9 @@ describe("SmsController", () => {
       ],
     })
       .overrideProvider(ConversationsService)
-      .useValue({
-        getConversationById,
-        promoteNameFromSms,
-        promoteAddressFromSms,
-      })
+      .useValue({ getConversationById })
+      .overrideProvider(VoiceConversationStateService)
+      .useValue({ promoteNameFromSms, promoteAddressFromSms })
       .overrideProvider(ConversationLifecycleService)
       .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
@@ -112,11 +111,9 @@ describe("SmsController", () => {
       ],
     })
       .overrideProvider(ConversationsService)
-      .useValue({
-        getConversationById,
-        promoteNameFromSms,
-        promoteAddressFromSms,
-      })
+      .useValue({ getConversationById })
+      .overrideProvider(VoiceConversationStateService)
+      .useValue({ promoteNameFromSms, promoteAddressFromSms })
       .overrideProvider(ConversationLifecycleService)
       .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
@@ -180,11 +177,9 @@ describe("SmsController", () => {
       ],
     })
       .overrideProvider(ConversationsService)
-      .useValue({
-        getConversationById,
-        promoteNameFromSms,
-        promoteAddressFromSms,
-      })
+      .useValue({ getConversationById })
+      .overrideProvider(VoiceConversationStateService)
+      .useValue({ promoteNameFromSms, promoteAddressFromSms })
       .overrideProvider(ConversationLifecycleService)
       .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
@@ -250,10 +245,10 @@ describe("SmsController", () => {
       .overrideProvider(ConversationsService)
       .useValue({
         getConversationById,
-        promoteNameFromSms,
-        promoteAddressFromSms,
         getConversationBySmsSid,
       })
+      .overrideProvider(VoiceConversationStateService)
+      .useValue({ promoteNameFromSms, promoteAddressFromSms })
       .overrideProvider(ConversationLifecycleService)
       .useValue({
         ensureSmsConversation,

@@ -6,7 +6,6 @@ import type {
   VoiceNameState,
   VoiceSmsPhoneState,
 } from "../conversations/voice-conversation-state.codec";
-import { ConversationsService } from "../conversations/conversations.service";
 import { CsrStrategy } from "./csr-strategy.selector";
 import {
   buildVoiceListeningWindowReprompt,
@@ -30,39 +29,12 @@ type VoiceExpectedField =
 
 @Injectable()
 export class VoiceListeningWindowService {
-  private readonly stateServiceDependency?: VoiceConversationStateService;
-
   constructor(
-    private readonly conversationsService: ConversationsService,
     private readonly voiceResponseService: VoiceResponseService,
     private readonly voicePromptComposer: VoicePromptComposerService,
     private readonly voiceAddressPromptService: VoiceAddressPromptService,
-    voiceConversationStateService?: VoiceConversationStateService,
-  ) {
-    this.stateServiceDependency = voiceConversationStateService;
-  }
-
-  private get stateService(): Pick<
-    VoiceConversationStateService,
-    "updateVoiceListeningWindow" | "clearVoiceListeningWindow"
-  > {
-    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
-    if (
-      typeof legacy.updateVoiceListeningWindow === "function" &&
-      typeof legacy.clearVoiceListeningWindow === "function"
-    ) {
-      return legacy as Pick<
-        VoiceConversationStateService,
-        "updateVoiceListeningWindow" | "clearVoiceListeningWindow"
-      >;
-    }
-    return (
-      this.stateServiceDependency as Pick<
-        VoiceConversationStateService,
-        "updateVoiceListeningWindow" | "clearVoiceListeningWindow"
-      >
-    );
-  }
+    private readonly voiceConversationStateService: VoiceConversationStateService,
+  ) {}
 
   getVoiceListeningWindow(collectedData: unknown): VoiceListeningWindow | null {
     if (!collectedData || typeof collectedData !== "object") {
@@ -208,7 +180,7 @@ export class VoiceListeningWindowService {
           ? 20
           : 8);
     const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
-    await this.stateService.updateVoiceListeningWindow({
+    await this.voiceConversationStateService.updateVoiceListeningWindow({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       window: {
@@ -225,6 +197,6 @@ export class VoiceListeningWindowService {
     tenantId: string;
     conversationId: string;
   }): Promise<void> {
-    await this.stateService.clearVoiceListeningWindow(params);
+    await this.voiceConversationStateService.clearVoiceListeningWindow(params);
   }
 }

@@ -27,18 +27,6 @@ export class AiService {
     private readonly triageOrchestrator: TriageOrchestratorService,
   ) {}
 
-  private get lifecycleService(): Pick<
-    ConversationLifecycleService,
-    "ensureConversation"
-  > {
-    const legacy =
-      this.conversationsService as Partial<ConversationLifecycleService>;
-    if (typeof legacy.ensureConversation === "function") {
-      return legacy as Pick<ConversationLifecycleService, "ensureConversation">;
-    }
-    return this.conversationLifecycleService;
-  }
-
   async triage(
     tenantId: string,
     sessionId: string,
@@ -73,7 +61,7 @@ export class AiService {
             tenantId: safeTenantId,
             conversationId: options.conversationId,
           })
-        : await this.lifecycleService.ensureConversation(
+        : await this.conversationLifecycleService.ensureConversation(
             safeTenantId,
             safeSessionId,
           );

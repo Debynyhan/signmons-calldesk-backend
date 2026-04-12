@@ -6,7 +6,6 @@ import { PrismaService } from "../prisma/prisma.service";
 import { LoggingService } from "../logging/logging.service";
 import { SmsService } from "../sms/sms.service";
 import { VoiceConversationStateService } from "../voice/voice-conversation-state.service";
-import { ConversationsService } from "../conversations/conversations.service";
 import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 
@@ -33,26 +32,7 @@ export class VoiceIntakeSmsService {
     private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
     private readonly smsService: SmsService,
     private readonly voiceConversationStateService: VoiceConversationStateService,
-    private readonly conversationsService: ConversationsService,
   ) {}
-
-  private get stateService(): Pick<
-    VoiceConversationStateService,
-    "promoteNameFromSms" | "promoteAddressFromSms" | "updateVoiceIssueCandidate"
-  > {
-    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
-    if (
-      typeof legacy.promoteNameFromSms === "function" &&
-      typeof legacy.promoteAddressFromSms === "function" &&
-      typeof legacy.updateVoiceIssueCandidate === "function"
-    ) {
-      return legacy as Pick<
-        VoiceConversationStateService,
-        "promoteNameFromSms" | "promoteAddressFromSms" | "updateVoiceIssueCandidate"
-      >;
-    }
-    return this.voiceConversationStateService;
-  }
 
   async sendVoiceHandoffIntakeLink(params: {
     tenantId: string;
@@ -150,19 +130,19 @@ export class VoiceIntakeSmsService {
     issue: string;
   }): Promise<void> {
     const sourceEventId = `sms-intake-${randomUUID()}`;
-    await this.stateService.promoteNameFromSms({
+    await this.voiceConversationStateService.promoteNameFromSms({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       value: params.fullName,
       sourceEventId,
     });
-    await this.stateService.promoteAddressFromSms({
+    await this.voiceConversationStateService.promoteAddressFromSms({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       value: params.address,
       sourceEventId,
     });
-    await this.stateService.updateVoiceIssueCandidate({
+    await this.voiceConversationStateService.updateVoiceIssueCandidate({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       issue: {

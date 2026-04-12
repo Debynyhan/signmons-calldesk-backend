@@ -48,35 +48,6 @@ export class SmsController {
     private readonly smsService: SmsService,
   ) {}
 
-  private get stateService(): Pick<
-    VoiceConversationStateService,
-    "promoteNameFromSms" | "promoteAddressFromSms"
-  > {
-    const legacy = this.conversationsService as Partial<VoiceConversationStateService>;
-    if (
-      typeof legacy.promoteNameFromSms === "function" &&
-      typeof legacy.promoteAddressFromSms === "function"
-    ) {
-      return legacy as Pick<
-        VoiceConversationStateService,
-        "promoteNameFromSms" | "promoteAddressFromSms"
-      >;
-    }
-    return this.voiceConversationStateService;
-  }
-
-  private get lifecycleService(): Pick<
-    ConversationLifecycleService,
-    "ensureSmsConversation"
-  > {
-    const legacy =
-      this.conversationsService as Partial<ConversationLifecycleService>;
-    if (typeof legacy.ensureSmsConversation === "function") {
-      return legacy as Pick<ConversationLifecycleService, "ensureSmsConversation">;
-    }
-    return this.conversationLifecycleService;
-  }
-
   @Post("confirm-field")
   @UseGuards(AdminApiGuard)
   @HttpCode(200)
@@ -106,14 +77,14 @@ export class SmsController {
       dto.sourceEventId?.trim() ?? `sms-${randomUUID()}`;
 
     if (dto.field === "name") {
-      await this.stateService.promoteNameFromSms({
+      await this.voiceConversationStateService.promoteNameFromSms({
         tenantId,
         conversationId: dto.conversationId,
         value: sanitizedValue,
         sourceEventId,
       });
     } else {
-      await this.stateService.promoteAddressFromSms({
+      await this.voiceConversationStateService.promoteAddressFromSms({
         tenantId,
         conversationId: dto.conversationId,
         value: sanitizedValue,
@@ -173,7 +144,7 @@ export class SmsController {
     }
 
     const { conversation, sessionId } =
-      await this.lifecycleService.ensureSmsConversation({
+      await this.conversationLifecycleService.ensureSmsConversation({
         tenantId: tenant.id,
         fromNumber,
         smsSid: smsSid ?? undefined,

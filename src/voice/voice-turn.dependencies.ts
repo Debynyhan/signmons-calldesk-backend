@@ -22,27 +22,13 @@ import { VoiceResponseService } from "./voice-response.service";
 import { VoiceListeningWindowService } from "./voice-listening-window.service";
 import { VoiceCallStateService } from "./voice-call-state.service";
 
-const hasLegacyVoiceStateMethods = (
-  value: unknown,
-): value is VoiceConversationStateService =>
-  Boolean(
-    value &&
-      typeof value === "object" &&
-      typeof (value as { updateVoiceTranscript?: unknown })
-        .updateVoiceTranscript === "function" &&
-      typeof (value as { incrementVoiceTurn?: unknown }).incrementVoiceTurn ===
-        "function",
-  );
-
 @Injectable()
 export class VoiceTurnDependencies {
-  public readonly voiceConversationStateService: VoiceConversationStateService;
-
   constructor(
     @Inject(TENANTS_SERVICE)
     public readonly tenantsService: TenantsService,
     public readonly conversationsService: ConversationsService,
-    injectedVoiceConversationStateService: VoiceConversationStateService,
+    public readonly voiceConversationStateService: VoiceConversationStateService,
     public readonly callLogService: CallLogService,
     public readonly aiService: AiService,
     public readonly loggingService: LoggingService,
@@ -61,11 +47,5 @@ export class VoiceTurnDependencies {
     public readonly voiceResponseService: VoiceResponseService,
     public readonly voiceListeningWindowService: VoiceListeningWindowService,
     public readonly voiceCallStateService: VoiceCallStateService,
-  ) {
-    this.voiceConversationStateService = hasLegacyVoiceStateMethods(
-      this.conversationsService,
-    )
-      ? this.conversationsService
-      : injectedVoiceConversationStateService;
-  }
+  ) {}
 }

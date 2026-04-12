@@ -1,16 +1,17 @@
 import type { ConversationsService } from "../../conversations/conversations.service";
 import type { LoggingService } from "../../logging/logging.service";
+import type { VoiceConversationStateService } from "../voice-conversation-state.service";
 import { VoiceSmsPhoneSlotService } from "../voice-sms-phone-slot.service";
 
-const buildConversationsService = (
+const buildVoiceConversationStateService = (
   overrides: Record<string, unknown> = {},
-): ConversationsService =>
+): VoiceConversationStateService =>
   ({
     updateVoiceSmsPhoneState: jest.fn().mockResolvedValue(null),
     clearVoiceSmsHandoff: jest.fn().mockResolvedValue(null),
     clearVoiceListeningWindow: jest.fn().mockResolvedValue(null),
     ...overrides,
-  }) as unknown as ConversationsService;
+  }) as unknown as VoiceConversationStateService;
 
 const buildLoggingService = (
   overrides: Record<string, unknown> = {},
@@ -36,18 +37,21 @@ const defaultHandoff = {
   createdAt: "2026-04-09T16:20:00.000Z",
 };
 
+// Type alias used for ReturnType<ConversationsService["getVoiceSmsHandoff"]> in params
+type SmsHandoff = ReturnType<ConversationsService["getVoiceSmsHandoff"]>;
+
 describe("VoiceSmsPhoneSlotService", () => {
   it("returns not_waiting and clears listening window when handoff is missing", async () => {
-    const conversationsService = buildConversationsService();
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsPhoneSlotService(conversationsService, loggingService);
+    const service = new VoiceSmsPhoneSlotService(loggingService, voiceConversationStateService);
 
     const result = await service.handleExpectedField({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
       callSid: "CA123",
-      smsHandoff: null,
-      phoneState: defaultPhoneState,
+      smsHandoff: null as SmsHandoff,
+      phoneState: defaultPhoneState as ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
       fallbackPhone: null,
       isSameNumber: false,
       parsedPhone: null,
@@ -56,25 +60,25 @@ describe("VoiceSmsPhoneSlotService", () => {
     });
 
     expect(result).toEqual({ kind: "not_waiting" });
-    expect(conversationsService.clearVoiceListeningWindow).toHaveBeenCalledWith({
+    expect(voiceConversationStateService.clearVoiceListeningWindow).toHaveBeenCalledWith({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
     });
-    expect(conversationsService.updateVoiceSmsPhoneState).not.toHaveBeenCalled();
-    expect(conversationsService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
+    expect(voiceConversationStateService.updateVoiceSmsPhoneState).not.toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
   });
 
   it("confirms ANI number and hands off when caller says same number", async () => {
-    const conversationsService = buildConversationsService();
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsPhoneSlotService(conversationsService, loggingService);
+    const service = new VoiceSmsPhoneSlotService(loggingService, voiceConversationStateService);
 
     const result = await service.handleExpectedField({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
       callSid: "CA123",
-      smsHandoff: defaultHandoff,
-      phoneState: defaultPhoneState,
+      smsHandoff: defaultHandoff as SmsHandoff,
+      phoneState: defaultPhoneState as ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
       fallbackPhone: "+12167448929",
       isSameNumber: true,
       parsedPhone: null,
@@ -87,7 +91,7 @@ describe("VoiceSmsPhoneSlotService", () => {
       reason: "intake_complete",
       messageOverride: undefined,
     });
-    expect(conversationsService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
       expect.objectContaining({
         phoneState: expect.objectContaining({
           value: "+12167448929",
@@ -97,8 +101,8 @@ describe("VoiceSmsPhoneSlotService", () => {
         }),
       }),
     );
-    expect(conversationsService.clearVoiceSmsHandoff).toHaveBeenCalled();
-    expect(conversationsService.clearVoiceListeningWindow).toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceListeningWindow).toHaveBeenCalled();
     expect(loggingService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "voice.sms_phone_confirmed",
@@ -109,16 +113,16 @@ describe("VoiceSmsPhoneSlotService", () => {
   });
 
   it("confirms user spoken phone when parsed successfully", async () => {
-    const conversationsService = buildConversationsService();
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsPhoneSlotService(conversationsService, loggingService);
+    const service = new VoiceSmsPhoneSlotService(loggingService, voiceConversationStateService);
 
     const result = await service.handleExpectedField({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
       callSid: "CA123",
-      smsHandoff: defaultHandoff,
-      phoneState: defaultPhoneState,
+      smsHandoff: defaultHandoff as SmsHandoff,
+      phoneState: defaultPhoneState as ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
       fallbackPhone: "+12167448929",
       isSameNumber: false,
       parsedPhone: "+12165551234",
@@ -131,7 +135,7 @@ describe("VoiceSmsPhoneSlotService", () => {
       reason: "intake_complete",
       messageOverride: undefined,
     });
-    expect(conversationsService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
       expect.objectContaining({
         phoneState: expect.objectContaining({
           value: "+12165551234",
@@ -151,16 +155,16 @@ describe("VoiceSmsPhoneSlotService", () => {
   });
 
   it("reprompts on first parse failure", async () => {
-    const conversationsService = buildConversationsService();
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsPhoneSlotService(conversationsService, loggingService);
+    const service = new VoiceSmsPhoneSlotService(loggingService, voiceConversationStateService);
 
     const result = await service.handleExpectedField({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
       callSid: "CA123",
-      smsHandoff: defaultHandoff,
-      phoneState: defaultPhoneState,
+      smsHandoff: defaultHandoff as SmsHandoff,
+      phoneState: defaultPhoneState as ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
       fallbackPhone: null,
       isSameNumber: false,
       parsedPhone: null,
@@ -169,7 +173,7 @@ describe("VoiceSmsPhoneSlotService", () => {
     });
 
     expect(result).toEqual({ kind: "reprompt", sourceEventId: "evt-2" });
-    expect(conversationsService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
       expect.objectContaining({
         phoneState: expect.objectContaining({
           attemptCount: 1,
@@ -184,20 +188,23 @@ describe("VoiceSmsPhoneSlotService", () => {
       }),
       "VoiceTurnService",
     );
-    expect(conversationsService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
   });
 
   it("defaults to fallback number after repeated parse failure", async () => {
-    const conversationsService = buildConversationsService();
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsPhoneSlotService(conversationsService, loggingService);
+    const service = new VoiceSmsPhoneSlotService(loggingService, voiceConversationStateService);
 
     const result = await service.handleExpectedField({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
       callSid: "CA123",
-      smsHandoff: defaultHandoff,
-      phoneState: { ...defaultPhoneState, attemptCount: 1 },
+      smsHandoff: defaultHandoff as SmsHandoff,
+      phoneState: {
+        ...defaultPhoneState,
+        attemptCount: 1,
+      } as ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
       fallbackPhone: "+12167448929",
       isSameNumber: false,
       parsedPhone: null,
@@ -216,21 +223,24 @@ describe("VoiceSmsPhoneSlotService", () => {
       }),
       "VoiceTurnService",
     );
-    expect(conversationsService.clearVoiceSmsHandoff).toHaveBeenCalled();
-    expect(conversationsService.clearVoiceListeningWindow).toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceListeningWindow).toHaveBeenCalled();
   });
 
   it("returns human fallback after repeated parse failure without fallback number", async () => {
-    const conversationsService = buildConversationsService();
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsPhoneSlotService(conversationsService, loggingService);
+    const service = new VoiceSmsPhoneSlotService(loggingService, voiceConversationStateService);
 
     const result = await service.handleExpectedField({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
       callSid: "CA123",
-      smsHandoff: defaultHandoff,
-      phoneState: { ...defaultPhoneState, attemptCount: 1 },
+      smsHandoff: defaultHandoff as SmsHandoff,
+      phoneState: {
+        ...defaultPhoneState,
+        attemptCount: 1,
+      } as ReturnType<ConversationsService["getVoiceSmsPhoneState"]>,
       fallbackPhone: null,
       isSameNumber: false,
       parsedPhone: null,
@@ -239,11 +249,11 @@ describe("VoiceSmsPhoneSlotService", () => {
     });
 
     expect(result).toEqual({ kind: "human_fallback" });
-    expect(conversationsService.clearVoiceSmsHandoff).toHaveBeenCalledWith({
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).toHaveBeenCalledWith({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
     });
-    expect(conversationsService.clearVoiceListeningWindow).toHaveBeenCalledWith({
+    expect(voiceConversationStateService.clearVoiceListeningWindow).toHaveBeenCalledWith({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
     });

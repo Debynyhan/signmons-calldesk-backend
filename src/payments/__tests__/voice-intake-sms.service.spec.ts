@@ -5,7 +5,6 @@ import type { IntakeLinkService } from "../intake-link.service";
 import type { IntakeFeeCalculatorService } from "../intake-fee-calculator.service";
 import type { SmsService } from "../../sms/sms.service";
 import type { VoiceConversationStateService } from "../../voice/voice-conversation-state.service";
-import type { ConversationsService } from "../../conversations/conversations.service";
 import type { AppConfig } from "../../config/app.config";
 
 const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
@@ -58,10 +57,6 @@ const buildVoiceStateService = () => ({
   updateVoiceIssueCandidate: jest.fn().mockResolvedValue(undefined),
 });
 
-const buildConversationsService = () => ({
-  // no legacy voice state methods — so stateService falls back to VoiceConversationStateService
-});
-
 const buildService = (
   overrides: {
     config?: Partial<AppConfig>;
@@ -71,7 +66,6 @@ const buildService = (
     feeCalc?: ReturnType<typeof buildIntakeFeeCalculator>;
     sms?: ReturnType<typeof buildSmsService>;
     voiceState?: ReturnType<typeof buildVoiceStateService>;
-    conversations?: ReturnType<typeof buildConversationsService>;
   } = {},
 ) => {
   const config = buildConfig(overrides.config);
@@ -81,7 +75,6 @@ const buildService = (
   const feeCalc = overrides.feeCalc ?? buildIntakeFeeCalculator();
   const sms = overrides.sms ?? buildSmsService();
   const voiceState = overrides.voiceState ?? buildVoiceStateService();
-  const conversations = overrides.conversations ?? buildConversationsService();
   return {
     service: new VoiceIntakeSmsService(
       config,
@@ -91,7 +84,6 @@ const buildService = (
       feeCalc as unknown as IntakeFeeCalculatorService,
       sms as unknown as SmsService,
       voiceState as unknown as VoiceConversationStateService,
-      conversations as unknown as ConversationsService,
     ),
     prisma,
     logging,
@@ -99,7 +91,6 @@ const buildService = (
     feeCalc,
     sms,
     voiceState,
-    conversations,
   };
 };
 

@@ -20,6 +20,8 @@ import { AlertingService } from "../../logging/alerting.service";
 import { ToolSelectorService } from "../../ai/tools/tool-selector.service";
 import { AddressValidationService } from "../../address/address-validation.service";
 import { VoiceConsentAudioService } from "../voice-consent-audio.service";
+import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
+import { VoiceConversationStateService } from "../voice-conversation-state.service";
 
 const validateRequestMock = jest.fn();
 
@@ -211,6 +213,15 @@ describe("VoiceController", () => {
     process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
     validateRequestMock.mockReturnValue(false);
     const aiService = buildAiService();
+    const csvc = buildConversationsService({
+      ensureVoiceConsentConversation: jest.fn(),
+      getVoiceConversationByCallSid: jest.fn(),
+      updateVoiceTranscript: jest.fn(),
+      getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+      updateVoiceNameState: jest.fn(),
+      getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+      updateVoiceAddressState: jest.fn(),
+    });
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -229,15 +240,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid: jest.fn(),
-        updateVoiceTranscript: jest.fn(),
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -274,6 +281,15 @@ describe("VoiceController", () => {
     process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
     validateRequestMock.mockReturnValue(true);
     const aiService = buildAiService();
+    const csvc = buildConversationsService({
+      ensureVoiceConsentConversation: jest.fn(),
+      getVoiceConversationByCallSid: jest.fn(),
+      updateVoiceTranscript: jest.fn(),
+      getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+      updateVoiceNameState: jest.fn(),
+      getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+      updateVoiceAddressState: jest.fn(),
+    });
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -292,15 +308,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone: jest.fn() })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid: jest.fn(),
-        updateVoiceTranscript: jest.fn(),
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -349,6 +361,15 @@ describe("VoiceController", () => {
       id: "conversation-1",
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation,
+        getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -366,15 +387,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation,
-        getVoiceConversationByCallSid: jest.fn(),
-        updateVoiceTranscript: jest.fn(),
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -446,6 +463,15 @@ describe("VoiceController", () => {
     const loggingService = { warn: jest.fn(), error: jest.fn(), log: jest.fn() };
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation,
+        getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -463,15 +489,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation,
-        getVoiceConversationByCallSid: jest.fn(),
-        updateVoiceTranscript: jest.fn(),
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(VoiceConsentAudioService)
@@ -546,6 +568,15 @@ describe("VoiceController", () => {
     const resolveTenantByPhone = jest.fn().mockResolvedValue(null);
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid: jest.fn(),
+        updateVoiceTranscript: jest.fn(),
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -563,15 +594,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid: jest.fn(),
-        updateVoiceTranscript: jest.fn(),
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -625,6 +652,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript: jest.fn(),
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -642,16 +679,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript: jest.fn(),
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog: jest.fn(), createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -709,6 +741,11 @@ describe("VoiceController", () => {
     const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
     const updateVoiceIssueCandidate = jest.fn();
 
+    const csvc = buildConversationsService({
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceIssueCandidate,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -726,11 +763,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        updateVoiceIssueCandidate,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -789,6 +826,11 @@ describe("VoiceController", () => {
     const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
     const updateVoiceIssueCandidate = jest.fn();
 
+    const csvc = buildConversationsService({
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceIssueCandidate,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -806,11 +848,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        updateVoiceIssueCandidate,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -871,6 +913,11 @@ describe("VoiceController", () => {
     const createVoiceTranscriptLog = jest.fn().mockResolvedValue("evt-1");
     const updateVoiceIssueCandidate = jest.fn();
 
+    const csvc = buildConversationsService({
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceIssueCandidate,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -888,11 +935,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        updateVoiceIssueCandidate,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -952,6 +999,12 @@ describe("VoiceController", () => {
     const updateVoiceIssueCandidate = jest.fn();
     const updateVoiceNameState = jest.fn();
 
+    const csvc = buildConversationsService({
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceIssueCandidate,
+        updateVoiceNameState,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -969,12 +1022,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        updateVoiceIssueCandidate,
-        updateVoiceNameState,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1045,6 +1097,13 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1062,13 +1121,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1152,6 +1209,14 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceIssueCandidate,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1169,14 +1234,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        updateVoiceIssueCandidate,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1260,6 +1322,16 @@ describe("VoiceController", () => {
       reply: "Thanks for calling.",
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1277,16 +1349,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1354,6 +1421,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1371,14 +1446,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1467,6 +1539,14 @@ describe("VoiceController", () => {
     const aiService = buildAiService();
     aiService.extractNameCandidate.mockResolvedValue("Dean Banks");
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1484,14 +1564,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1567,6 +1644,13 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1584,13 +1668,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog })
       .overrideProvider(JobsToolRegistrar)
@@ -1669,6 +1751,14 @@ describe("VoiceController", () => {
     const aiService = buildAiService();
     aiService.extractNameCandidate.mockResolvedValue(null);
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1686,14 +1776,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1770,6 +1857,14 @@ describe("VoiceController", () => {
     const aiService = buildAiService();
     aiService.extractNameCandidate.mockResolvedValue(null);
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1787,14 +1882,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1879,6 +1971,14 @@ describe("VoiceController", () => {
     const loggingService = { warn: jest.fn(), error: jest.fn(), log: jest.fn() };
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1896,14 +1996,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -1980,6 +2077,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -1997,14 +2102,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2082,6 +2184,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2099,14 +2209,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2182,6 +2289,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2199,14 +2314,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2282,6 +2394,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2299,14 +2419,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2386,6 +2503,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2403,14 +2528,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2488,6 +2610,18 @@ describe("VoiceController", () => {
       reply: "Thanks for calling.",
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState,
+        getVoiceAddressState: jest
+          .fn()
+          .mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2505,18 +2639,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState,
-        getVoiceAddressState: jest
-          .fn()
-          .mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({
         createVoiceTranscriptLog,
@@ -2591,6 +2718,16 @@ describe("VoiceController", () => {
       confidence: 0.91,
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2608,16 +2745,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2705,6 +2837,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2722,16 +2864,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2814,6 +2951,16 @@ describe("VoiceController", () => {
       confidence: 0.92,
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2831,16 +2978,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -2930,6 +3072,16 @@ describe("VoiceController", () => {
     const loggingService = { warn: jest.fn(), error: jest.fn(), log: jest.fn() };
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -2947,16 +3099,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3052,6 +3199,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3069,16 +3226,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3146,6 +3298,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3163,16 +3325,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3249,6 +3406,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3266,16 +3433,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3370,6 +3532,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3387,16 +3559,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3501,6 +3668,20 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        getVoiceComfortRisk,
+        updateVoiceComfortRisk,
+        getVoiceUrgencyConfirmation,
+        updateVoiceUrgencyConfirmation,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3518,20 +3699,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        getVoiceComfortRisk,
-        updateVoiceComfortRisk,
-        getVoiceUrgencyConfirmation,
-        updateVoiceUrgencyConfirmation,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3634,6 +3806,19 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        getVoiceComfortRisk,
+        getVoiceUrgencyConfirmation,
+        updateVoiceUrgencyConfirmation,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3651,19 +3836,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        getVoiceComfortRisk,
-        getVoiceUrgencyConfirmation,
-        updateVoiceUrgencyConfirmation,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3746,6 +3923,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3763,16 +3950,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3844,6 +4026,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3861,16 +4053,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -3946,6 +4133,19 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        getVoiceAddressState,
+        getVoiceComfortRisk,
+        getVoiceUrgencyConfirmation,
+        updateVoiceAddressState: jest.fn(),
+        updateVoiceUrgencyConfirmation,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -3963,19 +4163,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        getVoiceAddressState,
-        getVoiceComfortRisk,
-        getVoiceUrgencyConfirmation,
-        updateVoiceAddressState: jest.fn(),
-        updateVoiceUrgencyConfirmation,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4070,6 +4262,17 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        updateVoiceUrgencyConfirmation,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4087,17 +4290,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        updateVoiceUrgencyConfirmation,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4182,6 +4379,17 @@ describe("VoiceController", () => {
       reply: "Can you please provide a brief description of the issue?",
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        getVoiceComfortRisk: jest.fn().mockReturnValue(buildDefaultComfortRisk()),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4199,17 +4407,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        getVoiceComfortRisk: jest.fn().mockReturnValue(buildDefaultComfortRisk()),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4279,6 +4481,16 @@ describe("VoiceController", () => {
       reply: "Can you please provide a brief description of the issue?",
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4296,16 +4508,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4379,6 +4586,23 @@ describe("VoiceController", () => {
       reply: "Can you please provide a brief description of the issue?",
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        getConversationById,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        updateVoiceIssueCandidate,
+        getVoiceSmsPhoneState: jest
+          .fn()
+          .mockReturnValue(buildSmsPhoneState("+12167448929", false)),
+        updateVoiceSmsPhoneState: jest.fn(),
+        clearVoiceSmsHandoff: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4396,23 +4620,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        getConversationById,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        updateVoiceIssueCandidate,
-        getVoiceSmsPhoneState: jest
-          .fn()
-          .mockReturnValue(buildSmsPhoneState("+12167448929", false)),
-        updateVoiceSmsPhoneState: jest.fn(),
-        clearVoiceSmsHandoff: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4495,6 +4707,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4512,16 +4734,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4593,6 +4810,22 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        getConversationById,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        getVoiceSmsPhoneState: jest
+          .fn()
+          .mockReturnValue(buildSmsPhoneState("+12167448929", false)),
+        updateVoiceSmsPhoneState: jest.fn(),
+        clearVoiceSmsHandoff: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4610,22 +4843,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        getConversationById,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        getVoiceSmsPhoneState: jest
-          .fn()
-          .mockReturnValue(buildSmsPhoneState("+12167448929", false)),
-        updateVoiceSmsPhoneState: jest.fn(),
-        clearVoiceSmsHandoff: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4699,6 +4921,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4716,16 +4948,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4806,6 +5033,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4823,16 +5060,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -4908,6 +5140,16 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -4925,16 +5167,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5015,6 +5252,16 @@ describe("VoiceController", () => {
       confidence: 0.2,
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5032,16 +5279,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5167,6 +5409,16 @@ describe("VoiceController", () => {
       sourceEventId: "evt-2",
     };
 
+    const csvc = buildConversationsService({
+      getVoiceConversationByCallSid,
+      updateVoiceTranscript,
+      getVoiceNameState: jest.fn().mockReturnValue(nameState),
+      getVoiceAddressState: jest.fn().mockReturnValue(addressState),
+      getVoiceSmsPhoneState: jest
+        .fn()
+        .mockReturnValue(buildSmsPhoneState("+12167448929", true)),
+      incrementVoiceTurn,
+    });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5184,18 +5436,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone, getTenantFeePolicy })
       .overrideProvider(ConversationsService)
-      .useValue(
-        buildConversationsService({
-          getVoiceConversationByCallSid,
-          updateVoiceTranscript,
-          getVoiceNameState: jest.fn().mockReturnValue(nameState),
-          getVoiceAddressState: jest.fn().mockReturnValue(addressState),
-          getVoiceSmsPhoneState: jest
-            .fn()
-            .mockReturnValue(buildSmsPhoneState("+12167448929", true)),
-          incrementVoiceTurn,
-        }),
-      )
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5278,6 +5523,24 @@ describe("VoiceController", () => {
       outcome: "sms_handoff",
     });
 
+    const csvc = buildConversationsService({
+      getVoiceConversationByCallSid,
+      updateVoiceTranscript,
+      getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+      getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+      getVoiceSmsPhoneState: jest
+        .fn()
+        .mockReturnValue(buildSmsPhoneState("+12167448929", false)),
+      updateVoiceSmsPhoneState,
+      clearVoiceSmsHandoff,
+      incrementVoiceTurn,
+      getConversationById: jest.fn().mockResolvedValue({
+        id: "conversation-1",
+        collectedData: {
+          callerPhone: "+12167448929",
+        },
+      }),
+    });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5295,26 +5558,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(
-        buildConversationsService({
-          getVoiceConversationByCallSid,
-          updateVoiceTranscript,
-          getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-          getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-          getVoiceSmsPhoneState: jest
-            .fn()
-            .mockReturnValue(buildSmsPhoneState("+12167448929", false)),
-          updateVoiceSmsPhoneState,
-          clearVoiceSmsHandoff,
-          incrementVoiceTurn,
-          getConversationById: jest.fn().mockResolvedValue({
-            id: "conversation-1",
-            collectedData: {
-              callerPhone: "+12167448929",
-            },
-          }),
-        }),
-      )
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5395,6 +5643,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5412,14 +5668,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5509,6 +5762,16 @@ describe("VoiceController", () => {
     const aiService = buildAiService();
     aiService.extractNameCandidate.mockResolvedValue(null);
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        getVoiceAddressState,
+        updateVoiceAddressState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5526,16 +5789,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        getVoiceAddressState,
-        updateVoiceAddressState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5600,6 +5858,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5617,14 +5883,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5706,6 +5969,14 @@ describe("VoiceController", () => {
     });
     const aiService = buildAiService();
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState,
+        updateVoiceNameState,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5723,14 +5994,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState,
-        updateVoiceNameState,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5799,6 +6067,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5816,16 +6094,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -5921,6 +6194,17 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        updateVoiceIssueCandidate,
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -5938,17 +6222,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        updateVoiceIssueCandidate,
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6030,6 +6308,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6047,16 +6335,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6127,6 +6410,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6144,16 +6437,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6223,6 +6511,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6240,16 +6538,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6313,6 +6606,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6330,16 +6633,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6405,6 +6703,16 @@ describe("VoiceController", () => {
       voiceStartedAt: startedAt,
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6422,16 +6730,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6505,6 +6808,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6522,16 +6835,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)
@@ -6608,6 +6916,16 @@ describe("VoiceController", () => {
       voiceStartedAt: new Date().toISOString(),
     });
 
+    const csvc = buildConversationsService({
+        ensureVoiceConsentConversation: jest.fn(),
+        getVoiceConversationByCallSid,
+        updateVoiceTranscript,
+        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
+        updateVoiceNameState: jest.fn(),
+        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
+        updateVoiceAddressState: jest.fn(),
+        incrementVoiceTurn,
+      });
     const moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -6625,16 +6943,11 @@ describe("VoiceController", () => {
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone })
       .overrideProvider(ConversationsService)
-      .useValue(buildConversationsService({
-        ensureVoiceConsentConversation: jest.fn(),
-        getVoiceConversationByCallSid,
-        updateVoiceTranscript,
-        getVoiceNameState: jest.fn().mockReturnValue(buildConfirmedNameState()),
-        updateVoiceNameState: jest.fn(),
-        getVoiceAddressState: jest.fn().mockReturnValue(buildConfirmedAddressState()),
-        updateVoiceAddressState: jest.fn(),
-        incrementVoiceTurn,
-      }))
+      .useValue(csvc)
+      .overrideProvider(ConversationLifecycleService)
+      .useValue(csvc)
+      .overrideProvider(VoiceConversationStateService)
+      .useValue(csvc)
       .overrideProvider(CallLogService)
       .useValue({ createVoiceTranscriptLog, createVoiceAssistantLog: jest.fn() })
       .overrideProvider(JobsToolRegistrar)

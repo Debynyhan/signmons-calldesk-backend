@@ -1,6 +1,7 @@
 import type { TenantFeePolicy } from "@prisma/client";
 import type { ConversationsService } from "../../conversations/conversations.service";
 import type { LoggingService } from "../../logging/logging.service";
+import type { VoiceConversationStateService } from "../voice-conversation-state.service";
 import { VoiceSmsHandoffService } from "../voice-sms-handoff.service";
 
 const buildFeePolicy = (
@@ -52,11 +53,18 @@ const buildConversationsService = (
       attemptCount: 0,
       lastPromptedAt: null,
     }),
+    ...overrides,
+  }) as unknown as ConversationsService;
+
+const buildVoiceConversationStateService = (
+  overrides: Record<string, unknown> = {},
+): VoiceConversationStateService =>
+  ({
     updateVoiceSmsPhoneState: jest.fn().mockResolvedValue(null),
     updateVoiceSmsHandoff: jest.fn().mockResolvedValue(null),
     clearVoiceSmsHandoff: jest.fn().mockResolvedValue(null),
     ...overrides,
-  }) as unknown as ConversationsService;
+  }) as unknown as VoiceConversationStateService;
 
 const buildLoggingService = (
   overrides: Record<string, unknown> = {},
@@ -82,8 +90,14 @@ describe("VoiceSmsHandoffService", () => {
         lastPromptedAt: null,
       }),
     });
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsHandoffService(conversationsService, loggingService, buildVoiceHandoffPolicyService() as never);
+    const service = new VoiceSmsHandoffService(
+      conversationsService,
+      loggingService,
+      buildVoiceHandoffPolicyService() as never,
+      voiceConversationStateService,
+    );
 
     const result = await service.prepare({
       tenantId: "tenant-1",
@@ -98,7 +112,7 @@ describe("VoiceSmsHandoffService", () => {
       throw new Error("Expected prompt_confirm_ani");
     }
     expect(result.fallbackPhone).toBe("+12167448929");
-    expect(conversationsService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
@@ -110,7 +124,7 @@ describe("VoiceSmsHandoffService", () => {
         }),
       }),
     );
-    expect(conversationsService.updateVoiceSmsHandoff).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsHandoff).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
@@ -130,7 +144,7 @@ describe("VoiceSmsHandoffService", () => {
       }),
       "VoiceTurnService",
     );
-    expect(conversationsService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
   });
 
   it("asks for SMS phone when no fallback phone exists", async () => {
@@ -148,8 +162,14 @@ describe("VoiceSmsHandoffService", () => {
         lastPromptedAt: null,
       }),
     });
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsHandoffService(conversationsService, loggingService, buildVoiceHandoffPolicyService() as never);
+    const service = new VoiceSmsHandoffService(
+      conversationsService,
+      loggingService,
+      buildVoiceHandoffPolicyService() as never,
+      voiceConversationStateService,
+    );
 
     const result = await service.prepare({
       tenantId: "tenant-1",
@@ -160,7 +180,7 @@ describe("VoiceSmsHandoffService", () => {
     });
 
     expect(result.kind).toBe("prompt_ask_sms_phone");
-    expect(conversationsService.updateVoiceSmsHandoff).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsHandoff).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
@@ -171,7 +191,7 @@ describe("VoiceSmsHandoffService", () => {
         }),
       }),
     );
-    expect(conversationsService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
+    expect(voiceConversationStateService.updateVoiceSmsPhoneState).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
         conversationId: "conversation-1",
@@ -189,7 +209,7 @@ describe("VoiceSmsHandoffService", () => {
       }),
       "VoiceTurnService",
     );
-    expect(conversationsService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).not.toHaveBeenCalled();
   });
 
   it("marks handoff as started when SMS phone is already confirmed", async () => {
@@ -203,8 +223,14 @@ describe("VoiceSmsHandoffService", () => {
         lastPromptedAt: null,
       }),
     });
+    const voiceConversationStateService = buildVoiceConversationStateService();
     const loggingService = buildLoggingService();
-    const service = new VoiceSmsHandoffService(conversationsService, loggingService, buildVoiceHandoffPolicyService() as never);
+    const service = new VoiceSmsHandoffService(
+      conversationsService,
+      loggingService,
+      buildVoiceHandoffPolicyService() as never,
+      voiceConversationStateService,
+    );
 
     const result = await service.prepare({
       tenantId: "tenant-1",
@@ -220,7 +246,7 @@ describe("VoiceSmsHandoffService", () => {
         resolvedSmsPhone: "+12167448929",
       }),
     );
-    expect(conversationsService.clearVoiceSmsHandoff).toHaveBeenCalledWith({
+    expect(voiceConversationStateService.clearVoiceSmsHandoff).toHaveBeenCalledWith({
       tenantId: "tenant-1",
       conversationId: "conversation-1",
     });
@@ -242,6 +268,7 @@ describe("VoiceSmsHandoffService", () => {
         buildConversationsService() as never,
         buildLoggingService() as never,
         buildVoiceHandoffPolicyService(feePolicy) as never,
+        buildVoiceConversationStateService() as never,
       );
 
     it("builds default sms handoff message", () => {

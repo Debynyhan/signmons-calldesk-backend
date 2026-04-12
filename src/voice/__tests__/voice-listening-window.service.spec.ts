@@ -1,12 +1,9 @@
 import { VoiceListeningWindowService } from "../voice-listening-window.service";
 import type { VoiceListeningWindow } from "../../conversations/voice-conversation-state.codec";
 
-const buildConversationsService = () => ({
+const buildVoiceConversationStateService = () => ({
   updateVoiceListeningWindow: jest.fn().mockResolvedValue(undefined),
   clearVoiceListeningWindow: jest.fn().mockResolvedValue(undefined),
-  getVoiceNameState: jest.fn(),
-  getVoiceAddressState: jest.fn(),
-  getVoiceSmsPhoneState: jest.fn(),
 });
 
 const buildVoiceResponseService = () => ({
@@ -28,17 +25,18 @@ const buildVoiceAddressPromptService = () => ({
 });
 
 const buildService = (overrides: {
-  conversationsService?: ReturnType<typeof buildConversationsService>;
+  voiceConversationStateService?: ReturnType<typeof buildVoiceConversationStateService>;
   voiceResponseService?: ReturnType<typeof buildVoiceResponseService>;
   voicePromptComposer?: ReturnType<typeof buildVoicePromptComposer>;
   voiceAddressPromptService?: ReturnType<typeof buildVoiceAddressPromptService>;
 } = {}) =>
   new VoiceListeningWindowService(
-    (overrides.conversationsService ?? buildConversationsService()) as never,
     (overrides.voiceResponseService ?? buildVoiceResponseService()) as never,
     (overrides.voicePromptComposer ?? buildVoicePromptComposer()) as never,
     (overrides.voiceAddressPromptService ??
       buildVoiceAddressPromptService()) as never,
+    (overrides.voiceConversationStateService ??
+      buildVoiceConversationStateService()) as never,
   );
 
 const makeWindow = (
@@ -234,9 +232,9 @@ describe("VoiceListeningWindowService", () => {
 
   describe("replyWithListeningWindow", () => {
     it("writes listening window and calls replyWithTwiml", async () => {
-      const conversationsService = buildConversationsService();
+      const voiceConversationStateService = buildVoiceConversationStateService();
       const voiceResponseService = buildVoiceResponseService();
-      const svc = buildService({ conversationsService, voiceResponseService });
+      const svc = buildService({ voiceConversationStateService, voiceResponseService });
 
       const result = await svc.replyWithListeningWindow({
         tenantId: "t1",
@@ -246,7 +244,7 @@ describe("VoiceListeningWindowService", () => {
         twiml: "<Response><Gather/></Response>",
       });
 
-      expect(conversationsService.updateVoiceListeningWindow).toHaveBeenCalledWith(
+      expect(voiceConversationStateService.updateVoiceListeningWindow).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: "t1",
           conversationId: "c1",
@@ -261,8 +259,8 @@ describe("VoiceListeningWindowService", () => {
     });
 
     it("uses address timeout of 24s for address field", async () => {
-      const conversationsService = buildConversationsService();
-      const svc = buildService({ conversationsService });
+      const voiceConversationStateService = buildVoiceConversationStateService();
+      const svc = buildService({ voiceConversationStateService });
 
       await svc.replyWithListeningWindow({
         tenantId: "t1",
@@ -272,7 +270,7 @@ describe("VoiceListeningWindowService", () => {
         twiml: "twiml",
       });
 
-      const window = conversationsService.updateVoiceListeningWindow.mock.calls[0]?.[0].window;
+      const window = voiceConversationStateService.updateVoiceListeningWindow.mock.calls[0]?.[0].window;
       const expiresIn =
         new Date(window.expiresAt).getTime() - Date.now();
       expect(expiresIn).toBeGreaterThan(23_000);
@@ -281,13 +279,13 @@ describe("VoiceListeningWindowService", () => {
   });
 
   describe("clearVoiceListeningWindow", () => {
-    it("delegates to conversationsService", async () => {
-      const conversationsService = buildConversationsService();
-      const svc = buildService({ conversationsService });
+    it("delegates to voiceConversationStateService", async () => {
+      const voiceConversationStateService = buildVoiceConversationStateService();
+      const svc = buildService({ voiceConversationStateService });
 
       await svc.clearVoiceListeningWindow({ tenantId: "t1", conversationId: "c1" });
 
-      expect(conversationsService.clearVoiceListeningWindow).toHaveBeenCalledWith({
+      expect(voiceConversationStateService.clearVoiceListeningWindow).toHaveBeenCalledWith({
         tenantId: "t1",
         conversationId: "c1",
       });

@@ -21,7 +21,6 @@ import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 import { StripeEventProcessorService } from "./stripe-event-processor.service";
 import { VoiceIntakeSmsService } from "./voice-intake-sms.service";
 import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
-import { ConversationsService } from "../conversations/conversations.service";
 import { JobsService } from "../jobs/jobs.service";
 import type { IntakeCheckoutDto } from "./dto/intake-checkout.dto";
 
@@ -40,20 +39,8 @@ export class PaymentsService {
     private readonly stripeEventProcessor: StripeEventProcessorService,
     private readonly voiceIntakeSmsService: VoiceIntakeSmsService,
     private readonly conversationLifecycleService: ConversationLifecycleService,
-    private readonly conversationsService: ConversationsService,
     private readonly jobsService: JobsService,
   ) {}
-
-  private get lifecycleService(): Pick<
-    ConversationLifecycleService,
-    "linkJobToConversation"
-  > {
-    const legacy = this.conversationsService as Partial<ConversationLifecycleService>;
-    if (typeof legacy.linkJobToConversation === "function") {
-      return legacy as Pick<ConversationLifecycleService, "linkJobToConversation">;
-    }
-    return this.conversationLifecycleService;
-  }
 
   async getIntakePageData(token: string): Promise<{
     token: string;
@@ -308,7 +295,7 @@ export class PaymentsService {
       sessionId: params.sessionId,
       rawArgs,
     });
-    await this.lifecycleService.linkJobToConversation({
+    await this.conversationLifecycleService.linkJobToConversation({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       jobId: job.id,
