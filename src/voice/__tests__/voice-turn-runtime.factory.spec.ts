@@ -20,6 +20,11 @@ import { VoiceTurnSideQuestionHelperRuntime } from "../voice-turn-side-question-
 import { VoiceTurnSideQuestionRoutingRuntime } from "../voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "../voice-turn-side-question.runtime";
 import { VoiceTurnHandoffRuntime } from "../voice-turn-handoff.runtime";
+import { VoiceTurnPreludeContextFactory } from "../voice-turn-prelude-context.factory";
+import { VoiceTurnNameFlowFactory } from "../voice-turn-name-flow.factory";
+import { VoiceTurnAddressFlowFactory } from "../voice-turn-address-flow.factory";
+import { VoiceTurnTriageHandoffFactory } from "../voice-turn-triage-handoff.factory";
+import { VoiceTurnStepFactory } from "../voice-turn-step.factory";
 
 const buildConfig = (): AppConfig =>
   ({
@@ -141,34 +146,74 @@ const buildDeps = () =>
   }) as never;
 
 describe("VoiceTurnRuntimeFactory", () => {
+  const buildFactory = () => {
+    const config = buildConfig();
+    const deps = buildDeps();
+    return new VoiceTurnRuntimeFactory(
+      new VoiceTurnTriageHandoffFactory(deps),
+      new VoiceTurnPreludeContextFactory(config, deps),
+      new VoiceTurnNameFlowFactory(deps),
+      new VoiceTurnAddressFlowFactory(config, deps),
+      new VoiceTurnStepFactory(deps),
+    );
+  };
+
   it("build() returns all 20 runtimes as proper class instances", () => {
-    const factory = new VoiceTurnRuntimeFactory(buildConfig(), buildDeps());
+    const factory = buildFactory();
     const r = factory.build();
 
     expect(r.turnPreludeRuntime).toBeInstanceOf(VoiceTurnPreludeRuntime);
     expect(r.turnContextRuntime).toBeInstanceOf(VoiceTurnContextRuntime);
-    expect(r.turnEarlyRoutingRuntime).toBeInstanceOf(VoiceTurnEarlyRoutingRuntime);
-    expect(r.turnExpectedFieldRuntime).toBeInstanceOf(VoiceTurnExpectedFieldRuntime);
-    expect(r.turnIssueRecoveryRuntime).toBeInstanceOf(VoiceTurnIssueRecoveryRuntime);
+    expect(r.turnEarlyRoutingRuntime).toBeInstanceOf(
+      VoiceTurnEarlyRoutingRuntime,
+    );
+    expect(r.turnExpectedFieldRuntime).toBeInstanceOf(
+      VoiceTurnExpectedFieldRuntime,
+    );
+    expect(r.turnIssueRecoveryRuntime).toBeInstanceOf(
+      VoiceTurnIssueRecoveryRuntime,
+    );
     expect(r.turnInterruptRuntime).toBeInstanceOf(VoiceTurnInterruptRuntime);
     expect(r.turnAiTriageRuntime).toBeInstanceOf(VoiceTurnAiTriageRuntime);
-    expect(r.turnNameOpeningRuntime).toBeInstanceOf(VoiceTurnNameOpeningRuntime);
-    expect(r.turnNameCaptureRuntime).toBeInstanceOf(VoiceTurnNameCaptureRuntime);
+    expect(r.turnNameOpeningRuntime).toBeInstanceOf(
+      VoiceTurnNameOpeningRuntime,
+    );
+    expect(r.turnNameCaptureRuntime).toBeInstanceOf(
+      VoiceTurnNameCaptureRuntime,
+    );
     expect(r.turnNameFlowRuntime).toBeInstanceOf(VoiceTurnNameFlowRuntime);
-    expect(r.turnNameSpellingRuntime).toBeInstanceOf(VoiceTurnNameSpellingRuntime);
-    expect(r.turnAddressExtractionRuntime).toBeInstanceOf(VoiceTurnAddressExtractionRuntime);
-    expect(r.turnAddressRoutingRuntime).toBeInstanceOf(VoiceTurnAddressRoutingRuntime);
-    expect(r.turnAddressCompletenessRuntime).toBeInstanceOf(VoiceTurnAddressCompletenessRuntime);
-    expect(r.turnAddressExistingCandidateRuntime).toBeInstanceOf(VoiceTurnAddressExistingCandidateRuntime);
-    expect(r.turnAddressConfirmedRuntime).toBeInstanceOf(VoiceTurnAddressConfirmedRuntime);
-    expect(r.turnSideQuestionHelperRuntime).toBeInstanceOf(VoiceTurnSideQuestionHelperRuntime);
-    expect(r.turnSideQuestionRoutingRuntime).toBeInstanceOf(VoiceTurnSideQuestionRoutingRuntime);
-    expect(r.turnSideQuestionRuntime).toBeInstanceOf(VoiceTurnSideQuestionRuntime);
+    expect(r.turnNameSpellingRuntime).toBeInstanceOf(
+      VoiceTurnNameSpellingRuntime,
+    );
+    expect(r.turnAddressExtractionRuntime).toBeInstanceOf(
+      VoiceTurnAddressExtractionRuntime,
+    );
+    expect(r.turnAddressRoutingRuntime).toBeInstanceOf(
+      VoiceTurnAddressRoutingRuntime,
+    );
+    expect(r.turnAddressCompletenessRuntime).toBeInstanceOf(
+      VoiceTurnAddressCompletenessRuntime,
+    );
+    expect(r.turnAddressExistingCandidateRuntime).toBeInstanceOf(
+      VoiceTurnAddressExistingCandidateRuntime,
+    );
+    expect(r.turnAddressConfirmedRuntime).toBeInstanceOf(
+      VoiceTurnAddressConfirmedRuntime,
+    );
+    expect(r.turnSideQuestionHelperRuntime).toBeInstanceOf(
+      VoiceTurnSideQuestionHelperRuntime,
+    );
+    expect(r.turnSideQuestionRoutingRuntime).toBeInstanceOf(
+      VoiceTurnSideQuestionRoutingRuntime,
+    );
+    expect(r.turnSideQuestionRuntime).toBeInstanceOf(
+      VoiceTurnSideQuestionRuntime,
+    );
     expect(r.turnHandoffRuntime).toBeInstanceOf(VoiceTurnHandoffRuntime);
   });
 
   it("build() called twice returns independent runtime instances", () => {
-    const factory = new VoiceTurnRuntimeFactory(buildConfig(), buildDeps());
+    const factory = buildFactory();
     const r1 = factory.build();
     const r2 = factory.build();
     expect(r1.turnPreludeRuntime).not.toBe(r2.turnPreludeRuntime);

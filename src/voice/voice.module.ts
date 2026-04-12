@@ -34,6 +34,11 @@ import { VoiceTurnRuntimeFactory } from "./voice-turn-runtime.factory";
 import { VoiceTurnPipeline } from "./voice-turn-pipeline.service";
 import { VOICE_TURN_STEPS } from "./voice-turn.constants";
 import { VoiceInboundUseCase } from "./voice-inbound.use-case";
+import { VoiceTurnPreludeContextFactory } from "./voice-turn-prelude-context.factory";
+import { VoiceTurnNameFlowFactory } from "./voice-turn-name-flow.factory";
+import { VoiceTurnAddressFlowFactory } from "./voice-turn-address-flow.factory";
+import { VoiceTurnTriageHandoffFactory } from "./voice-turn-triage-handoff.factory";
+import { VoiceTurnStepFactory } from "./voice-turn-step.factory";
 
 @Module({
   imports: [
@@ -69,6 +74,11 @@ import { VoiceInboundUseCase } from "./voice-inbound.use-case";
     VoiceListeningWindowService,
     VoiceCallStateService,
     TwilioSignatureGuard,
+    VoiceTurnPreludeContextFactory,
+    VoiceTurnNameFlowFactory,
+    VoiceTurnAddressFlowFactory,
+    VoiceTurnTriageHandoffFactory,
+    VoiceTurnStepFactory,
     VoiceTurnRuntimeFactory,
     VoiceTurnPipeline,
     {
