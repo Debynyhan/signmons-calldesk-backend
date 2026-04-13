@@ -4,6 +4,7 @@ import { ConfigType } from "@nestjs/config";
 import { WsAdapter } from "@nestjs/platform-ws";
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
+import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { SanitizedExceptionFilter } from "./common/filters/sanitized-exception.filter";
 import { LoggingService } from "./logging/logging.service";
@@ -17,6 +18,20 @@ async function bootstrap() {
     rawBody: true,
   });
   app.useWebSocketAdapter(new WsAdapter(app));
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          upgradeInsecureRequests: [],
+        },
+      },
+      // Twilio media streams require cross-origin embedding
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   const config = app.get<ConfigType<typeof appConfig>>(appConfig.KEY);
   const port = config?.port ?? Number(process.env.PORT ?? 3000);
   const loggingService = app.get(LoggingService);

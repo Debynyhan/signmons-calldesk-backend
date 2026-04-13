@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  InternalServerErrorException,
 } from "@nestjs/common";
 import type { Request } from "express";
 import {
@@ -260,7 +261,12 @@ export class PaymentsService {
           errorMessage: reason,
         },
       });
-      throw error;
+      this.loggingService.error(
+        "stripe.webhook_processing_failed",
+        error instanceof Error ? error : new Error(reason),
+        PaymentsService.name,
+      );
+      throw new InternalServerErrorException("Stripe webhook processing failed.");
     }
 
     return { received: true };

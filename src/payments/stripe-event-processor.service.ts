@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
@@ -45,13 +46,25 @@ export class StripeEventProcessorService {
       );
     }
 
-    if (this.config.environment === "production" && hasWebhookSecret) {
-      throw new UnauthorizedException(
-        "Stripe signature verification is required in production.",
+    // Explicit local-development escape hatch — only active when NODE_ENV=development
+    // AND STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL=true is explicitly set.
+    // Never set this flag in CI, staging, or production.
+    const allowInsecureLocal =
+      this.config.environment === "development" &&
+      this.config.stripeWebhookAllowInsecureLocal === true;
+
+    if (allowInsecureLocal) {
+      this.loggingService.warn(
+        { event: "stripe.webhook_insecure_local_bypass_active" },
+        StripeEventProcessorService.name,
       );
+      return req.body as Stripe.Event;
     }
 
-    return req.body as Stripe.Event;
+    throw new UnauthorizedException(
+      "Stripe webhook signature could not be verified. " +
+        "Ensure STRIPE_WEBHOOK_SECRET is configured and a valid stripe-signature header is present.",
+    );
   }
 
   extractTenantId(event: Stripe.Event): string | null {
@@ -84,7 +97,12 @@ export class StripeEventProcessorService {
       ) {
         return null;
       }
-      throw error;
+      this.loggingService.error(
+        "stripe.create_event_record_failed",
+        error instanceof Error ? error : new Error(String(error)),
+        StripeEventProcessorService.name,
+      );
+      throw new InternalServerErrorException("Failed to record Stripe event.");
     }
   }
 

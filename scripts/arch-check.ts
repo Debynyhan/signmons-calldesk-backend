@@ -17,6 +17,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as ts from "typescript";
 import { sync as glob } from "glob";
+import { execSync } from "child_process";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -604,6 +605,47 @@ function checkModuleBoundaries(allSourceFiles: string[]): Violation[] {
 }
 
 // ---------------------------------------------------------------------------
+// Gate 6 — npm audit (no critical severity prod dependencies)
+// ---------------------------------------------------------------------------
+
+function checkNpmAudit(): Violation[] {
+  let stdout: string;
+  try {
+    stdout = execSync("npm audit --omit=dev --json", {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (err: unknown) {
+    // npm audit exits non-zero when vulnerabilities exist; capture stdout from the error
+    const execError = err as { stdout?: string };
+    stdout = execError.stdout ?? "";
+  }
+
+  if (!stdout) {
+    return [{ file: "package.json", message: "npm audit produced no output — cannot verify prod dependencies" }];
+  }
+
+  let report: { vulnerabilities?: Record<string, { severity: string; name: string }> };
+  try {
+    report = JSON.parse(stdout) as typeof report;
+  } catch {
+    return [{ file: "package.json", message: "npm audit output could not be parsed" }];
+  }
+
+  const violations: Violation[] = [];
+  for (const [name, vuln] of Object.entries(report.vulnerabilities ?? {})) {
+    if (vuln.severity === "critical") {
+      violations.push({
+        file: "package.json",
+        message: `prod dependency '${name}' has a CRITICAL severity vulnerability — update or override before merging`,
+      });
+    }
+  }
+  return violations;
+}
+
+// ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 
@@ -651,6 +693,10 @@ function main(): void {
     {
       name: "Gate 5 — Module boundary (imports/providers)",
       violations: checkModuleBoundaries(allSourceFiles),
+    },
+    {
+      name: "Gate 6 — No critical severity prod dependencies (npm audit)",
+      violations: checkNpmAudit(),
     },
   ];
 

@@ -43,6 +43,7 @@ export interface AppConfig {
   twilioWebhookBaseUrl: string;
   stripeSecretKey: string;
   stripeWebhookSecret: string;
+  stripeWebhookAllowInsecureLocal: boolean;
   stripeConnectClientId: string;
   smsIntakeLinkSecret: string;
   smsIntakeLinkTtlMinutes: number;
@@ -189,6 +190,8 @@ export default registerAs("app", (): AppConfig => {
     twilioWebhookBaseUrl: process.env.TWILIO_WEBHOOK_BASE_URL ?? "",
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
     stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+    stripeWebhookAllowInsecureLocal:
+      (process.env.STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL ?? "false").toLowerCase() === "true",
     stripeConnectClientId: process.env.STRIPE_CONNECT_CLIENT_ID ?? "",
     smsIntakeLinkSecret:
       process.env.SMS_INTAKE_LINK_SECRET ??

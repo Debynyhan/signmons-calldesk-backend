@@ -94,6 +94,9 @@ export const envValidationSchema = Joi.object({
   TWILIO_WEBHOOK_BASE_URL: Joi.string().allow("").default(""),
   STRIPE_SECRET_KEY: Joi.string().allow("").default(""),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow("").default(""),
+  STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
   STRIPE_CONNECT_CLIENT_ID: Joi.string().allow("").default(""),
   SMS_INTAKE_LINK_SECRET: Joi.string().allow("").default(""),
   SMS_INTAKE_LINK_TTL_MINUTES: Joi.number().min(5).max(10080).default(1440),
