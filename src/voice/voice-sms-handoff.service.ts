@@ -1,9 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { Prisma, TenantFeePolicy } from "@prisma/client";
 import { getRequestContext } from "../common/context/request-context";
 import { ConversationsService } from "../conversations/conversations.service";
 import { LoggingService } from "../logging/logging.service";
-import { VoiceConversationStateService } from "./voice-conversation-state.service";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
 import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
 
 export type VoiceSmsHandoffPreparationResult =
@@ -28,7 +28,7 @@ export class VoiceSmsHandoffService {
     private readonly conversationsService: ConversationsService,
     private readonly loggingService: LoggingService,
     private readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
+    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
   ) {}
 
   async prepare(params: {

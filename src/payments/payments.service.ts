@@ -20,7 +20,7 @@ import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 import { StripeEventProcessorService } from "./stripe-event-processor.service";
 import { VoiceIntakeSmsService } from "./voice-intake-sms.service";
-import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
+import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
 import { JobsService } from "../jobs/jobs.service";
 import type { IntakeCheckoutDto } from "./dto/intake-checkout.dto";
 
@@ -38,7 +38,7 @@ export class PaymentsService {
     private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
     private readonly stripeEventProcessor: StripeEventProcessorService,
     private readonly voiceIntakeSmsService: VoiceIntakeSmsService,
-    private readonly conversationLifecycleService: ConversationLifecycleService,
+    @Inject(CONVERSATION_LIFECYCLE_SERVICE) private readonly conversationLifecycleService: IConversationLifecycleService,
     private readonly jobsService: JobsService,
   ) {}
 

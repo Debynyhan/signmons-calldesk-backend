@@ -12,7 +12,7 @@ import { AiErrorHandler } from "./ai-error.handler";
 import { LoggingService } from "../logging/logging.service";
 import { ToolSelectorService } from "./tools/tool-selector.service";
 import { AiPromptOrchestrationService } from "./prompts/prompt-orchestration.service";
-import { CallLogService } from "../logging/call-log.service";
+import { CALL_LOG_SERVICE, type ICallLogService } from "../logging/call-log.service.interface";
 import appConfig from "../config/app.config";
 import { getRequestContext } from "../common/context/request-context";
 import {
@@ -53,7 +53,7 @@ export class TriageOrchestratorService {
     private readonly toolSelector: ToolSelectorService,
     private readonly promptOrchestration: AiPromptOrchestrationService,
     private readonly toolDispatch: ToolDispatchService,
-    private readonly callLogService: CallLogService,
+    @Inject(CALL_LOG_SERVICE) private readonly callLogService: ICallLogService,
     private readonly errorHandler: AiErrorHandler,
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,

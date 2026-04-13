@@ -15,7 +15,8 @@
     "test:voice:replay": "jest voice/quality/__tests__/voice-quality.replay.spec.ts voice/intake/__tests__/voice-intake.replay.spec.ts voice/intake/__tests__/voice-turn-planner.replay.spec.ts --runInBand",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "prisma:generate": "prisma generate",
-    "voice:audit": "ts-node --transpile-only -r tsconfig-paths/register scripts/voice-quality-audit.ts"
+    "voice:audit": "ts-node --transpile-only -r tsconfig-paths/register scripts/voice-quality-audit.ts",
+    "arch:check": "ts-node --transpile-only scripts/arch-check.ts"
   },
   "dependencies": {
     "@google-cloud/speech": "^7.3.0",

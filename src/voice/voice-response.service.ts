@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { Response } from "express";
-import { CallLogService } from "../logging/call-log.service";
+import { CALL_LOG_SERVICE, type ICallLogService } from "../logging/call-log.service.interface";
 import { LoggingService } from "../logging/logging.service";
 import { getRequestContext } from "../common/context/request-context";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
@@ -11,7 +11,7 @@ type VoiceOutcome = "sms_handoff" | "human_fallback" | "no_handoff";
 @Injectable()
 export class VoiceResponseService {
   constructor(
-    private readonly callLogService: CallLogService,
+    @Inject(CALL_LOG_SERVICE) private readonly callLogService: ICallLogService,
     private readonly loggingService: LoggingService,
     private readonly voicePromptComposer: VoicePromptComposerService,
     private readonly voiceCallStateService: VoiceCallStateService,

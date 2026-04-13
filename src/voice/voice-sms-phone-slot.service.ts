@@ -1,7 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { ConversationsService } from "../conversations/conversations.service";
 import { LoggingService } from "../logging/logging.service";
-import { VoiceConversationStateService } from "./voice-conversation-state.service";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
 
 export type VoiceSmsPhoneExpectedFieldOutcome =
   | { kind: "not_waiting" }
@@ -20,7 +20,7 @@ export type VoiceSmsPhoneExpectedFieldOutcome =
 export class VoiceSmsPhoneSlotService {
   constructor(
     private readonly loggingService: LoggingService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
+    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
   ) {}
 
   async handleExpectedField(params: {

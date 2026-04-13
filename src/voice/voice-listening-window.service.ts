@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { Response } from "express";
 import type {
   VoiceAddressState,
@@ -14,7 +14,7 @@ import {
   shouldClearVoiceListeningWindow,
 } from "./intake/voice-listening-window.policy";
 import { VoiceAddressPromptService } from "./voice-address-prompt.service";
-import { VoiceConversationStateService } from "./voice-conversation-state.service";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
 import { VoiceResponseService } from "./voice-response.service";
 
@@ -33,7 +33,7 @@ export class VoiceListeningWindowService {
     private readonly voiceResponseService: VoiceResponseService,
     private readonly voicePromptComposer: VoicePromptComposerService,
     private readonly voiceAddressPromptService: VoiceAddressPromptService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
+    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
   ) {}
 
   getVoiceListeningWindow(collectedData: unknown): VoiceListeningWindow | null {

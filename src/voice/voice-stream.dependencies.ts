@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
+import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
 import { ConversationsService } from "../conversations/conversations.service";
-import { VoiceConversationStateService } from "./voice-conversation-state.service";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
 import { GoogleSpeechService } from "../google/google-speech.service";
 import { GoogleTtsService } from "../google/google-tts.service";
 import { LoggingService } from "../logging/logging.service";
@@ -17,8 +17,10 @@ export class VoiceStreamDependencies {
     @Inject(TENANTS_SERVICE)
     public readonly tenantsService: TenantsService,
     public readonly conversationsService: ConversationsService,
-    public readonly conversationLifecycleService: ConversationLifecycleService,
-    public readonly voiceConversationStateService: VoiceConversationStateService,
+    @Inject(CONVERSATION_LIFECYCLE_SERVICE)
+    public readonly conversationLifecycleService: IConversationLifecycleService,
+    @Inject(VOICE_CONVERSATION_STATE_SERVICE)
+    public readonly voiceConversationStateService: IVoiceConversationStateService,
     public readonly googleSpeechService: GoogleSpeechService,
     public readonly googleTtsService: GoogleTtsService,
     public readonly voiceCallService: VoiceCallService,

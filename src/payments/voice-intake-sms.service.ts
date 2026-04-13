@@ -5,7 +5,7 @@ import appConfig, { type AppConfig } from "../config/app.config";
 import { PrismaService } from "../prisma/prisma.service";
 import { LoggingService } from "../logging/logging.service";
 import { SmsService } from "../sms/sms.service";
-import { VoiceConversationStateService } from "../voice/voice-conversation-state.service";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "../voice/voice-conversation-state.service.interface";
 import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 
@@ -31,7 +31,7 @@ export class VoiceIntakeSmsService {
     private readonly intakeLinkService: IntakeLinkService,
     private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
     private readonly smsService: SmsService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
+    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
   ) {}
 
   async sendVoiceHandoffIntakeLink(params: {

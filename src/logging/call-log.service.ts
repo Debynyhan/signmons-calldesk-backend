@@ -11,17 +11,8 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { PiiObfuscatorService } from "./pii-obfuscator.service";
 
-export interface CreateCallLogInput {
-  tenantId: string;
-  sessionId: string;
-  jobId?: string;
-  conversationId?: string;
-  transcript: string;
-  aiResponse?: string;
-  direction?: "INBOUND" | "OUTBOUND";
-  metadata?: Record<string, unknown>;
-  channel?: CommunicationChannel;
-}
+import type { CreateCallLogInput } from "./call-log.service.interface";
+export type { CreateCallLogInput } from "./call-log.service.interface";
 
 @Injectable()
 export class CallLogService {

@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
-import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
+import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
 import { setRequestContextData } from "../common/context/request-context";
 import { LoggingService } from "../logging/logging.service";
 import {
@@ -25,7 +25,7 @@ export class VoiceInboundUseCase {
     private readonly config: AppConfig,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
-    private readonly conversationLifecycleService: ConversationLifecycleService,
+    @Inject(CONVERSATION_LIFECYCLE_SERVICE) private readonly conversationLifecycleService: IConversationLifecycleService,
     private readonly voiceWebhookParser: VoiceWebhookParserService,
     private readonly voiceTurnService: VoiceTurnService,
     private readonly voiceConsentAudioService: VoiceConsentAudioService,

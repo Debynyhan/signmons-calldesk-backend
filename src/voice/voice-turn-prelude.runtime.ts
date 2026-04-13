@@ -2,8 +2,8 @@ import type { Prisma, TenantOrganization } from "@prisma/client";
 import type { Response } from "express";
 import type { AppConfig } from "../config/app.config";
 import { ConversationsService } from "../conversations/conversations.service";
-import { VoiceConversationStateService } from "./voice-conversation-state.service";
-import { CallLogService } from "../logging/call-log.service";
+import type { IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
+import type { ICallLogService } from "../logging/call-log.service.interface";
 
 type TurnConversationLike = {
   id: string;
@@ -88,8 +88,8 @@ export class VoiceTurnPreludeRuntime {
   constructor(
     private readonly config: AppConfig,
     private readonly conversationsService: ConversationsService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
-    private readonly callLogService: CallLogService,
+    private readonly voiceConversationStateService: IVoiceConversationStateService,
+    private readonly callLogService: ICallLogService,
     private readonly policy: TurnPreludePolicy,
   ) {}
 

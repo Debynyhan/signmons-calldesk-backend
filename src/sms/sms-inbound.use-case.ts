@@ -12,12 +12,12 @@ import { CommunicationChannel } from "@prisma/client";
 import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
-import { ConversationLifecycleService } from "../conversations/conversation-lifecycle.service";
+import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
 import { ConversationsService } from "../conversations/conversations.service";
 import { AiService } from "../ai/ai.service";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
-import { VoiceConversationStateService } from "../voice/voice-conversation-state.service";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "../voice/voice-conversation-state.service.interface";
 import {
   getRequestContext,
   setRequestContextData,
@@ -32,9 +32,9 @@ export class SmsInboundUseCase {
     private readonly config: AppConfig,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
-    private readonly conversationLifecycleService: ConversationLifecycleService,
+    @Inject(CONVERSATION_LIFECYCLE_SERVICE) private readonly conversationLifecycleService: IConversationLifecycleService,
     private readonly conversationsService: ConversationsService,
-    private readonly voiceConversationStateService: VoiceConversationStateService,
+    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
     private readonly aiService: AiService,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,

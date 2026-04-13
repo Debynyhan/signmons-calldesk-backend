@@ -25,7 +25,7 @@ Phase 2 (REFACTOR2.md) extracted 13 services. Phase 3 assumes all of those are d
 | Issue | Location | Source |
 |---|---|---|
 | `processTurn` is a 300-line branch-heavy orchestrator | `voice-turn.service.ts:264` | Both |
-| Runtime factory 1,178 lines with no sub-grouping | `voice-turn-runtime.factory.ts:117` | Both |
+| Runtime factory 1,178 lines with no sub-grouping (resolved in TODO-5) | `voice-turn-runtime.factory.ts` | Both |
 | `VoiceTurnDependencies` constructor: 21 params | `voice-turn.dependencies.ts:41` | Both (user exact count) |
 | `VoiceStreamDependencies` constructor: 10 params | `voice-stream.dependencies.ts:41` | User |
 | `VoiceController` constructor: 11 params | `voice.controller.ts:33` | User |
@@ -207,7 +207,7 @@ Cover with full replay tests before and after.
 
 ### TODO-5 — Split `VoiceTurnRuntimeFactory` into domain sub-factories
 **Principle:** SRP, cohesion — one factory per domain group
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 `voice-turn-runtime.factory.ts` is 1,178 lines and builds runtimes for 5 unrelated
@@ -229,11 +229,31 @@ specific domain requires searching the full file.
 **Files:** `voice-turn-runtime.factory.ts` (split), 4 new sub-factory files, `voice.module.ts`
 **Risk:** Low — pure structural reorganisation of wiring code; no logic changes.
 
+**Implemented (TODO-5 + TODO-5b follow-up):**
+- `VoiceTurnRuntimeFactory` is now a thin coordinator (35 lines)
+- Added and wired 4 focused sub-factories:
+  - `voice-turn-prelude-context.factory.ts` (231 lines)
+  - `voice-turn-name-flow.factory.ts` (191 lines)
+  - `voice-turn-address-flow.factory.ts` (183 lines)
+  - `voice-turn-triage-handoff.factory.ts` (287 lines)
+- Added shared helper slices to keep sub-factories cohesive:
+  - `voice-turn-runtime-coordination.helpers.ts`
+  - `voice-turn-address-flow.helpers.ts`
+  - `voice-turn-triage-handoff.runtime-builders.ts`
+- Extracted step assembly into `voice-turn-step.factory.ts` and kept `VOICE_TURN_STEPS` wiring in `voice.module.ts`
+- Updated factory coverage test wiring:
+  - `src/voice/__tests__/voice-turn-runtime.factory.spec.ts`
+- Validation run passed:
+  - `npm run build`
+  - `npm run test -- voice/__tests__/voice-turn-runtime.factory.spec.ts --runInBand`
+  - `npm run test:voice:replay`
+- Reference commit: `3e439d6` (`refactor(voice): complete TODO-5 runtime factory split`)
+
 ---
 
 ### TODO-6 — Add service interfaces and injection tokens (DIP / ISP)
 **Principle:** DIP, ISP — consumers declare only the surface they need
-**Status:** [ ] Not started
+**Status:** [x] Done
 **Depends on:** TODO-2 merged
 
 **Problem:**
@@ -301,7 +321,7 @@ is mechanical.
 
 ### TODO-8 — Architecture guardrails in CI
 **Principle:** Prevent regression of all the above
-**Status:** [ ] Not started
+**Status:** [x] Done
 
 **Problem:**
 None of the constraints enforced by Phases 2 and 3 are machine-checked. A future
@@ -402,10 +422,10 @@ Do TODO-8 and TODO-9 last — guardrails are only meaningful once the violations
 - [x] TODO-3a `VoiceInboundUseCase`
 - [x] TODO-3b `SmsInboundUseCase`
 - [x] TODO-4  `VoiceTurnPipeline` + `IVoiceTurnStep`
-- [ ] TODO-5  Split `VoiceTurnRuntimeFactory` (4 sub-factories)
-- [ ] TODO-6  `ICallLogService` + `IConversationLifecycleService` + `IVoiceConversationStateService` interfaces + tokens
+- [x] TODO-5  Split `VoiceTurnRuntimeFactory` (4 sub-factories)
+- [x] TODO-6  `ICallLogService` + `IConversationLifecycleService` + `IVoiceConversationStateService` interfaces + tokens
 - [x] TODO-7  `ToolDispatchService`
-- [ ] TODO-8  CI architecture guardrails (line count, constructor, shim, manual-new gates)
+- [x] TODO-8  CI architecture guardrails (line count, constructor, shim, manual-new gates)
 - [ ] TODO-9  Module boundary gate (extend arch-check script)
 
 ---
