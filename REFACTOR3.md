@@ -364,7 +364,7 @@ feature can re-introduce a 1,000-line service, a 21-param constructor, or a
 
 ### TODO-9 — Enforce module boundary rules
 **Principle:** SoC, OCP — services in module A should not import concrete types from module B
-**Status:** [ ] Not started
+**Status:** [x] Done
 **Depends on:** TODO-8 merged (add as gate #5 in the same script)
 
 **Problem:**
@@ -392,6 +392,16 @@ Two patterns are currently in use that will re-proliferate without a gate:
 **Files:** `scripts/arch-check.ts` (extend), no application code changes
 **Risk:** Low — additive gate only. Will surface real violations in the existing
 codebase that can be fixed incrementally.
+
+**Implemented:**
+- Added Gate 5 in `scripts/arch-check.ts`: module-boundary validation for:
+  - cross-module imports in `*.service.ts` / `*.controller.ts`
+  - cross-module provider registrations in `*.module.ts` (`providers` vs target-module `exports`)
+- Module metadata is now parsed from `@Module(...)` decorators via AST and used for boundary checks.
+- Approved seams are documented inline as explicit allowlist entries (prefix + exact-file lists with rationale comments).
+- Validation run passed:
+  - `npm run arch:check`
+  - `npm run build`
 
 ---
 
@@ -426,7 +436,7 @@ Do TODO-8 and TODO-9 last — guardrails are only meaningful once the violations
 - [x] TODO-6  `ICallLogService` + `IConversationLifecycleService` + `IVoiceConversationStateService` interfaces + tokens
 - [x] TODO-7  `ToolDispatchService`
 - [x] TODO-8  CI architecture guardrails (line count, constructor, shim, manual-new gates)
-- [ ] TODO-9  Module boundary gate (extend arch-check script)
+- [x] TODO-9  Module boundary gate (extend arch-check script)
 
 ---
 
