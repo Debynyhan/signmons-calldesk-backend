@@ -1,5 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import appConfig, { type AppConfig } from "../config/app.config";
+import {
+  CommunicationChannel,
+  type Prisma,
+} from "@prisma/client";
 import { normalizeConfirmationUtterance } from "./intake/voice-field-confirmation.policy";
 import {
   isLikelyNameCandidate,
@@ -18,11 +22,31 @@ import { VoiceTurnExpectedFieldRuntime } from "./voice-turn-expected-field.runti
 import { VoiceTurnPreludeRuntime } from "./voice-turn-prelude.runtime";
 import { VoiceTurnDependencies } from "./voice-turn.dependencies";
 import {
+  getVoiceAddressStateFromCollectedData,
+  getVoiceNameStateFromCollectedData,
+  getVoiceSmsHandoffFromCollectedData,
+  getVoiceSmsPhoneStateFromCollectedData,
+  getVoiceUrgencyConfirmationFromCollectedData,
+  type VoiceAddressState,
+  type VoiceNameState,
+  type VoiceSmsPhoneState,
+} from "../conversations/voice-conversation-state.codec";
+import {
+  CONVERSATIONS_SERVICE,
+  type IConversationsService,
+} from "../conversations/conversations.service.interface";
+import { CsrStrategySelector } from "./csr-strategy.selector";
+import {
+  CALL_LOG_SERVICE,
+  type ICallLogService,
+} from "../logging/call-log.service.interface";
+import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
+import { VoiceUrgencySlotService } from "./voice-urgency-slot.service";
+import {
   buildUrgencyConfirmTwiml,
   continueAfterSideQuestionWithIssueRouting,
   markVoiceEventProcessed,
   normalizeCsrStrategyForTurn,
-  selectCsrStrategy,
 } from "./voice-turn-runtime-coordination.helpers";
 import {
   LOGGER_CONTEXT,
@@ -39,6 +63,13 @@ export class VoiceTurnPreludeContextFactory {
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
     private readonly deps: VoiceTurnDependencies,
+    @Inject(CONVERSATIONS_SERVICE)
+    private readonly conversationsService: IConversationsService,
+    @Inject(CALL_LOG_SERVICE)
+    private readonly callLogService: ICallLogService,
+    private readonly csrStrategySelector: CsrStrategySelector,
+    private readonly voiceSmsPhoneSlotService: VoiceSmsPhoneSlotService,
+    private readonly voiceUrgencySlotService: VoiceUrgencySlotService,
   ) {}
 
   configure(runtimes: VoiceTurnRuntimeSet): void {
@@ -46,9 +77,14 @@ export class VoiceTurnPreludeContextFactory {
 
     runtimes.turnPreludeRuntime = new VoiceTurnPreludeRuntime(
       this.config,
-      this.deps.conversationsService,
-      this.deps.voiceConversationStateService,
-      this.deps.callLogService,
+      this.conversationsService,
+      {
+        updateVoiceTranscript: (params) =>
+          this.deps.voiceTranscriptState.updateVoiceTranscript(params),
+        incrementVoiceTurn: (params) =>
+          this.deps.voiceTurnOrchestration.incrementVoiceTurn(params),
+      },
+      this.callLogService,
       {
         getVoiceListeningWindow: (collectedData) =>
           this.deps.voiceListeningWindowService.getVoiceListeningWindow(
@@ -124,12 +160,39 @@ export class VoiceTurnPreludeContextFactory {
       this.deps.loggingService,
       {
         getVoiceNameState: (collectedData) =>
-          this.deps.conversationsService.getVoiceNameState(collectedData),
+          getVoiceNameStateFromCollectedData(collectedData),
         getVoiceSmsPhoneState: (collectedData) =>
-          this.deps.conversationsService.getVoiceSmsPhoneState(collectedData),
+          getVoiceSmsPhoneStateFromCollectedData(collectedData),
         getVoiceAddressState: (collectedData) =>
-          this.deps.conversationsService.getVoiceAddressState(collectedData),
-        selectCsrStrategy: (params) => selectCsrStrategy(this.deps, params),
+          getVoiceAddressStateFromCollectedData(collectedData),
+        selectCsrStrategy: (params) => {
+          const hasConfirmedName =
+            Boolean(params.nameState.confirmed.value) ||
+            this.deps.voiceTurnPolicyService.isVoiceFieldReady(
+              params.nameState.locked,
+              params.nameState.confirmed.value,
+            );
+          const hasConfirmedAddress =
+            Boolean(params.addressState.confirmed) ||
+            this.deps.voiceTurnPolicyService.isVoiceFieldReady(
+              params.addressState.locked,
+              params.addressState.confirmed,
+            ) ||
+            Boolean(params.addressState.smsConfirmNeeded);
+          return this.csrStrategySelector.selectStrategy({
+            channel: CommunicationChannel.VOICE,
+            fsmState: params.conversation.currentFSMState ?? null,
+            hasConfirmedName,
+            hasConfirmedAddress,
+            urgency: this.deps.voiceTurnPolicyService.isUrgencyEmergency(
+              params.collectedData,
+            ),
+            isPaymentRequiredNext:
+              this.deps.voiceTurnPolicyService.isPaymentRequiredNext(
+                params.collectedData,
+              ),
+          });
+        },
         normalizeCsrStrategyForTurn: (strategy, turnCount) =>
           normalizeCsrStrategyForTurn(strategy, turnCount),
         getVoiceListeningWindow: (collectedData) =>
@@ -195,7 +258,7 @@ export class VoiceTurnPreludeContextFactory {
       buildCallbackOfferTwiml: (strategy) =>
         this.deps.voicePromptComposer.buildCallbackOfferTwiml(strategy),
       handleExpectedUrgencyField: (params) =>
-        this.deps.voiceUrgencySlotService.handleExpectedField(params),
+        this.voiceUrgencySlotService.handleExpectedField(params),
       continueAfterSideQuestionWithIssueRouting: (params) =>
         continueAfterSideQuestionWithIssueRouting(this.runtimes, params),
       buildUrgencyConfirmTwiml: (strategy, opts) =>
@@ -204,7 +267,7 @@ export class VoiceTurnPreludeContextFactory {
 
     runtimes.turnExpectedFieldRuntime = new VoiceTurnExpectedFieldRuntime({
       getVoiceSmsHandoff: (collectedData) =>
-        this.deps.conversationsService.getVoiceSmsHandoff(collectedData),
+        getVoiceSmsHandoffFromCollectedData(collectedData),
       getCallerPhoneFromCollectedData: (collectedData) =>
         getVoiceCallerPhoneFromCollectedData(collectedData),
       normalizeConfirmationUtterance: (value) =>
@@ -216,7 +279,7 @@ export class VoiceTurnPreludeContextFactory {
           this.deps.sanitizationService.normalizePhoneE164(value),
         ),
       handleExpectedSmsPhoneField: (params) =>
-        this.deps.voiceSmsPhoneSlotService.handleExpectedField(params),
+        this.voiceSmsPhoneSlotService.handleExpectedField(params),
       replyWithSmsHandoff: (params) =>
         this.runtimes.turnHandoffRuntime.replyWithSmsHandoff(params),
       replyWithListeningWindow: (params) =>

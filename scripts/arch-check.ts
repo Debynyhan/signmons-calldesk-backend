@@ -33,8 +33,7 @@ const LINE_LIMIT = 900;
 
 /** Classes whose entire purpose is dep aggregation — exempt from param limit */
 const CONSTRUCTOR_PARAM_EXCEPTIONS = new Set<string>([
-  "VoiceTurnDependencies", // 21 params — DI-bag by design
-  "VoiceStreamDependencies", // 10 params — DI-bag, further reduction in TODO-3
+  "VoiceTurnDependencies", // 16 params — DI-bag, pending further decomposition
   "PaymentsService", // 10 params — pending future refactor
 ]);
 const CONSTRUCTOR_PARAM_LIMIT = 8;

@@ -50,7 +50,7 @@ export async function handleMissingLocalityPrompt(
     sourceEventId: params.currentEventId,
   };
 
-  await deps.voiceConversationStateService.updateVoiceAddressState({
+  await deps.voiceAddressSlot.updateVoiceAddressState({
     tenantId: params.tenantId,
     conversationId: params.conversationId,
     addressState: nextAddressState,
@@ -110,7 +110,7 @@ export async function deferAddressToSmsAuthority(
       params.currentEventId ?? params.addressState.sourceEventId ?? null,
   };
 
-  await deps.voiceConversationStateService.updateVoiceAddressState({
+  await deps.voiceAddressSlot.updateVoiceAddressState({
     tenantId: params.tenantId,
     conversationId: params.conversationId,
     addressState: nextAddressState,

@@ -506,8 +506,8 @@ updates, etc.).
 ### E4 — Reduce `VoiceTurnDependencies` and `VoiceStreamDependencies`
 
 **Finding:** Both classes are explicitly excepted from the constructor param gate:
-- `VoiceTurnDependencies`: 21 params (DI-bag by design in REFACTOR3)
-- `VoiceStreamDependencies`: 10 params
+- `VoiceTurnDependencies`: 16 params (reduced from 21)
+- `VoiceStreamDependencies`: 8 params (reduced from 10)
 
 These are aggregator bags by necessity but their size indicates that the services they
 assemble have not been fully decomposed. As Phase C work (interface splitting) proceeds,
@@ -522,6 +522,7 @@ the bag size.
 - Interim milestone: reduce materially first, keep exception with explicit rationale until
   the class can satisfy the gate without re-introducing a god-service.
 - `VoiceStreamDependencies`: already 10 — evaluate after TODO-3 (REFACTOR3) is completed
+  - Completed: class now satisfies gate (`<=8`) and is no longer exempted in `arch-check.ts`.
 
 **Files:** `src/voice/voice-turn.dependencies.ts`, `scripts/arch-check.ts`
 **Depends on:** C2
@@ -569,9 +570,9 @@ the bag size.
 - [x] D2  `IntakeCheckoutOrchestratorService`; `createCheckoutSessionFromIntake` delegated
 - [x] E1  `AddressModule` with interface token; removed from arch-check allowlist
 - [x] E2  `VoiceConversationStateService` moved to `src/conversations/`
-- [ ] E3  `AdminAuditInterceptor` on all admin-guarded endpoints
-- [ ] E4  `VoiceTurnDependencies` reduced with clear rationale; exception removed only when
-      class can satisfy constructor gate (≤8) without regressions
+- [x] E3  `AdminAuditInterceptor` on all admin-guarded endpoints
+- [x] E4  `VoiceTurnDependencies` reduced materially (21 -> 16) with narrowed interface usage;
+      `VoiceStreamDependencies` reduced to 8 and removed from constructor exceptions
 
 ---
 

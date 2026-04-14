@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { CommunicationChannel, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { CsrStrategy } from "./csr-strategy.selector";
 import type { VoiceTurnDependencies } from "./voice-turn.dependencies";
 import type {
@@ -49,44 +49,6 @@ export function buildAddressPromptForState(
   });
 }
 
-export function selectCsrStrategy(
-  deps: VoiceTurnDependencies,
-  params: {
-    conversation: { currentFSMState?: string | null };
-    collectedData: unknown;
-    nameState: VoiceNameState;
-    addressState: VoiceAddressState;
-  },
-): CsrStrategy {
-  const hasConfirmedName =
-    Boolean(params.nameState.confirmed.value) ||
-    deps.voiceTurnPolicyService.isVoiceFieldReady(
-      params.nameState.locked,
-      params.nameState.confirmed.value,
-    );
-
-  const hasConfirmedAddress =
-    Boolean(params.addressState.confirmed) ||
-    deps.voiceTurnPolicyService.isVoiceFieldReady(
-      params.addressState.locked,
-      params.addressState.confirmed,
-    ) ||
-    Boolean(params.addressState.smsConfirmNeeded);
-
-  return deps.csrStrategySelector.selectStrategy({
-    channel: CommunicationChannel.VOICE,
-    fsmState: params.conversation.currentFSMState ?? null,
-    hasConfirmedName,
-    hasConfirmedAddress,
-    urgency: deps.voiceTurnPolicyService.isUrgencyEmergency(
-      params.collectedData,
-    ),
-    isPaymentRequiredNext: deps.voiceTurnPolicyService.isPaymentRequiredNext(
-      params.collectedData,
-    ),
-  });
-}
-
 export function normalizeCsrStrategyForTurn(
   strategy: CsrStrategy,
   turnCount: number,
@@ -108,7 +70,7 @@ export async function markVoiceEventProcessed(
     eventId: string;
   },
 ): Promise<void> {
-  await deps.voiceConversationStateService.updateVoiceLastEventId(params);
+  await deps.voiceTurnOrchestration.updateVoiceLastEventId(params);
 }
 
 export async function continueAfterSideQuestionWithIssueRouting(

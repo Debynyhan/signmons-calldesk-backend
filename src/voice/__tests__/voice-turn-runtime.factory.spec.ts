@@ -34,22 +34,40 @@ const buildConfig = (): AppConfig =>
 
 const buildDeps = () =>
   ({
-    tenantsService: { getTenantContext: jest.fn() },
     conversationsService: {
-      getVoiceNameState: jest.fn(),
-      getVoiceSmsPhoneState: jest.fn(),
-      getVoiceAddressState: jest.fn(),
-      getVoiceSmsHandoff: jest.fn(),
-      getVoiceUrgencyConfirmation: jest.fn(),
-      updateVoiceNameState: jest.fn(),
-      updateVoiceAddressState: jest.fn(),
-      updateVoiceSmsHandoff: jest.fn(),
-      updateVoiceSmsPhoneState: jest.fn(),
-      updateVoiceIssueCandidate: jest.fn(),
-      updateVoiceLastEventId: jest.fn(),
-      updateVoiceUrgencyConfirmation: jest.fn(),
+      getVoiceConversationByCallSid: jest.fn(),
     },
     callLogService: {},
+    csrStrategySelector: { selectStrategy: jest.fn() },
+    voiceSmsPhoneSlotService: { handleExpectedField: jest.fn() },
+    voiceUrgencySlotService: { handleExpectedField: jest.fn() },
+    voiceIntakeSmsService: { sendVoiceHandoffIntakeLink: jest.fn() },
+    voiceTranscriptState: {
+      updateVoiceTranscript: jest.fn(),
+    },
+    voiceNameSlot: {
+      updateVoiceNameState: jest.fn(),
+      promoteNameFromSms: jest.fn(),
+    },
+    voiceAddressSlot: {
+      updateVoiceAddressState: jest.fn(),
+      promoteAddressFromSms: jest.fn(),
+    },
+    voiceSmsSlot: {
+      updateVoiceSmsHandoff: jest.fn(),
+      updateVoiceSmsPhoneState: jest.fn(),
+      clearVoiceSmsHandoff: jest.fn(),
+    },
+    voiceTurnOrchestration: {
+      incrementVoiceTurn: jest.fn(),
+      updateVoiceIssueCandidate: jest.fn(),
+      updateVoiceComfortRisk: jest.fn(),
+      updateVoiceUrgencyConfirmation: jest.fn(),
+      updateVoiceListeningWindow: jest.fn(),
+      clearVoiceListeningWindow: jest.fn(),
+      updateVoiceLastEventId: jest.fn(),
+      appendVoiceTurnTiming: jest.fn(),
+    },
     aiService: {
       extractNameCandidate: jest.fn(),
       extractAddressCandidate: jest.fn(),
@@ -60,7 +78,6 @@ const buildDeps = () =>
       normalizePhoneE164: jest.fn(),
       normalizeWhitespace: jest.fn(),
     },
-    csrStrategySelector: { selectStrategy: jest.fn() },
     voicePromptComposer: {
       buildRepromptTwiml: jest.fn(),
       buildSayGatherTwiml: jest.fn(),
@@ -83,6 +100,7 @@ const buildDeps = () =>
       getTenantFeePolicySafe: jest.fn(),
       getTenantFeeConfig: jest.fn(),
       formatFeeAmount: jest.fn(),
+      getTenantDisplayNameSafe: jest.fn(),
     },
     voiceSmsHandoffService: {
       prepare: jest.fn(),
@@ -90,7 +108,6 @@ const buildDeps = () =>
       buildSmsHandoffMessageForContext: jest.fn(),
       resolveSmsHandoffClosingMessage: jest.fn(),
     },
-    voiceSmsPhoneSlotService: { handleExpectedField: jest.fn() },
     voiceTurnPolicyService: {
       normalizeConfidence: jest.fn(),
       getTenantDisplayName: jest.fn(),
@@ -120,9 +137,6 @@ const buildDeps = () =>
       isBookingIntent: jest.fn(),
       isDuplicateTranscript: jest.fn(),
     },
-    voiceUrgencySlotService: { handleExpectedField: jest.fn() },
-    paymentsService: {},
-    voiceIntakeSmsService: { sendVoiceHandoffIntakeLink: jest.fn() },
     voiceAddressPromptService: { buildAddressPromptForState: jest.fn() },
     voiceResponseService: {
       replyWithTwiml: jest.fn(),
@@ -142,7 +156,6 @@ const buildDeps = () =>
       replyWithListeningWindow: jest.fn(),
       clearVoiceListeningWindow: jest.fn(),
     },
-    voiceCallStateService: {},
   }) as never;
 
 describe("VoiceTurnRuntimeFactory", () => {
@@ -150,8 +163,16 @@ describe("VoiceTurnRuntimeFactory", () => {
     const config = buildConfig();
     const deps = buildDeps();
     return new VoiceTurnRuntimeFactory(
-      new VoiceTurnTriageHandoffFactory(deps),
-      new VoiceTurnPreludeContextFactory(config, deps),
+      new VoiceTurnTriageHandoffFactory(deps, deps.voiceIntakeSmsService),
+      new VoiceTurnPreludeContextFactory(
+        config,
+        deps,
+        deps.conversationsService,
+        deps.callLogService,
+        deps.csrStrategySelector,
+        deps.voiceSmsPhoneSlotService,
+        deps.voiceUrgencySlotService,
+      ),
       new VoiceTurnNameFlowFactory(deps),
       new VoiceTurnAddressFlowFactory(config, deps),
       new VoiceTurnStepFactory(deps),

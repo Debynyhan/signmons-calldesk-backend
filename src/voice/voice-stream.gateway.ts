@@ -7,6 +7,7 @@ import {
 import { protos } from "@google-cloud/speech";
 import type { RawData, WebSocket } from "ws";
 import appConfig, { type AppConfig } from "../config/app.config";
+import { LoggingService } from "../logging/logging.service";
 import { VOICE_STREAM_PATH } from "./voice-streaming.utils";
 import { VoiceStreamCallLifecycleRuntime } from "./voice-stream-call-lifecycle.runtime";
 import { VoiceStreamSpeechRuntime } from "./voice-stream-speech.runtime";
@@ -39,6 +40,7 @@ export class VoiceStreamGateway
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
     private readonly dependencies: VoiceStreamDependencies,
+    private readonly loggingService: LoggingService,
   ) {
     this.callLifecycleRuntime = new VoiceStreamCallLifecycleRuntime(
       this.conversationLifecycleService,
@@ -118,10 +120,6 @@ export class VoiceStreamGateway
 
   private get voiceFillerAudioService() {
     return this.dependencies.voiceFillerAudioService;
-  }
-
-  private get loggingService() {
-    return this.dependencies.loggingService;
   }
 
   handleConnection(client: WebSocket) {

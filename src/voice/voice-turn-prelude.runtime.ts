@@ -89,7 +89,8 @@ export class VoiceTurnPreludeRuntime {
   constructor(
     private readonly config: AppConfig,
     private readonly conversationsService: IConversationsService,
-    private readonly voiceConversationStateService: IVoiceTranscriptState & IVoiceTurnOrchestration,
+    private readonly voiceConversationStateService: IVoiceTranscriptState &
+      Pick<IVoiceTurnOrchestration, "incrementVoiceTurn">,
     private readonly callLogService: ICallLogService,
     private readonly policy: TurnPreludePolicy,
   ) {}

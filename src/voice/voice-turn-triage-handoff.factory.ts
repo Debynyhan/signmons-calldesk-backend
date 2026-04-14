@@ -8,6 +8,7 @@ import { VoiceTurnIssueRecoveryRuntime } from "./voice-turn-issue-recovery.runti
 import { VoiceTurnSideQuestionRoutingRuntime } from "./voice-turn-side-question-routing.runtime";
 import { VoiceTurnSideQuestionRuntime } from "./voice-turn-side-question.runtime";
 import { VoiceTurnDependencies } from "./voice-turn.dependencies";
+import { VoiceIntakeSmsService } from "../payments/voice-intake-sms.service";
 import {
   applyCsrStrategy,
   buildAddressPromptForState,
@@ -30,7 +31,10 @@ import {
 export class VoiceTurnTriageHandoffFactory {
   private runtimes!: VoiceTurnRuntimeSet;
 
-  constructor(private readonly deps: VoiceTurnDependencies) {}
+  constructor(
+    private readonly deps: VoiceTurnDependencies,
+    private readonly voiceIntakeSmsService: VoiceIntakeSmsService,
+  ) {}
 
   configure(runtimes: VoiceTurnRuntimeSet): void {
     this.runtimes = runtimes;
@@ -97,9 +101,7 @@ export class VoiceTurnTriageHandoffFactory {
       isLikelyQuestion: (value) =>
         this.deps.voiceUtteranceService.isLikelyQuestion(value),
       updateVoiceIssueCandidate: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceIssueCandidate(
-          params,
-        ),
+        this.deps.voiceTurnOrchestration.updateVoiceIssueCandidate(params),
       shouldDiscloseFees: (params) =>
         this.deps.voiceTurnPolicyService.shouldDiscloseFees(params),
       getTenantFeePolicySafe: (tenantId) =>
@@ -142,7 +144,7 @@ export class VoiceTurnTriageHandoffFactory {
       buildAskSmsNumberTwiml: () =>
         this.deps.voicePromptComposer.buildAskSmsNumberTwiml(),
       sendVoiceHandoffIntakeLink: (params) =>
-        this.deps.voiceIntakeSmsService.sendVoiceHandoffIntakeLink(params),
+        this.voiceIntakeSmsService.sendVoiceHandoffIntakeLink(params),
       isUrgencyEmergency: (collectedData) =>
         this.deps.voiceTurnPolicyService.isUrgencyEmergency(collectedData),
       resolveSmsHandoffClosingMessage: (params) =>
@@ -174,9 +176,7 @@ export class VoiceTurnTriageHandoffFactory {
       isLikelyIssueCandidate: (value) =>
         this.deps.voiceTurnPolicyService.isLikelyIssueCandidate(value),
       updateVoiceIssueCandidate: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceIssueCandidate(
-          params,
-        ),
+        this.deps.voiceTurnOrchestration.updateVoiceIssueCandidate(params),
       replyWithIssueCaptureRecovery: (params) =>
         replyWithIssueCaptureRecovery(this.runtimes, params),
       isIssueRepeatComplaint: (value) =>
@@ -275,7 +275,7 @@ export class VoiceTurnTriageHandoffFactory {
           transcript,
         ),
       updateVoiceUrgencyConfirmation: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceUrgencyConfirmation(
+        this.deps.voiceTurnOrchestration.updateVoiceUrgencyConfirmation(
           params,
         ),
       buildUrgencyConfirmTwiml: (strategy, context) =>

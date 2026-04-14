@@ -113,18 +113,20 @@ describe("VoiceStreamGateway provider selection", () => {
   });
 
   const buildGateway = (configOverrides: Partial<AppConfig> = {}) =>
-    new VoiceStreamGateway(buildConfig(configOverrides), {
-      tenantsService: tenantsService as never,
-      conversationsService: conversationsService as never,
-      conversationLifecycleService: conversationLifecycleService as never,
-      voiceConversationStateService: voiceConversationStateService as never,
-      googleSpeechService: googleSpeechService as never,
-      googleTtsService: googleTtsService as never,
-      voiceCallService: voiceCallService as never,
-      voiceTurnService: voiceTurnService as never,
-      voiceFillerAudioService: voiceFillerAudioService as never,
-      loggingService: loggingService as never,
-    } as never);
+    new VoiceStreamGateway(
+      buildConfig(configOverrides),
+      {
+        tenantsService: tenantsService as never,
+        conversationLifecycleService: conversationLifecycleService as never,
+        voiceConversationStateService: voiceConversationStateService as never,
+        googleSpeechService: googleSpeechService as never,
+        googleTtsService: googleTtsService as never,
+        voiceCallService: voiceCallService as never,
+        voiceTurnService: voiceTurnService as never,
+        voiceFillerAudioService: voiceFillerAudioService as never,
+      } as never,
+      loggingService as never,
+    );
 
   it("closes the socket when STT provider is not Google", async () => {
     const gateway = buildGateway({

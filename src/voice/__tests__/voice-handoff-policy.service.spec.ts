@@ -23,6 +23,10 @@ const buildTenantsService = (
 ): TenantsService =>
   ({
     getTenantFeePolicy: jest.fn().mockResolvedValue(feePolicy),
+    getTenantContext: jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      displayName: "Acme HVAC",
+    }),
   }) as unknown as TenantsService;
 
 describe("VoiceHandoffPolicyService", () => {
@@ -68,6 +72,23 @@ describe("VoiceHandoffPolicyService", () => {
     it("returns policy on success", async () => {
       const service = new VoiceHandoffPolicyService(buildTenantsService());
       expect(await service.getTenantFeePolicySafe("tenant-1")).not.toBeNull();
+    });
+  });
+
+  describe("getTenantDisplayNameSafe", () => {
+    it("returns null when tenant lookup throws", async () => {
+      const tenantsService = {
+        getTenantContext: jest.fn().mockRejectedValue(new Error("db error")),
+      } as unknown as TenantsService;
+      const service = new VoiceHandoffPolicyService(tenantsService);
+      await expect(service.getTenantDisplayNameSafe("tenant-1")).resolves.toBeNull();
+    });
+
+    it("returns display name when tenant lookup succeeds", async () => {
+      const service = new VoiceHandoffPolicyService(buildTenantsService());
+      await expect(service.getTenantDisplayNameSafe("tenant-1")).resolves.toBe(
+        "Acme HVAC",
+      );
     });
   });
 });

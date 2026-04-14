@@ -5,6 +5,7 @@ import {
   isValidNameCandidate,
 } from "./intake/voice-name-candidate.policy";
 import { reduceVoiceTurnPlanner } from "./intake/voice-turn-planner.reducer";
+import { getVoiceUrgencyConfirmationFromCollectedData } from "../conversations/voice-conversation-state.codec";
 import { setRequestContextData } from "../common/context/request-context";
 import type { IVoiceTurnStep } from "./voice-turn.step.interface";
 import type { VoiceTurnRuntimeSet } from "./voice-turn-runtime.types";
@@ -211,7 +212,7 @@ export const DEFAULT_VOICE_TURN_STEP_DESCRIPTORS: VoiceTurnStepDescriptor[] = [
           deps.voiceResponseService.clearIssuePromptAttempts(callSid);
         }
         if (hasIssueCandidate && !existingIssueCandidate?.value) {
-          await deps.voiceConversationStateService.updateVoiceIssueCandidate({
+          await deps.voiceTurnOrchestration.updateVoiceIssueCandidate({
             tenantId: tenant.id,
             conversationId: conversationId!,
             issue: {
@@ -260,7 +261,7 @@ export const DEFAULT_VOICE_TURN_STEP_DESCRIPTORS: VoiceTurnStepDescriptor[] = [
                 spellPromptedAt: null,
                 spellPromptedTurnIndex: null,
               };
-              await deps.voiceConversationStateService.updateVoiceNameState({
+              await deps.voiceNameSlot.updateVoiceNameState({
                 tenantId: tenant.id,
                 conversationId: conversationId!,
                 nameState: nextNameState,
@@ -368,7 +369,7 @@ export const DEFAULT_VOICE_TURN_STEP_DESCRIPTORS: VoiceTurnStepDescriptor[] = [
           issueCandidate,
         } = ctx;
         const urgencyConfirmation =
-          deps.conversationsService.getVoiceUrgencyConfirmation(collectedData);
+          getVoiceUrgencyConfirmationFromCollectedData(collectedData);
         const emergencyIssueContext =
           existingIssueCandidate?.value ??
           (hasIssueCandidate ? issueCandidate : "");

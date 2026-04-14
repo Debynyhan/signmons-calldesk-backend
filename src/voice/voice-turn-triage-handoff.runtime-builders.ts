@@ -39,9 +39,9 @@ export function createTurnInterruptRuntime(
       isSmsDifferentNumberRequest: (transcript) =>
         deps.voiceUtteranceService.isSmsDifferentNumberRequest(transcript),
       updateVoiceSmsHandoff: (params) =>
-        deps.voiceConversationStateService.updateVoiceSmsHandoff(params),
+        deps.voiceSmsSlot.updateVoiceSmsHandoff(params),
       updateVoiceSmsPhoneState: (params) =>
-        deps.voiceConversationStateService.updateVoiceSmsPhoneState(params),
+        deps.voiceSmsSlot.updateVoiceSmsPhoneState(params),
       buildAskSmsNumberTwiml: (strategy) =>
         deps.voicePromptComposer.buildAskSmsNumberTwiml(strategy),
     },
@@ -69,14 +69,8 @@ export function createTurnSideQuestionHelperRuntime(
         policy as PrismaTenantFeePolicy | null,
       ),
     formatFeeAmount: (value) => deps.voiceHandoffPolicy.formatFeeAmount(value),
-    getTenantDisplayNameById: async (tenantId) => {
-      try {
-        const tenant = await deps.tenantsService.getTenantContext(tenantId);
-        return tenant.displayName;
-      } catch {
-        return null;
-      }
-    },
+    getTenantDisplayNameById: (tenantId) =>
+      deps.voiceHandoffPolicy.getTenantDisplayNameSafe(tenantId),
     buildAskNameTwiml: (strategy) =>
       deps.voicePromptComposer.buildAskNameTwiml(strategy),
     prependPrefaceToGatherTwiml: (preface, twiml) =>

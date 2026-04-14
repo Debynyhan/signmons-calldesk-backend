@@ -45,9 +45,7 @@ export class VoiceTurnAddressFlowFactory {
             this.deps.aiService.extractAddressCandidate(tenantId, transcript),
           ),
         updateVoiceAddressState: (params) =>
-          this.deps.voiceConversationStateService.updateVoiceAddressState(
-            params,
-          ),
+          this.deps.voiceAddressSlot.updateVoiceAddressState(params),
         deferAddressToSmsAuthority: (params) =>
           deferAddressToSmsAuthority(this.deps, this.runtimes, params),
         replyWithAddressPromptWindow: (params) =>
@@ -69,9 +67,7 @@ export class VoiceTurnAddressFlowFactory {
     runtimes.turnAddressConfirmedRuntime = new VoiceTurnAddressConfirmedRuntime(
       {
         updateVoiceAddressState: (params) =>
-          this.deps.voiceConversationStateService.updateVoiceAddressState(
-            params,
-          ),
+          this.deps.voiceAddressSlot.updateVoiceAddressState(params),
         clearVoiceListeningWindow: (params) =>
           this.deps.voiceListeningWindowService.clearVoiceListeningWindow(
             params,
@@ -97,9 +93,7 @@ export class VoiceTurnAddressFlowFactory {
       new VoiceTurnAddressExistingCandidateRuntime({
         sanitizer: this.deps.sanitizationService,
         updateVoiceAddressState: (params) =>
-          this.deps.voiceConversationStateService.updateVoiceAddressState(
-            params,
-          ),
+          this.deps.voiceAddressSlot.updateVoiceAddressState(params),
         replyWithAddressConfirmationWindow: (params) =>
           replyWithAddressConfirmationWindow(this.deps, params),
         isSoftConfirmationEligible: (
@@ -158,7 +152,7 @@ export class VoiceTurnAddressFlowFactory {
       buildAddressPromptForState: (addressState, strategy) =>
         buildAddressPromptForState(this.deps, addressState, strategy),
       updateVoiceAddressState: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceAddressState(params),
+        this.deps.voiceAddressSlot.updateVoiceAddressState(params),
       handleMissingLocalityPrompt: (params) =>
         handleMissingLocalityPrompt(this.deps, this.runtimes, params),
       replyWithAddressPromptWindow: (params) =>

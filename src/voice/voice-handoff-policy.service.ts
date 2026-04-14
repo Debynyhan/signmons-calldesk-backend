@@ -50,4 +50,13 @@ export class VoiceHandoffPolicyService {
     return Number.isInteger(rounded) ? `$${rounded}` : `$${rounded.toFixed(2)}`;
   }
 
+  async getTenantDisplayNameSafe(tenantId: string): Promise<string | null> {
+    try {
+      const tenant = await this.tenantsService.getTenantContext(tenantId);
+      return tenant.displayName;
+    } catch {
+      return null;
+    }
+  }
+
 }

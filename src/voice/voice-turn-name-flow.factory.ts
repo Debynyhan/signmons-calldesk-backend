@@ -45,9 +45,7 @@ export class VoiceTurnNameFlowFactory {
       clearIssuePromptAttempts: (callSid) =>
         this.deps.voiceResponseService.clearIssuePromptAttempts(callSid),
       updateVoiceIssueCandidate: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceIssueCandidate(
-          params,
-        ),
+        this.deps.voiceTurnOrchestration.updateVoiceIssueCandidate(params),
       buildIssueAcknowledgement: (value) =>
         this.deps.voiceTurnPolicyService.buildIssueAcknowledgement(value),
       buildSideQuestionReply: (tenantId, transcript) =>
@@ -70,9 +68,7 @@ export class VoiceTurnNameFlowFactory {
       getVoiceIssueCandidate: (collectedData) =>
         this.deps.voiceTurnPolicyService.getVoiceIssueCandidate(collectedData),
       updateVoiceIssueCandidate: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceIssueCandidate(
-          params,
-        ),
+        this.deps.voiceTurnOrchestration.updateVoiceIssueCandidate(params),
       buildIssueAcknowledgement: (value) =>
         this.deps.voiceTurnPolicyService.buildIssueAcknowledgement(value),
       buildSideQuestionReply: (tenantId, transcript) =>
@@ -114,7 +110,7 @@ export class VoiceTurnNameFlowFactory {
 
     runtimes.turnNameFlowRuntime = new VoiceTurnNameFlowRuntime({
       updateVoiceNameState: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceNameState(params),
+        this.deps.voiceNameSlot.updateVoiceNameState(params),
       shouldRepromptForLowConfidenceName: (state, candidate) =>
         shouldRepromptForLowConfidenceName(
           state,
@@ -150,7 +146,7 @@ export class VoiceTurnNameFlowFactory {
       isValidNameCandidate: (value) => isValidNameCandidate(value),
       isLikelyNameCandidate: (value) => isLikelyNameCandidate(value),
       updateVoiceNameState: (params) =>
-        this.deps.voiceConversationStateService.updateVoiceNameState(params),
+        this.deps.voiceNameSlot.updateVoiceNameState(params),
       log: (payload) => this.deps.loggingService.log(payload, LOGGER_CONTEXT),
     });
   }
