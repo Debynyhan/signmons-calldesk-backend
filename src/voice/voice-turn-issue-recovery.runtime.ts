@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type { Response } from "express";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import { getRequestContext } from "../common/context/request-context";
 import {
   buildIssueSlotPrompt,
@@ -9,9 +9,9 @@ import {
 import { reduceIssueSlot } from "./intake/voice-intake.reducer";
 import type { CsrStrategy } from "./csr-strategy.selector";
 
-type VoiceNameState = ReturnType<ConversationsService["getVoiceNameState"]>;
+type VoiceNameState = ReturnType<IConversationsService["getVoiceNameState"]>;
 type VoiceAddressState = ReturnType<
-  ConversationsService["getVoiceAddressState"]
+  IConversationsService["getVoiceAddressState"]
 >;
 
 type IssueRecoveryPolicy = {

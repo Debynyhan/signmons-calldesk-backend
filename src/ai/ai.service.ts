@@ -5,7 +5,7 @@ import { AiErrorHandler } from "./ai-error.handler";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { CALL_LOG_SERVICE, type ICallLogService } from "../logging/call-log.service.interface";
 import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
-import { ConversationsService } from "../conversations/conversations.service";
+import { CONVERSATIONS_SERVICE, type IConversationsService } from "../conversations/conversations.service.interface";
 import { CommunicationChannel } from "@prisma/client";
 import type { AiChatMessageParam } from "./types/ai-completion.types";
 import { AiExtractionService } from "./ai-extraction.service";
@@ -22,7 +22,7 @@ export class AiService {
     @Inject(TENANTS_SERVICE) private readonly tenantsService: TenantsService,
     @Inject(CALL_LOG_SERVICE) private readonly callLogService: ICallLogService,
     @Inject(CONVERSATION_LIFECYCLE_SERVICE) private readonly conversationLifecycleService: IConversationLifecycleService,
-    private readonly conversationsService: ConversationsService,
+    @Inject(CONVERSATIONS_SERVICE) private readonly conversationsService: IConversationsService,
     private readonly aiExtractionService: AiExtractionService,
     private readonly triageOrchestrator: TriageOrchestratorService,
   ) {}

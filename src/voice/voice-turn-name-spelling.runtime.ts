@@ -1,11 +1,11 @@
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import type { SpelledNameParts } from "./intake/voice-name-candidate.policy";
 import {
   clearNameSpellPrompt,
   markNameSpellPrompted as reduceMarkNameSpellPrompted,
 } from "./intake/voice-name-slot.reducer";
 
-type VoiceNameState = ReturnType<ConversationsService["getVoiceNameState"]>;
+type VoiceNameState = ReturnType<IConversationsService["getVoiceNameState"]>;
 
 type StoreProvisionalNameOptions = {
   lastConfidence?: number | null;

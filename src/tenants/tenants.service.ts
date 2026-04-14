@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { TenantFeePolicy, TenantOrganization } from "@prisma/client";
+import type { TenantFeePolicy, TenantOrganization, TenantSubscription } from "@prisma/client";
+import { SubscriptionStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { TenantPromptBuilderService } from "./tenant-prompt-builder.service";
@@ -126,6 +127,22 @@ export class PrismaTenantsService implements TenantsService {
     updates: TenantFeeSettingsUpdate,
   ): Promise<TenantFeePolicy | null> {
     return this.feePolicySynchronizer.updateSettings(tenantId, updates);
+  }
+
+  async getActiveTenantSubscription(
+    tenantId: string,
+  ): Promise<TenantSubscription | null> {
+    const sanitizedId = this.sanitizationService.sanitizeIdentifier(tenantId);
+    if (!sanitizedId) {
+      return null;
+    }
+    return this.prisma.tenantSubscription.findFirst({
+      where: {
+        tenantId: sanitizedId,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING] },
+        currentPeriodEnd: { gt: new Date() },
+      },
+    });
   }
 
   private mapTenantToContext(tenant: TenantOrganization): TenantContext {

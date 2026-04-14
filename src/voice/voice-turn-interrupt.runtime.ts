@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import type { Response } from "express";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import type { CsrStrategy } from "./csr-strategy.selector";
 
 type VoiceExpectedField =
@@ -13,7 +13,7 @@ type VoiceExpectedField =
   | "urgency_confirm";
 
 type VoiceSmsPhoneState = ReturnType<
-  ConversationsService["getVoiceSmsPhoneState"]
+  IConversationsService["getVoiceSmsPhoneState"]
 >;
 
 type SlowDownPolicy = {

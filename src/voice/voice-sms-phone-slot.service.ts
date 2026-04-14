@@ -1,7 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import { LoggingService } from "../logging/logging.service";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
+import { VOICE_SMS_SLOT_SERVICE, type IVoiceSmsSlot } from "./voice-sms-slot.service.interface";
+import { VOICE_TURN_ORCHESTRATION_SERVICE, type IVoiceTurnOrchestration } from "./voice-turn-orchestration.service.interface";
 
 export type VoiceSmsPhoneExpectedFieldOutcome =
   | { kind: "not_waiting" }
@@ -20,15 +21,16 @@ export type VoiceSmsPhoneExpectedFieldOutcome =
 export class VoiceSmsPhoneSlotService {
   constructor(
     private readonly loggingService: LoggingService,
-    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
+    @Inject(VOICE_SMS_SLOT_SERVICE) private readonly voiceSmsSlot: IVoiceSmsSlot,
+    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE) private readonly voiceTurnOrchestration: IVoiceTurnOrchestration,
   ) {}
 
   async handleExpectedField(params: {
     tenantId: string;
     conversationId: string;
     callSid: string;
-    smsHandoff: ReturnType<ConversationsService["getVoiceSmsHandoff"]>;
-    phoneState: ReturnType<ConversationsService["getVoiceSmsPhoneState"]>;
+    smsHandoff: ReturnType<IConversationsService["getVoiceSmsHandoff"]>;
+    phoneState: ReturnType<IConversationsService["getVoiceSmsPhoneState"]>;
     fallbackPhone: string | null;
     isSameNumber: boolean;
     parsedPhone: string | null;
@@ -36,7 +38,7 @@ export class VoiceSmsPhoneSlotService {
     loggerContext: string;
   }): Promise<VoiceSmsPhoneExpectedFieldOutcome> {
     if (!params.smsHandoff) {
-      await this.voiceConversationStateService.clearVoiceListeningWindow({
+      await this.voiceTurnOrchestration.clearVoiceListeningWindow({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
@@ -44,7 +46,7 @@ export class VoiceSmsPhoneSlotService {
     }
 
     if (params.isSameNumber && params.fallbackPhone) {
-      await this.voiceConversationStateService.updateVoiceSmsPhoneState({
+      await this.voiceSmsSlot.updateVoiceSmsPhoneState({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
         phoneState: {
@@ -55,11 +57,11 @@ export class VoiceSmsPhoneSlotService {
           confirmedAt: new Date().toISOString(),
         },
       });
-      await this.voiceConversationStateService.clearVoiceSmsHandoff({
+      await this.voiceSmsSlot.clearVoiceSmsHandoff({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
-      await this.voiceConversationStateService.clearVoiceListeningWindow({
+      await this.voiceTurnOrchestration.clearVoiceListeningWindow({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
@@ -81,7 +83,7 @@ export class VoiceSmsPhoneSlotService {
     }
 
     if (params.parsedPhone) {
-      await this.voiceConversationStateService.updateVoiceSmsPhoneState({
+      await this.voiceSmsSlot.updateVoiceSmsPhoneState({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
         phoneState: {
@@ -92,11 +94,11 @@ export class VoiceSmsPhoneSlotService {
           confirmedAt: new Date().toISOString(),
         },
       });
-      await this.voiceConversationStateService.clearVoiceSmsHandoff({
+      await this.voiceSmsSlot.clearVoiceSmsHandoff({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
-      await this.voiceConversationStateService.clearVoiceListeningWindow({
+      await this.voiceTurnOrchestration.clearVoiceListeningWindow({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
@@ -119,7 +121,7 @@ export class VoiceSmsPhoneSlotService {
 
     const nextAttempt = params.phoneState.attemptCount + 1;
     if (nextAttempt < 2) {
-      await this.voiceConversationStateService.updateVoiceSmsPhoneState({
+      await this.voiceSmsSlot.updateVoiceSmsPhoneState({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
         phoneState: {
@@ -145,7 +147,7 @@ export class VoiceSmsPhoneSlotService {
     }
 
     if (params.fallbackPhone) {
-      await this.voiceConversationStateService.updateVoiceSmsPhoneState({
+      await this.voiceSmsSlot.updateVoiceSmsPhoneState({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
         phoneState: {
@@ -156,11 +158,11 @@ export class VoiceSmsPhoneSlotService {
           confirmedAt: new Date().toISOString(),
         },
       });
-      await this.voiceConversationStateService.clearVoiceSmsHandoff({
+      await this.voiceSmsSlot.clearVoiceSmsHandoff({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
-      await this.voiceConversationStateService.clearVoiceListeningWindow({
+      await this.voiceTurnOrchestration.clearVoiceListeningWindow({
         tenantId: params.tenantId,
         conversationId: params.conversationId,
       });
@@ -180,11 +182,11 @@ export class VoiceSmsPhoneSlotService {
       };
     }
 
-    await this.voiceConversationStateService.clearVoiceSmsHandoff({
+    await this.voiceSmsSlot.clearVoiceSmsHandoff({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
     });
-    await this.voiceConversationStateService.clearVoiceListeningWindow({
+    await this.voiceTurnOrchestration.clearVoiceListeningWindow({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
     });

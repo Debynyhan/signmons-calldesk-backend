@@ -1,4 +1,4 @@
-import type { TenantFeePolicy, TenantOrganization } from "@prisma/client";
+import type { TenantFeePolicy, TenantOrganization, TenantSubscription } from "@prisma/client";
 
 export interface TenantContext {
   tenantId: string;
@@ -31,4 +31,5 @@ export interface TenantsService {
     tenantId: string,
     updates: TenantFeeSettingsUpdate,
   ): Promise<TenantFeePolicy | null>;
+  getActiveTenantSubscription(tenantId: string): Promise<TenantSubscription | null>;
 }

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { AiService } from "../ai/ai.service";
-import { ConversationsService } from "../conversations/conversations.service";
+import { CONVERSATIONS_SERVICE, type IConversationsService } from "../conversations/conversations.service.interface";
 import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
 import { CALL_LOG_SERVICE, type ICallLogService } from "../logging/call-log.service.interface";
 import { LoggingService } from "../logging/logging.service";
@@ -27,7 +27,7 @@ export class VoiceTurnDependencies {
   constructor(
     @Inject(TENANTS_SERVICE)
     public readonly tenantsService: TenantsService,
-    public readonly conversationsService: ConversationsService,
+    @Inject(CONVERSATIONS_SERVICE) public readonly conversationsService: IConversationsService,
     @Inject(VOICE_CONVERSATION_STATE_SERVICE)
     public readonly voiceConversationStateService: IVoiceConversationStateService,
     @Inject(CALL_LOG_SERVICE)

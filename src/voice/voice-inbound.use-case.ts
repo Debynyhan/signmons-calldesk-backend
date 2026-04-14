@@ -12,6 +12,7 @@ import {
   VOICE_STREAM_PATH,
 } from "./voice-streaming.utils";
 import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
+import type { TwilioVoiceWebhookDto } from "./dto/twilio-voice-webhook.dto";
 import { VoiceTurnService } from "./voice-turn.service";
 import { VoiceConsentAudioService } from "./voice-consent-audio.service";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
@@ -43,7 +44,8 @@ export class VoiceInboundUseCase {
         twimlOverride: this.voicePromptComposer.disabledTwiml(),
       });
     }
-    const toNumber = this.voiceWebhookParser.extractToNumber(req);
+    const body = this.voiceBody(req);
+    const toNumber = this.voiceWebhookParser.extractToNumber(body);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
@@ -53,8 +55,18 @@ export class VoiceInboundUseCase {
         reason: "tenant_not_found",
       });
     }
+    const activeSubscription =
+      await this.tenantsService.getActiveTenantSubscription(tenant.id);
+    if (!activeSubscription) {
+      return this.voiceResponse.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        reason: "subscription_inactive",
+        twimlOverride: this.voicePromptComposer.disabledTwiml(),
+      });
+    }
     const displayName = this.voiceTurnPolicy.getTenantDisplayName(tenant);
-    const callSid = this.voiceWebhookParser.extractCallSid(req);
+    const callSid = this.voiceWebhookParser.extractCallSid(body);
     if (!callSid) {
       return this.voiceResponse.replyWithNoHandoff({
         res,
@@ -64,7 +76,7 @@ export class VoiceInboundUseCase {
     }
     const requestId = this.voiceWebhookParser.getRequestId(req);
     const callerPhone =
-      this.voiceWebhookParser.extractFromNumber(req) ?? undefined;
+      this.voiceWebhookParser.extractFromNumber(body) ?? undefined;
     const conversation =
       await this.conversationLifecycleService.ensureVoiceConsentConversation({
         tenantId: tenant.id,
@@ -154,7 +166,19 @@ export class VoiceInboundUseCase {
       });
     }
 
-    const callSid = this.voiceWebhookParser.extractCallSid(req);
+    const activeSubscription =
+      await this.tenantsService.getActiveTenantSubscription(tenant.id);
+    if (!activeSubscription) {
+      return this.voiceResponse.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        reason: "subscription_inactive",
+        twimlOverride: this.voicePromptComposer.disabledTwiml(),
+      });
+    }
+
+    const demoBody = this.voiceBody(req);
+    const callSid = this.voiceWebhookParser.extractCallSid(demoBody);
     if (!callSid) {
       return this.voiceResponse.replyWithNoHandoff({
         res,
@@ -166,7 +190,7 @@ export class VoiceInboundUseCase {
     const requestId =
       typeof req.query.leadId === "string" ? req.query.leadId : undefined;
     const callerPhone =
-      this.voiceWebhookParser.extractToNumber(req) ?? undefined;
+      this.voiceWebhookParser.extractToNumber(demoBody) ?? undefined;
     const conversation =
       await this.conversationLifecycleService.ensureVoiceConsentConversation({
         tenantId: tenant.id,
@@ -233,7 +257,8 @@ export class VoiceInboundUseCase {
         twimlOverride: this.voicePromptComposer.disabledTwiml(),
       });
     }
-    const toNumber = this.voiceWebhookParser.extractToNumber(req);
+    const turnBody = this.voiceBody(req);
+    const toNumber = this.voiceWebhookParser.extractToNumber(turnBody);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
@@ -243,7 +268,7 @@ export class VoiceInboundUseCase {
         reason: "tenant_not_found",
       });
     }
-    const callSid = this.voiceWebhookParser.extractCallSid(req);
+    const callSid = this.voiceWebhookParser.extractCallSid(turnBody);
     if (!callSid) {
       return this.voiceResponse.replyWithNoHandoff({
         res,
@@ -251,8 +276,8 @@ export class VoiceInboundUseCase {
         reason: "missing_call_sid",
       });
     }
-    const speechResult = this.voiceWebhookParser.extractSpeechResult(req);
-    const confidence = this.voiceWebhookParser.extractConfidence(req);
+    const speechResult = this.voiceWebhookParser.extractSpeechResult(turnBody);
+    const confidence = this.voiceWebhookParser.extractConfidence(turnBody);
     const requestId = this.voiceWebhookParser.getRequestId(req);
     return this.voiceTurnService.handleTurn({
       res,
@@ -272,14 +297,15 @@ export class VoiceInboundUseCase {
         twimlOverride: this.voicePromptComposer.disabledTwiml(),
       });
     }
-    const toNumber = this.voiceWebhookParser.extractToNumber(req);
+    const fallbackBody = this.voiceBody(req);
+    const toNumber = this.voiceWebhookParser.extractToNumber(fallbackBody);
     const tenant = toNumber
       ? await this.tenantsService.resolveTenantByPhone(toNumber)
       : null;
     const displayName = tenant
       ? this.voiceTurnPolicy.getTenantDisplayName(tenant)
       : undefined;
-    const callSid = this.voiceWebhookParser.extractCallSid(req) ?? undefined;
+    const callSid = this.voiceWebhookParser.extractCallSid(fallbackBody) ?? undefined;
     const payload = (req.body ?? {}) as Record<string, unknown>;
     const errorCode =
       typeof payload.ErrorCode === "string" ? payload.ErrorCode : undefined;
@@ -316,5 +342,9 @@ export class VoiceInboundUseCase {
       this.config.voiceSttProvider === "google" &&
       this.config.googleSpeechEnabled
     );
+  }
+
+  private voiceBody(req: Request): TwilioVoiceWebhookDto {
+    return (req.body ?? {}) as TwilioVoiceWebhookDto;
   }
 }

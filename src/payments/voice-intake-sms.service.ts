@@ -5,7 +5,9 @@ import appConfig, { type AppConfig } from "../config/app.config";
 import { PrismaService } from "../prisma/prisma.service";
 import { LoggingService } from "../logging/logging.service";
 import { SmsService } from "../sms/sms.service";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "../voice/voice-conversation-state.service.interface";
+import { VOICE_NAME_SLOT_SERVICE, type IVoiceNameSlot } from "../voice/voice-name-slot.service.interface";
+import { VOICE_ADDRESS_SLOT_SERVICE, type IVoiceAddressSlot } from "../voice/voice-address-slot.service.interface";
+import { VOICE_TURN_ORCHESTRATION_SERVICE, type IVoiceTurnOrchestration } from "../voice/voice-turn-orchestration.service.interface";
 import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 
@@ -31,7 +33,9 @@ export class VoiceIntakeSmsService {
     private readonly intakeLinkService: IntakeLinkService,
     private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
     private readonly smsService: SmsService,
-    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
+    @Inject(VOICE_NAME_SLOT_SERVICE) private readonly voiceNameSlot: IVoiceNameSlot,
+    @Inject(VOICE_ADDRESS_SLOT_SERVICE) private readonly voiceAddressSlot: IVoiceAddressSlot,
+    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE) private readonly voiceTurnOrchestration: IVoiceTurnOrchestration,
   ) {}
 
   async sendVoiceHandoffIntakeLink(params: {
@@ -130,19 +134,19 @@ export class VoiceIntakeSmsService {
     issue: string;
   }): Promise<void> {
     const sourceEventId = `sms-intake-${randomUUID()}`;
-    await this.voiceConversationStateService.promoteNameFromSms({
+    await this.voiceNameSlot.promoteNameFromSms({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       value: params.fullName,
       sourceEventId,
     });
-    await this.voiceConversationStateService.promoteAddressFromSms({
+    await this.voiceAddressSlot.promoteAddressFromSms({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       value: params.address,
       sourceEventId,
     });
-    await this.voiceConversationStateService.updateVoiceIssueCandidate({
+    await this.voiceTurnOrchestration.updateVoiceIssueCandidate({
       tenantId: params.tenantId,
       conversationId: params.conversationId,
       issue: {

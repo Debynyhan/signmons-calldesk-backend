@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import type { CsrStrategy } from "./csr-strategy.selector";
 
 type VoiceListeningField =
@@ -13,7 +13,7 @@ type VoiceListeningField =
   | "urgency_confirm";
 
 type VoiceAddressState = ReturnType<
-  ConversationsService["getVoiceAddressState"]
+  IConversationsService["getVoiceAddressState"]
 >;
 
 type TenantFeeConfig = {

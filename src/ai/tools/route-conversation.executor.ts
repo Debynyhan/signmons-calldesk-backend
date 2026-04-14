@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { ConversationsService } from "../../conversations/conversations.service";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { CONVERSATIONS_SERVICE, type IConversationsService } from "../../conversations/conversations.service.interface";
 import {
   isAiRouteIntent,
   type AiRouteIntent,
@@ -14,7 +14,7 @@ import type {
 export class RouteConversationToolExecutor implements RegisteredToolExecutor {
   readonly toolName = "route_conversation";
 
-  constructor(private readonly conversationsService: ConversationsService) {}
+  constructor(@Inject(CONVERSATIONS_SERVICE) private readonly conversationsService: IConversationsService) {}
 
   async execute(
     context: RegisteredToolExecutionContext,

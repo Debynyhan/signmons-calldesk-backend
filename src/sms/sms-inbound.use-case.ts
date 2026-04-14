@@ -13,16 +13,18 @@ import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
-import { ConversationsService } from "../conversations/conversations.service";
+import { CONVERSATIONS_SERVICE, type IConversationsService } from "../conversations/conversations.service.interface";
 import { AiService } from "../ai/ai.service";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "../voice/voice-conversation-state.service.interface";
+import { VOICE_NAME_SLOT_SERVICE, type IVoiceNameSlot } from "../voice/voice-name-slot.service.interface";
+import { VOICE_ADDRESS_SLOT_SERVICE, type IVoiceAddressSlot } from "../voice/voice-address-slot.service.interface";
 import {
   getRequestContext,
   setRequestContextData,
 } from "../common/context/request-context";
 import { ConfirmFieldDto } from "./dto/confirm-field.dto";
+import type { TwilioSmsWebhookDto } from "./dto/twilio-sms-webhook.dto";
 import { SmsService } from "./sms.service";
 
 @Injectable()
@@ -33,8 +35,9 @@ export class SmsInboundUseCase {
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
     @Inject(CONVERSATION_LIFECYCLE_SERVICE) private readonly conversationLifecycleService: IConversationLifecycleService,
-    private readonly conversationsService: ConversationsService,
-    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
+    @Inject(CONVERSATIONS_SERVICE) private readonly conversationsService: IConversationsService,
+    @Inject(VOICE_NAME_SLOT_SERVICE) private readonly voiceNameSlot: IVoiceNameSlot,
+    @Inject(VOICE_ADDRESS_SLOT_SERVICE) private readonly voiceAddressSlot: IVoiceAddressSlot,
     private readonly aiService: AiService,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
@@ -67,14 +70,14 @@ export class SmsInboundUseCase {
       dto.sourceEventId?.trim() ?? `sms-${randomUUID()}`;
 
     if (dto.field === "name") {
-      await this.voiceConversationStateService.promoteNameFromSms({
+      await this.voiceNameSlot.promoteNameFromSms({
         tenantId,
         conversationId: dto.conversationId,
         value: sanitizedValue,
         sourceEventId,
       });
     } else {
-      await this.voiceConversationStateService.promoteAddressFromSms({
+      await this.voiceAddressSlot.promoteAddressFromSms({
         tenantId,
         conversationId: dto.conversationId,
         value: sanitizedValue,
@@ -92,9 +95,10 @@ export class SmsInboundUseCase {
   async handleInbound(req: Request, res: Response) {
     this.verifySignature(req);
 
-    const toNumber = this.extractToNumber(req);
-    const fromNumber = this.extractFromNumber(req);
-    const messageBody = this.extractMessageBody(req);
+    const smsBody = (req.body ?? {}) as TwilioSmsWebhookDto;
+    const toNumber = this.extractToNumber(smsBody);
+    const fromNumber = this.extractFromNumber(smsBody);
+    const messageBody = this.extractMessageBody(smsBody);
     if (!toNumber || !fromNumber || !messageBody) {
       this.loggingService.warn(
         {
@@ -121,7 +125,21 @@ export class SmsInboundUseCase {
       return res.status(204).send();
     }
 
-    const smsSid = this.extractSmsSid(req);
+    const activeSubscription =
+      await this.tenantsService.getActiveTenantSubscription(tenant.id);
+    if (!activeSubscription) {
+      this.loggingService.warn(
+        {
+          event: "sms.inbound_subscription_inactive",
+          tenantId: tenant.id,
+          toNumber,
+        },
+        SmsInboundUseCase.name,
+      );
+      return res.status(204).send();
+    }
+
+    const smsSid = this.extractSmsSid(smsBody);
     if (smsSid) {
       const existing = await this.conversationsService.getConversationBySmsSid({
         tenantId: tenant.id,
@@ -169,22 +187,19 @@ export class SmsInboundUseCase {
     return res.status(204).send();
   }
 
-  private extractFromNumber(req: Request): string | null {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+  private extractFromNumber(body: TwilioSmsWebhookDto): string | null {
     const from = typeof body.From === "string" ? body.From.trim() : "";
     const normalized = this.sanitizationService.normalizePhoneE164(from);
     return normalized || null;
   }
 
-  private extractToNumber(req: Request): string | null {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+  private extractToNumber(body: TwilioSmsWebhookDto): string | null {
     const to = typeof body.To === "string" ? body.To.trim() : "";
     const normalized = this.sanitizationService.normalizePhoneE164(to);
     return normalized || null;
   }
 
-  private extractSmsSid(req: Request): string | null {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+  private extractSmsSid(body: TwilioSmsWebhookDto): string | null {
     const sid =
       typeof body.SmsSid === "string"
         ? body.SmsSid.trim()
@@ -194,8 +209,7 @@ export class SmsInboundUseCase {
     return sid || null;
   }
 
-  private extractMessageBody(req: Request): string | null {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+  private extractMessageBody(body: TwilioSmsWebhookDto): string | null {
     const message = typeof body.Body === "string" ? body.Body : "";
     const sanitized = this.sanitizationService.sanitizeText(message);
     return sanitized || null;

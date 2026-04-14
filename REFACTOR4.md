@@ -560,11 +560,11 @@ the bag size.
 - [x] A3  `timingSafeEqual` in `AdminApiGuard`
 - [x] A4  Stripe non-prod fallback removed; fail-closed behavior verified
 - [x] A5  Raw `throw error` replaced with typed `InternalServerErrorException`
-- [ ] B1  Subscription gate on `VoiceInboundUseCase` + `SmsInboundUseCase`
-- [ ] B2  `TwilioVoiceWebhookDto` + `TwilioSmsWebhookDto` on webhook endpoints
-- [ ] C1  `IConversationsService` + `CONVERSATIONS_SERVICE` token; ~29 consumers updated
-- [ ] C2  5 focused voice-state interfaces; consumers updated to narrowest applicable
-- [ ] C3  Step registration via injection token; `VoiceTurnStepFactory` simplified
+- [x] B1  Subscription gate on `VoiceInboundUseCase` + `SmsInboundUseCase`
+- [x] B2  `TwilioVoiceWebhookDto` + `TwilioSmsWebhookDto` on webhook endpoints
+- [x] C1  `IConversationsService` + `CONVERSATIONS_SERVICE` token; ~29 consumers updated
+- [x] C2  5 focused voice-state interfaces; consumers updated to narrowest applicable
+- [x] C3  Step registration via injection token; `VoiceTurnStepFactory` simplified
 - [ ] D1  `TriageContextBuilderService`; `AiService.triage()` ≤ 15 lines
 - [ ] D2  `IntakeCheckoutOrchestratorService`; `createCheckoutSessionFromIntake` delegated
 - [ ] E1  `AddressModule` with interface token; removed from arch-check allowlist

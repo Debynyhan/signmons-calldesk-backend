@@ -1,13 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import type { Response } from "express";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import type { CsrStrategy } from "./csr-strategy.selector";
 import type { VoiceListeningField } from "./voice-turn-context.runtime";
 import { buildAddressLockedCandidateState } from "./intake/voice-address-slot.reducer";
 
-type VoiceNameState = ReturnType<ConversationsService["getVoiceNameState"]>;
+type VoiceNameState = ReturnType<IConversationsService["getVoiceNameState"]>;
 type VoiceAddressState = ReturnType<
-  ConversationsService["getVoiceAddressState"]
+  IConversationsService["getVoiceAddressState"]
 >;
 type VoiceTurnTimingCollector = {
   aiMs: number;

@@ -1,13 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import type { Response } from "express";
 import type { LoggingService } from "../logging/logging.service";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import { CsrStrategy } from "./csr-strategy.selector";
 
-type VoiceNameState = ReturnType<ConversationsService["getVoiceNameState"]>;
-type VoiceAddressState = ReturnType<ConversationsService["getVoiceAddressState"]>;
+type VoiceNameState = ReturnType<IConversationsService["getVoiceNameState"]>;
+type VoiceAddressState = ReturnType<IConversationsService["getVoiceAddressState"]>;
 type VoiceSmsPhoneState = ReturnType<
-  ConversationsService["getVoiceSmsPhoneState"]
+  IConversationsService["getVoiceSmsPhoneState"]
 >;
 
 export type VoiceListeningField =

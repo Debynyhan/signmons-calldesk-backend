@@ -39,6 +39,10 @@ import { VoiceTurnNameFlowFactory } from "./voice-turn-name-flow.factory";
 import { VoiceTurnAddressFlowFactory } from "./voice-turn-address-flow.factory";
 import { VoiceTurnTriageHandoffFactory } from "./voice-turn-triage-handoff.factory";
 import { VoiceTurnStepFactory } from "./voice-turn-step.factory";
+import {
+  VOICE_TURN_STEP_REGISTRATIONS,
+  DEFAULT_VOICE_TURN_STEP_DESCRIPTORS,
+} from "./voice-turn-step.token";
 
 @Module({
   imports: [
@@ -79,6 +83,10 @@ import { VoiceTurnStepFactory } from "./voice-turn-step.factory";
     VoiceTurnAddressFlowFactory,
     VoiceTurnTriageHandoffFactory,
     VoiceTurnStepFactory,
+    {
+      provide: VOICE_TURN_STEP_REGISTRATIONS,
+      useValue: DEFAULT_VOICE_TURN_STEP_DESCRIPTORS,
+    },
     VoiceTurnRuntimeFactory,
     VoiceTurnPipeline,
     {

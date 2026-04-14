@@ -1,9 +1,9 @@
 import type { Response } from "express";
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import type { CsrStrategy } from "./csr-strategy.selector";
 import { buildNameFollowUpPrompt } from "./intake/voice-name-slot.reducer";
 
-type VoiceNameState = ReturnType<ConversationsService["getVoiceNameState"]>;
+type VoiceNameState = ReturnType<IConversationsService["getVoiceNameState"]>;
 type StoreProvisionalNameOptions = {
   lastConfidence?: number | null;
   corrections?: number;

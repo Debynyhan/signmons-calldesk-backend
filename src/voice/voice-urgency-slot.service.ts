@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
+import { VOICE_TURN_ORCHESTRATION_SERVICE, type IVoiceTurnOrchestration } from "./voice-turn-orchestration.service.interface";
 
 export type VoiceUrgencyBinaryIntent = "YES" | "NO" | null;
 
@@ -11,7 +11,7 @@ export type VoiceUrgencyExpectedFieldOutcome =
 @Injectable()
 export class VoiceUrgencySlotService {
   constructor(
-    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
+    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE) private readonly voiceConversationStateService: IVoiceTurnOrchestration,
   ) {}
 
   async handleExpectedField(params: {

@@ -1,4 +1,4 @@
-import type { ConversationsService } from "../conversations/conversations.service";
+import type { IConversationsService } from "../conversations/conversations.service.interface";
 import { VoiceTurnPreludeRuntime } from "./voice-turn-prelude.runtime";
 import { VoiceTurnContextRuntime } from "./voice-turn-context.runtime";
 import { VoiceTurnEarlyRoutingRuntime } from "./voice-turn-early-routing.runtime";
@@ -60,10 +60,10 @@ export type VoiceTurnTimingCollector = {
 };
 
 export type VoiceNameState = ReturnType<
-  ConversationsService["getVoiceNameState"]
+  IConversationsService["getVoiceNameState"]
 >;
 export type VoiceAddressState = ReturnType<
-  ConversationsService["getVoiceAddressState"]
+  IConversationsService["getVoiceAddressState"]
 >;
 
 export type VoiceTurnRuntimeSet = {

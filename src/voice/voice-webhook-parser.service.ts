@@ -1,48 +1,35 @@
 import { Injectable } from "@nestjs/common";
 import type { Request } from "express";
+import type { TwilioVoiceWebhookDto } from "./dto/twilio-voice-webhook.dto";
 
 @Injectable()
 export class VoiceWebhookParserService {
-  extractToNumber(req: Request): string | null {
-    const value = this.getBodyValue(req, "To", "to");
-    return typeof value === "string" ? value : null;
+  extractToNumber(body: TwilioVoiceWebhookDto): string | null {
+    return typeof body.To === "string" ? body.To : null;
   }
 
-  extractFromNumber(req: Request): string | null {
-    const value = this.getBodyValue(req, "From", "from");
-    return typeof value === "string" ? value : null;
+  extractFromNumber(body: TwilioVoiceWebhookDto): string | null {
+    return typeof body.From === "string" ? body.From : null;
   }
 
-  extractCallSid(req: Request): string | null {
-    const value = this.getBodyValue(req, "CallSid", "callSid");
-    return typeof value === "string" ? value : null;
+  extractCallSid(body: TwilioVoiceWebhookDto): string | null {
+    return typeof body.CallSid === "string" ? body.CallSid : null;
   }
 
-  extractSpeechResult(req: Request): string | null {
-    const value = this.getBodyValue(req, "SpeechResult", "speechResult");
-    return typeof value === "string" ? value : null;
+  extractSpeechResult(body: TwilioVoiceWebhookDto): string | null {
+    return typeof body.SpeechResult === "string" ? body.SpeechResult : null;
   }
 
-  extractConfidence(req: Request): string | null {
-    const value = this.getBodyValue(req, "Confidence", "confidence");
-    return typeof value === "string" || typeof value === "number"
-      ? String(value)
-      : null;
+  extractConfidence(body: TwilioVoiceWebhookDto): string | null {
+    if (typeof body.Confidence === "string" || typeof body.Confidence === "number") {
+      return String(body.Confidence);
+    }
+    return null;
   }
 
   getRequestId(req: Request): string | undefined {
     return typeof req.headers["x-request-id"] === "string"
       ? req.headers["x-request-id"]
       : undefined;
-  }
-
-  private getBodyValue(req: Request, ...keys: string[]): unknown {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    for (const key of keys) {
-      if (Object.prototype.hasOwnProperty.call(body, key)) {
-        return body[key];
-      }
-    }
-    return undefined;
   }
 }

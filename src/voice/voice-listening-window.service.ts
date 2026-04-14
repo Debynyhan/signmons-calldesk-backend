@@ -14,7 +14,7 @@ import {
   shouldClearVoiceListeningWindow,
 } from "./intake/voice-listening-window.policy";
 import { VoiceAddressPromptService } from "./voice-address-prompt.service";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
+import { VOICE_TURN_ORCHESTRATION_SERVICE, type IVoiceTurnOrchestration } from "./voice-turn-orchestration.service.interface";
 import { VoicePromptComposerService } from "./voice-prompt-composer.service";
 import { VoiceResponseService } from "./voice-response.service";
 
@@ -33,7 +33,7 @@ export class VoiceListeningWindowService {
     private readonly voiceResponseService: VoiceResponseService,
     private readonly voicePromptComposer: VoicePromptComposerService,
     private readonly voiceAddressPromptService: VoiceAddressPromptService,
-    @Inject(VOICE_CONVERSATION_STATE_SERVICE) private readonly voiceConversationStateService: IVoiceConversationStateService,
+    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE) private readonly voiceConversationStateService: IVoiceTurnOrchestration,
   ) {}
 
   getVoiceListeningWindow(collectedData: unknown): VoiceListeningWindow | null {
