@@ -84,15 +84,23 @@ export class IntakeLinkService {
 
   buildIntakeUrl(token: string): string {
     const base =
-      this.config.smsIntakeBaseUrl ||
-      this.config.twilioWebhookBaseUrl ||
-      "";
+      this.config.smsIntakeBaseUrl || this.config.twilioWebhookBaseUrl || "";
     if (!base) {
       return `/api/payments/intake/${encodeURIComponent(token)}`;
     }
     return `${base.replace(/\/$/, "")}/api/payments/intake/${encodeURIComponent(
       token,
     )}`;
+  }
+
+  isStripeConfigured(): boolean {
+    return Boolean(this.config.stripeSecretKey);
+  }
+
+  hasPublicIntakeBaseUrl(): boolean {
+    const base =
+      this.config.smsIntakeBaseUrl || this.config.twilioWebhookBaseUrl || "";
+    return base.trim().length > 0;
   }
 
   private sign(encodedPayload: string): string {

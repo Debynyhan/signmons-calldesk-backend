@@ -5,15 +5,6 @@ import type { IntakeLinkService } from "../intake-link.service";
 import type { IntakeFeeCalculatorService } from "../intake-fee-calculator.service";
 import type { SmsService } from "../../sms/sms.service";
 import type { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
-import type { AppConfig } from "../../config/app.config";
-
-const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
-  ({
-    stripeSecretKey: "sk_test_abc",
-    smsIntakeBaseUrl: "https://intake.example.com",
-    twilioWebhookBaseUrl: "",
-    ...overrides,
-  }) as AppConfig;
 
 const buildPrisma = () => ({
   conversation: {
@@ -33,6 +24,8 @@ const buildIntakeLinkService = () => ({
     expiresAt: "2099-01-01T00:00:00.000Z",
   }),
   buildIntakeUrl: jest.fn().mockReturnValue("https://intake.example.com/tok_1"),
+  isStripeConfigured: jest.fn().mockReturnValue(true),
+  hasPublicIntakeBaseUrl: jest.fn().mockReturnValue(true),
 });
 
 const buildIntakeFeeCalculator = () => ({
@@ -59,7 +52,6 @@ const buildVoiceStateService = () => ({
 
 const buildService = (
   overrides: {
-    config?: Partial<AppConfig>;
     prisma?: ReturnType<typeof buildPrisma>;
     logging?: ReturnType<typeof buildLogging>;
     intakeLink?: ReturnType<typeof buildIntakeLinkService>;
@@ -68,7 +60,6 @@ const buildService = (
     voiceState?: ReturnType<typeof buildVoiceStateService>;
   } = {},
 ) => {
-  const config = buildConfig(overrides.config);
   const prisma = overrides.prisma ?? buildPrisma();
   const logging = overrides.logging ?? buildLogging();
   const intakeLink = overrides.intakeLink ?? buildIntakeLinkService();
@@ -77,12 +68,13 @@ const buildService = (
   const voiceState = overrides.voiceState ?? buildVoiceStateService();
   return {
     service: new VoiceIntakeSmsService(
-      config,
       prisma as unknown as PrismaService,
       logging as unknown as LoggingService,
       intakeLink as unknown as IntakeLinkService,
       feeCalc as unknown as IntakeFeeCalculatorService,
       sms as unknown as SmsService,
+      voiceState as unknown as VoiceConversationStateService,
+      voiceState as unknown as VoiceConversationStateService,
       voiceState as unknown as VoiceConversationStateService,
     ),
     prisma,
@@ -112,7 +104,9 @@ describe("VoiceIntakeSmsService", () => {
 
     it("sends an SMS with the intake link", async () => {
       const prisma = buildPrisma();
-      prisma.conversation.findFirst.mockResolvedValue(makeConversation() as never);
+      prisma.conversation.findFirst.mockResolvedValue(
+        makeConversation() as never,
+      );
       prisma.conversation.update.mockResolvedValue({} as never);
       const sms = buildSmsService();
       const { service, intakeLink, feeCalc } = buildService({ prisma, sms });
@@ -127,14 +121,19 @@ describe("VoiceIntakeSmsService", () => {
         }),
       );
       expect(intakeLink.createConversationToken).toHaveBeenCalledWith(
-        expect.objectContaining({ tenantId: "tenant-1", conversationId: "conv-1" }),
+        expect.objectContaining({
+          tenantId: "tenant-1",
+          conversationId: "conv-1",
+        }),
       );
       expect(feeCalc.computeTotalCents).toHaveBeenCalled();
     });
 
     it("logs success after SMS is sent", async () => {
       const prisma = buildPrisma();
-      prisma.conversation.findFirst.mockResolvedValue(makeConversation() as never);
+      prisma.conversation.findFirst.mockResolvedValue(
+        makeConversation() as never,
+      );
       prisma.conversation.update.mockResolvedValue({} as never);
       const logging = buildLogging();
       const { service } = buildService({ prisma, logging });
@@ -149,8 +148,10 @@ describe("VoiceIntakeSmsService", () => {
 
     it("skips when stripeSecretKey is not configured", async () => {
       const sms = buildSmsService();
+      const intakeLink = buildIntakeLinkService();
+      intakeLink.isStripeConfigured.mockReturnValue(false);
       const { service } = buildService({
-        config: { stripeSecretKey: "" as unknown as undefined },
+        intakeLink,
         sms,
       });
 
@@ -162,8 +163,10 @@ describe("VoiceIntakeSmsService", () => {
     it("skips and warns when no public base URL is configured", async () => {
       const sms = buildSmsService();
       const logging = buildLogging();
+      const intakeLink = buildIntakeLinkService();
+      intakeLink.hasPublicIntakeBaseUrl.mockReturnValue(false);
       const { service } = buildService({
-        config: { smsIntakeBaseUrl: "" as unknown as undefined, twilioWebhookBaseUrl: "" as unknown as undefined },
+        intakeLink,
         sms,
         logging,
       });
@@ -209,7 +212,7 @@ describe("VoiceIntakeSmsService", () => {
     it("updates voiceIntakePayment state after sending", async () => {
       const prisma = buildPrisma();
       prisma.conversation.findFirst
-        .mockResolvedValueOnce(makeConversation() as never)  // first call in sendVoiceHandoffIntakeLink
+        .mockResolvedValueOnce(makeConversation() as never) // first call in sendVoiceHandoffIntakeLink
         .mockResolvedValueOnce(makeConversation() as never); // call inside updateVoiceIntakePaymentState
       prisma.conversation.update.mockResolvedValue({} as never);
       const { service } = buildService({ prisma });

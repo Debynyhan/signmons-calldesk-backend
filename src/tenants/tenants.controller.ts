@@ -5,15 +5,18 @@ import {
   Param,
   Post,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { TENANTS_SERVICE } from "./tenants.constants";
 import type { TenantsService } from "./interfaces/tenants-service.interface";
 import { CreateTenantDto } from "./dto/create-tenant.dto";
 import { UpdateTenantFeeSettingsDto } from "./dto/update-fee-settings.dto";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
+import { AdminAuditInterceptor } from "../common/interceptors/admin-audit.interceptor";
 
 @Controller("tenants")
 @UseGuards(AdminApiGuard)
+@UseInterceptors(AdminAuditInterceptor)
 export class TenantsController {
   constructor(
     @Inject(TENANTS_SERVICE)

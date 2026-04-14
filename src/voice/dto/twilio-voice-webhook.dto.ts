@@ -3,7 +3,7 @@ import { IsNotEmpty, IsOptional, IsString } from "class-validator";
 export class TwilioVoiceWebhookDto {
   @IsString()
   @IsNotEmpty()
-  CallSid: string;
+  CallSid!: string;
 
   @IsString()
   @IsOptional()

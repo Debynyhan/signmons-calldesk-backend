@@ -6,15 +6,18 @@ import { TenantFeePolicySynchronizerService } from "./tenant-fee-policy-synchron
 import { TenantsController } from "./tenants.controller";
 import { SanitizationModule } from "../sanitization/sanitization.module";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
+import { AdminAuditInterceptor } from "../common/interceptors/admin-audit.interceptor";
+import { LoggingModule } from "../logging/logging.module";
 
 @Module({
-  imports: [SanitizationModule],
+  imports: [SanitizationModule, LoggingModule],
   controllers: [TenantsController],
   providers: [
     TenantPromptBuilderService,
     TenantFeePolicySynchronizerService,
     PrismaTenantsService,
     AdminApiGuard,
+    AdminAuditInterceptor,
     {
       provide: TENANTS_SERVICE,
       useExisting: PrismaTenantsService,

@@ -1,13 +1,21 @@
 import { randomUUID } from "crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import appConfig, { type AppConfig } from "../config/app.config";
 import { PrismaService } from "../prisma/prisma.service";
 import { LoggingService } from "../logging/logging.service";
 import { SmsService } from "../sms/sms.service";
-import { VOICE_NAME_SLOT_SERVICE, type IVoiceNameSlot } from "../voice/voice-name-slot.service.interface";
-import { VOICE_ADDRESS_SLOT_SERVICE, type IVoiceAddressSlot } from "../voice/voice-address-slot.service.interface";
-import { VOICE_TURN_ORCHESTRATION_SERVICE, type IVoiceTurnOrchestration } from "../voice/voice-turn-orchestration.service.interface";
+import {
+  VOICE_NAME_SLOT_SERVICE,
+  type IVoiceNameSlot,
+} from "../voice/voice-name-slot.service.interface";
+import {
+  VOICE_ADDRESS_SLOT_SERVICE,
+  type IVoiceAddressSlot,
+} from "../voice/voice-address-slot.service.interface";
+import {
+  VOICE_TURN_ORCHESTRATION_SERVICE,
+  type IVoiceTurnOrchestration,
+} from "../voice/voice-turn-orchestration.service.interface";
 import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 
@@ -26,16 +34,17 @@ export type VoiceIntakePaymentState = {
 @Injectable()
 export class VoiceIntakeSmsService {
   constructor(
-    @Inject(appConfig.KEY)
-    private readonly config: AppConfig,
     private readonly prisma: PrismaService,
     private readonly loggingService: LoggingService,
     private readonly intakeLinkService: IntakeLinkService,
     private readonly intakeFeeCalculator: IntakeFeeCalculatorService,
     private readonly smsService: SmsService,
-    @Inject(VOICE_NAME_SLOT_SERVICE) private readonly voiceNameSlot: IVoiceNameSlot,
-    @Inject(VOICE_ADDRESS_SLOT_SERVICE) private readonly voiceAddressSlot: IVoiceAddressSlot,
-    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE) private readonly voiceTurnOrchestration: IVoiceTurnOrchestration,
+    @Inject(VOICE_NAME_SLOT_SERVICE)
+    private readonly voiceNameSlot: IVoiceNameSlot,
+    @Inject(VOICE_ADDRESS_SLOT_SERVICE)
+    private readonly voiceAddressSlot: IVoiceAddressSlot,
+    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE)
+    private readonly voiceTurnOrchestration: IVoiceTurnOrchestration,
   ) {}
 
   async sendVoiceHandoffIntakeLink(params: {
@@ -46,10 +55,10 @@ export class VoiceIntakeSmsService {
     displayName: string;
     isEmergency: boolean;
   }): Promise<void> {
-    if (!this.config.stripeSecretKey) {
+    if (!this.intakeLinkService.isStripeConfigured()) {
       return;
     }
-    if (!this.config.smsIntakeBaseUrl && !this.config.twilioWebhookBaseUrl) {
+    if (!this.intakeLinkService.hasPublicIntakeBaseUrl()) {
       this.loggingService.warn(
         {
           event: "voice.sms_intake_link_skipped",
@@ -173,7 +182,8 @@ export class VoiceIntakeSmsService {
       return;
     }
     const current =
-      conversation.collectedData && typeof conversation.collectedData === "object"
+      conversation.collectedData &&
+      typeof conversation.collectedData === "object"
         ? (conversation.collectedData as Record<string, unknown>)
         : {};
     const existingState = this.getVoiceIntakePaymentState(

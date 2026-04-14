@@ -48,7 +48,10 @@ describe("SmsController", () => {
       .overrideProvider(ConversationLifecycleService)
       .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
-      .useValue({ resolveTenantByPhone: jest.fn() })
+      .useValue({
+        resolveTenantByPhone: jest.fn(),
+        getActiveTenantSubscription: jest.fn(),
+      })
       .overrideProvider(AiService)
       .useValue({ triage: jest.fn() })
       .overrideProvider(SmsService)
@@ -57,8 +60,9 @@ describe("SmsController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
 
-    const response = await request(app.getHttpServer())
+    const response = await request(httpServer)
       .post("/api/sms/confirm-field")
       .set("x-admin-token", "test-admin-token")
       .send({
@@ -117,7 +121,10 @@ describe("SmsController", () => {
       .overrideProvider(ConversationLifecycleService)
       .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
-      .useValue({ resolveTenantByPhone: jest.fn() })
+      .useValue({
+        resolveTenantByPhone: jest.fn(),
+        getActiveTenantSubscription: jest.fn(),
+      })
       .overrideProvider(AiService)
       .useValue({ triage: jest.fn() })
       .overrideProvider(SmsService)
@@ -126,8 +133,9 @@ describe("SmsController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
 
-    const response = await request(app.getHttpServer())
+    const response = await request(httpServer)
       .post("/api/sms/confirm-field")
       .set("x-admin-token", "test-admin-token")
       .send({
@@ -183,7 +191,10 @@ describe("SmsController", () => {
       .overrideProvider(ConversationLifecycleService)
       .useValue({ ensureSmsConversation })
       .overrideProvider(TENANTS_SERVICE)
-      .useValue({ resolveTenantByPhone: jest.fn() })
+      .useValue({
+        resolveTenantByPhone: jest.fn(),
+        getActiveTenantSubscription: jest.fn(),
+      })
       .overrideProvider(AiService)
       .useValue({ triage: jest.fn() })
       .overrideProvider(SmsService)
@@ -192,8 +203,9 @@ describe("SmsController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
 
-    await request(app.getHttpServer())
+    await request(httpServer)
       .post("/api/sms/confirm-field")
       .set("x-admin-token", "test-admin-token")
       .send({
@@ -222,6 +234,11 @@ describe("SmsController", () => {
     const resolveTenantByPhone = jest.fn().mockResolvedValue({
       id: "tenant-1",
       name: "leizurely_hvac",
+    });
+    const getActiveTenantSubscription = jest.fn().mockResolvedValue({
+      id: "sub-1",
+      status: "ACTIVE",
+      currentPeriodEnd: new Date(Date.now() + 60_000),
     });
     const triage = jest.fn().mockResolvedValue({
       status: "reply",
@@ -254,7 +271,7 @@ describe("SmsController", () => {
         ensureSmsConversation,
       })
       .overrideProvider(TENANTS_SERVICE)
-      .useValue({ resolveTenantByPhone })
+      .useValue({ resolveTenantByPhone, getActiveTenantSubscription })
       .overrideProvider(AiService)
       .useValue({ triage })
       .overrideProvider(SmsService)
@@ -263,8 +280,9 @@ describe("SmsController", () => {
 
     const app = moduleRef.createNestApplication();
     await app.init();
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
 
-    await request(app.getHttpServer())
+    await request(httpServer)
       .post("/api/sms/inbound")
       .send({
         From: "+12025550100",

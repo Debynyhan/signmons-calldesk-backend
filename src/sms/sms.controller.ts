@@ -6,10 +6,12 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
   ValidationPipe,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
+import { AdminAuditInterceptor } from "../common/interceptors/admin-audit.interceptor";
 import { ConfirmFieldDto } from "./dto/confirm-field.dto";
 import { TwilioSmsWebhookDto } from "./dto/twilio-sms-webhook.dto";
 import { SmsInboundUseCase } from "./sms-inbound.use-case";
@@ -26,6 +28,7 @@ export class SmsController {
 
   @Post("confirm-field")
   @UseGuards(AdminApiGuard)
+  @UseInterceptors(AdminAuditInterceptor)
   @HttpCode(200)
   async confirmField(@Body() dto: ConfirmFieldDto) {
     return this.smsInboundUseCase.confirmField(dto);
@@ -35,8 +38,9 @@ export class SmsController {
   async handleInbound(
     @Req() req: Request,
     @Res() res: Response,
-    @Body(twilioBodyPipe) _body: TwilioSmsWebhookDto,
+    @Body(twilioBodyPipe) body: TwilioSmsWebhookDto,
   ) {
+    void body;
     return this.smsInboundUseCase.handleInbound(req, res);
   }
 }

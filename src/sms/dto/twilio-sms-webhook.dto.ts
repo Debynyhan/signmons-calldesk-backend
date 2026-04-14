@@ -3,11 +3,11 @@ import { IsNotEmpty, IsOptional, IsString } from "class-validator";
 export class TwilioSmsWebhookDto {
   @IsString()
   @IsNotEmpty()
-  From: string;
+  From!: string;
 
   @IsString()
   @IsNotEmpty()
-  To: string;
+  To!: string;
 
   @IsString()
   @IsOptional()
