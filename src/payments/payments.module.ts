@@ -10,6 +10,7 @@ import { IntakeLinkService } from "./intake-link.service";
 import { IntakeFeeCalculatorService } from "./intake-fee-calculator.service";
 import { StripeEventProcessorService } from "./stripe-event-processor.service";
 import { VoiceIntakeSmsService } from "./voice-intake-sms.service";
+import { IntakeCheckoutOrchestratorService } from "./intake-checkout-orchestrator.service";
 import { PaymentsService } from "./payments.service";
 import { PaymentsController } from "./payments.controller";
 
@@ -24,7 +25,7 @@ import { PaymentsController } from "./payments.controller";
     ConversationsModule,
   ],
   controllers: [PaymentsController],
-  providers: [IntakeLinkService, IntakeFeeCalculatorService, StripeEventProcessorService, VoiceIntakeSmsService, PaymentsService],
+  providers: [IntakeLinkService, IntakeFeeCalculatorService, StripeEventProcessorService, VoiceIntakeSmsService, IntakeCheckoutOrchestratorService, PaymentsService],
   exports: [IntakeLinkService, VoiceIntakeSmsService, PaymentsService],
 })
 export class PaymentsModule {}

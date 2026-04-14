@@ -565,10 +565,10 @@ the bag size.
 - [x] C1  `IConversationsService` + `CONVERSATIONS_SERVICE` token; ~29 consumers updated
 - [x] C2  5 focused voice-state interfaces; consumers updated to narrowest applicable
 - [x] C3  Step registration via injection token; `VoiceTurnStepFactory` simplified
-- [ ] D1  `TriageContextBuilderService`; `AiService.triage()` ≤ 15 lines
-- [ ] D2  `IntakeCheckoutOrchestratorService`; `createCheckoutSessionFromIntake` delegated
-- [ ] E1  `AddressModule` with interface token; removed from arch-check allowlist
-- [ ] E2  `VoiceConversationStateService` moved to `src/conversations/`
+- [x] D1  `TriageContextBuilderService`; `AiService.triage()` ≤ 15 lines
+- [x] D2  `IntakeCheckoutOrchestratorService`; `createCheckoutSessionFromIntake` delegated
+- [x] E1  `AddressModule` with interface token; removed from arch-check allowlist
+- [x] E2  `VoiceConversationStateService` moved to `src/conversations/`
 - [ ] E3  `AdminAuditInterceptor` on all admin-guarded endpoints
 - [ ] E4  `VoiceTurnDependencies` reduced with clear rationale; exception removed only when
       class can satisfy constructor gate (≤8) without regressions

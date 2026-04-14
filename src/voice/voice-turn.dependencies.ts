@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { AiService } from "../ai/ai.service";
 import { CONVERSATIONS_SERVICE, type IConversationsService } from "../conversations/conversations.service.interface";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "../conversations/voice-conversation-state.service.interface";
 import { CALL_LOG_SERVICE, type ICallLogService } from "../logging/call-log.service.interface";
 import { LoggingService } from "../logging/logging.service";
 import { PaymentsService } from "../payments/payments.service";

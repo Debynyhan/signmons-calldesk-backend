@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
 import { CONVERSATIONS_SERVICE, type IConversationsService } from "../conversations/conversations.service.interface";
-import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "./voice-conversation-state.service.interface";
+import { VOICE_CONVERSATION_STATE_SERVICE, type IVoiceConversationStateService } from "../conversations/voice-conversation-state.service.interface";
 import { GoogleSpeechService } from "../google/google-speech.service";
 import { GoogleTtsService } from "../google/google-tts.service";
 import { LoggingService } from "../logging/logging.service";

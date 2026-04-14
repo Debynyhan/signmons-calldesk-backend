@@ -83,14 +83,6 @@ const MODULE_BOUNDARY_ALLOWED_TARGET_FILES: ReadonlyArray<{
     reason: "Shared AI route-state model used by conversation persistence",
   },
   {
-    file: "src/voice/voice-conversation-state.service.ts",
-    reason: "Approved temporary seam until voice-state module relocation",
-  },
-  {
-    file: "src/address/address-validation.service.ts",
-    reason: "Approved temporary seam until AddressModule extraction/export",
-  },
-  {
     file: "src/sms/sms.service.ts",
     reason: "Payments-to-SMS outbound delivery seam",
   },

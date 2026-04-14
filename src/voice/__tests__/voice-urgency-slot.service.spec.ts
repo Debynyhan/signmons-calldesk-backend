@@ -1,4 +1,4 @@
-import type { VoiceConversationStateService } from "../voice-conversation-state.service";
+import type { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 import { VoiceUrgencySlotService } from "../voice-urgency-slot.service";
 
 const buildVoiceConversationStateService = (

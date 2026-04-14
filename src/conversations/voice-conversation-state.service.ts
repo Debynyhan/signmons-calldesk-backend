@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { SanitizationService } from "../sanitization/sanitization.service";
-import { ConversationsRepository } from "../conversations/conversations.repository";
+import { ConversationsRepository } from "./conversations.repository";
 import {
   getVoiceComfortRiskFromCollectedData,
   getVoiceUrgencyConfirmationFromCollectedData,
@@ -17,7 +17,7 @@ import {
   type VoiceSmsHandoff,
   type VoiceSmsPhoneState,
   type VoiceUrgencyConfirmation,
-} from "../conversations/voice-conversation-state.codec";
+} from "./voice-conversation-state.codec";
 
 type VoiceTurnTiming = {
   recordedAt: string;

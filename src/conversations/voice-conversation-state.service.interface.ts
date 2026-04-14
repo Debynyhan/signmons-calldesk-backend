@@ -8,7 +8,7 @@ import type {
   VoiceSmsHandoff,
   VoiceSmsPhoneState,
   VoiceUrgencyConfirmation,
-} from "../conversations/voice-conversation-state.codec";
+} from "./voice-conversation-state.codec";
 
 export const VOICE_CONVERSATION_STATE_SERVICE = "VOICE_CONVERSATION_STATE_SERVICE";
 

@@ -6,7 +6,7 @@ import { SanitizationModule } from "../sanitization/sanitization.module";
 import { ConversationsModule } from "../conversations/conversations.module";
 import { AiModule } from "../ai/ai.module";
 import { LoggingModule } from "../logging/logging.module";
-import { AddressValidationService } from "../address/address-validation.service";
+import { AddressModule } from "../address/address.module";
 import { CsrStrategySelector } from "./csr-strategy.selector";
 import { GoogleModule } from "../google/google.module";
 import { VoiceCallService } from "./voice-call.service";
@@ -54,9 +54,9 @@ import {
     LoggingModule,
     GoogleModule,
     PaymentsModule,
+    AddressModule,
   ],
   providers: [
-    AddressValidationService,
     CsrStrategySelector,
     VoiceCallService,
     VoiceStreamGateway,

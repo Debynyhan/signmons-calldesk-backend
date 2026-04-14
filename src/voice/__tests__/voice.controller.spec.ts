@@ -21,7 +21,7 @@ import { ToolSelectorService } from "../../ai/tools/tool-selector.service";
 import { AddressValidationService } from "../../address/address-validation.service";
 import { VoiceConsentAudioService } from "../voice-consent-audio.service";
 import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
-import { VoiceConversationStateService } from "../voice-conversation-state.service";
+import { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 
 const validateRequestMock = jest.fn();
 

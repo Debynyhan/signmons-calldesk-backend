@@ -6,7 +6,7 @@ import { envValidationSchema } from "../../config/env.validation";
 import { SmsModule } from "../sms.module";
 import { ConversationLifecycleService } from "../../conversations/conversation-lifecycle.service";
 import { ConversationsService } from "../../conversations/conversations.service";
-import { VoiceConversationStateService } from "../../voice/voice-conversation-state.service";
+import { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
 import { AiService } from "../../ai/ai.service";
 import { SmsService } from "../sms.service";

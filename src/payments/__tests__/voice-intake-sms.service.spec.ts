@@ -4,7 +4,7 @@ import type { LoggingService } from "../../logging/logging.service";
 import type { IntakeLinkService } from "../intake-link.service";
 import type { IntakeFeeCalculatorService } from "../intake-fee-calculator.service";
 import type { SmsService } from "../../sms/sms.service";
-import type { VoiceConversationStateService } from "../../voice/voice-conversation-state.service";
+import type { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 import type { AppConfig } from "../../config/app.config";
 
 const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>

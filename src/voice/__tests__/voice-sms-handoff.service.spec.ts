@@ -1,7 +1,7 @@
 import type { TenantFeePolicy } from "@prisma/client";
 import type { ConversationsService } from "../../conversations/conversations.service";
 import type { LoggingService } from "../../logging/logging.service";
-import type { VoiceConversationStateService } from "../voice-conversation-state.service";
+import type { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 import { VoiceSmsHandoffService } from "../voice-sms-handoff.service";
 
 const buildFeePolicy = (

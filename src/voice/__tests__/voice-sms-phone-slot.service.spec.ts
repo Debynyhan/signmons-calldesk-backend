@@ -1,6 +1,6 @@
 import type { ConversationsService } from "../../conversations/conversations.service";
 import type { LoggingService } from "../../logging/logging.service";
-import type { VoiceConversationStateService } from "../voice-conversation-state.service";
+import type { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 import { VoiceSmsPhoneSlotService } from "../voice-sms-phone-slot.service";
 
 const buildVoiceConversationStateService = (

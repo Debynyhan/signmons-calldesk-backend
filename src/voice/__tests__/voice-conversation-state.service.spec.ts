@@ -1,5 +1,5 @@
 import { SanitizationService } from "../../sanitization/sanitization.service";
-import { VoiceConversationStateService } from "../voice-conversation-state.service";
+import { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 
 describe("VoiceConversationStateService", () => {
   let repository: {

@@ -26,6 +26,7 @@ import { AiCreateJobToolExecutor } from "./tools/create-job.executor";
 import { ToolRegistryModule } from "./tools/tool-registry.module";
 import { AiExtractionService } from "./ai-extraction.service";
 import { TriageOrchestratorService } from "./triage-orchestrator.service";
+import { TriageContextBuilderService } from "./triage-context-builder.service";
 import { ToolDispatchService } from "./tool-dispatch.service";
 
 @Module({
@@ -71,6 +72,7 @@ import { ToolDispatchService } from "./tool-dispatch.service";
     AiExtractionService,
     ToolDispatchService,
     TriageOrchestratorService,
+    TriageContextBuilderService,
     AiService,
   ],
   exports: [AiExtractionService, ToolDispatchService, TriageOrchestratorService, AiService],
