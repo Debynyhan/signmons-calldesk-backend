@@ -10,6 +10,7 @@ describe("MarketingController", () => {
   beforeEach(() => {
     process.env.NODE_ENV = "test";
     process.env.OPENAI_API_KEY = "test-key-1234567890";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
   });
 
   it("accepts try-demo submissions and returns call metadata", async () => {

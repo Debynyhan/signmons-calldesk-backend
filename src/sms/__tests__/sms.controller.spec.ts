@@ -17,6 +17,7 @@ describe("SmsController", () => {
     process.env.ADMIN_API_TOKEN = "test-admin-token";
     process.env.NODE_ENV = "test";
     process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.TWILIO_SIGNATURE_CHECK = "false";
   });
 
   it("confirms name via SMS", async () => {

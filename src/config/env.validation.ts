@@ -91,6 +91,9 @@ export const envValidationSchema = Joi.object({
   TWILIO_SIGNATURE_CHECK: Joi.string()
     .valid("true", "false", "TRUE", "FALSE")
     .default("true"),
+  TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL: Joi.string()
+    .valid("true", "false", "TRUE", "FALSE")
+    .default("false"),
   TWILIO_WEBHOOK_BASE_URL: Joi.string().allow("").default(""),
   STRIPE_SECRET_KEY: Joi.string().allow("").default(""),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow("").default(""),
@@ -182,6 +185,24 @@ export const envValidationSchema = Joi.object({
           "VOICE_TTS_PROVIDER=google requires GOOGLE_TTS_ENABLED=true.",
       });
     }
+  }
+  if (
+    values.NODE_ENV === "production" &&
+    String(values.TWILIO_SIGNATURE_CHECK).toLowerCase() !== "true"
+  ) {
+    return helpers.error("any.invalid", {
+      message: "TWILIO_SIGNATURE_CHECK must be true in production.",
+    });
+  }
+  if (
+    values.NODE_ENV !== "development" &&
+    String(values.TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL).toLowerCase() ===
+      "true"
+  ) {
+    return helpers.error("any.invalid", {
+      message:
+        "TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL can only be true in development.",
+    });
   }
   return values;
 });

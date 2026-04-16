@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  Logger,
   Param,
   Post,
   Query,
@@ -18,6 +19,9 @@ import { TryDemoDto } from "./dto/try-demo.dto";
 
 @Controller("api/marketing")
 export class MarketingController {
+  private readonly logger = new Logger(MarketingController.name);
+  private insecureBypassWarned = false;
+
   constructor(
     private readonly marketingService: MarketingService,
     @Inject(appConfig.KEY)
@@ -49,10 +53,20 @@ export class MarketingController {
   }
 
   private shouldVerifySignature(): boolean {
-    return (
-      this.config.environment === "production" &&
-      this.config.twilioSignatureCheck
-    );
+    if (!this.config.twilioSignatureCheck) {
+      return false;
+    }
+    const insecureLocalBypassEnabled =
+      this.config.environment === "development" &&
+      this.config.twilioSignatureAllowInsecureLocal;
+    if (insecureLocalBypassEnabled && !this.insecureBypassWarned) {
+      this.logger.warn(
+        "Twilio signature verification bypass is enabled for local development.",
+      );
+      this.insecureBypassWarned = true;
+      return false;
+    }
+    return !insecureLocalBypassEnabled;
   }
 
   private verifySignature(req: Request) {

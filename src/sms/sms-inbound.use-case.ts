@@ -29,6 +29,8 @@ import { SmsService } from "./sms.service";
 
 @Injectable()
 export class SmsInboundUseCase {
+  private insecureBypassWarned = false;
+
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
@@ -234,10 +236,23 @@ export class SmsInboundUseCase {
   }
 
   private shouldVerifySignature(): boolean {
-    return (
-      this.config.environment === "production" &&
-      this.config.twilioSignatureCheck
-    );
+    if (!this.config.twilioSignatureCheck) {
+      return false;
+    }
+    const insecureLocalBypassEnabled =
+      this.config.environment === "development" &&
+      this.config.twilioSignatureAllowInsecureLocal;
+    if (insecureLocalBypassEnabled && !this.insecureBypassWarned) {
+      this.loggingService.warn(
+        {
+          event: "sms.twilio_signature_bypass_enabled",
+        },
+        SmsInboundUseCase.name,
+      );
+      this.insecureBypassWarned = true;
+      return false;
+    }
+    return !insecureLocalBypassEnabled;
   }
 
   private verifySignature(req: Request) {

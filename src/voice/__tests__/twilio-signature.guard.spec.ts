@@ -1,4 +1,5 @@
 import type { ExecutionContext } from "@nestjs/common";
+import { Logger } from "@nestjs/common";
 import { UnauthorizedException } from "@nestjs/common";
 import type { AppConfig } from "../../config/app.config";
 import { TwilioSignatureGuard } from "../twilio-signature.guard";
@@ -16,6 +17,7 @@ const buildConfig = (overrides: Partial<AppConfig> = {}): AppConfig =>
   ({
     environment: "production",
     twilioSignatureCheck: true,
+    twilioSignatureAllowInsecureLocal: false,
     twilioAuthToken: "auth-token",
     twilioWebhookBaseUrl: "https://example.ngrok.io",
     ...overrides,
@@ -41,9 +43,19 @@ describe("TwilioSignatureGuard", () => {
     mockValidateRequest.mockReset();
   });
 
-  it("passes without verification in non-production", () => {
-    const guard = new TwilioSignatureGuard(buildConfig({ environment: "development" }));
+  it("passes without verification only when local bypass is explicitly enabled", () => {
+    const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    const guard = new TwilioSignatureGuard(
+      buildConfig({
+        environment: "development",
+        twilioSignatureAllowInsecureLocal: true,
+      }),
+    );
     expect(guard.canActivate(buildContext())).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Twilio signature verification bypass is enabled for local development.",
+    );
+    warnSpy.mockRestore();
   });
 
   it("passes without verification when twilioSignatureCheck is false", () => {
@@ -51,6 +63,16 @@ describe("TwilioSignatureGuard", () => {
       buildConfig({ environment: "production", twilioSignatureCheck: false }),
     );
     expect(guard.canActivate(buildContext())).toBe(true);
+  });
+
+  it("does not bypass verification outside development", () => {
+    const guard = new TwilioSignatureGuard(
+      buildConfig({
+        environment: "test",
+        twilioSignatureAllowInsecureLocal: true,
+      }),
+    );
+    expect(() => guard.canActivate(buildContext())).toThrow(UnauthorizedException);
   });
 
   it("throws UnauthorizedException when signature header is missing", () => {

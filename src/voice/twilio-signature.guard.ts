@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
@@ -11,6 +12,9 @@ import appConfig, { type AppConfig } from "../config/app.config";
 
 @Injectable()
 export class TwilioSignatureGuard implements CanActivate {
+  private readonly logger = new Logger(TwilioSignatureGuard.name);
+  private insecureBypassWarned = false;
+
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: AppConfig,
@@ -49,9 +53,19 @@ export class TwilioSignatureGuard implements CanActivate {
   }
 
   private shouldVerifySignature(): boolean {
-    return (
-      this.config.environment === "production" &&
-      this.config.twilioSignatureCheck
-    );
+    if (!this.config.twilioSignatureCheck) {
+      return false;
+    }
+    const insecureLocalBypassEnabled =
+      this.config.environment === "development" &&
+      this.config.twilioSignatureAllowInsecureLocal;
+    if (insecureLocalBypassEnabled && !this.insecureBypassWarned) {
+      this.logger.warn(
+        "Twilio signature verification bypass is enabled for local development.",
+      );
+      this.insecureBypassWarned = true;
+      return false;
+    }
+    return !insecureLocalBypassEnabled;
   }
 }

@@ -40,6 +40,7 @@ export interface AppConfig {
   twilioAuthToken: string;
   twilioPhoneNumber: string;
   twilioSignatureCheck: boolean;
+  twilioSignatureAllowInsecureLocal: boolean;
   twilioWebhookBaseUrl: string;
   stripeSecretKey: string;
   stripeWebhookSecret: string;
@@ -187,6 +188,9 @@ export default registerAs("app", (): AppConfig => {
     twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER ?? "",
     twilioSignatureCheck:
       (process.env.TWILIO_SIGNATURE_CHECK ?? "true").toLowerCase() === "true",
+    twilioSignatureAllowInsecureLocal:
+      (process.env.TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL ?? "false").toLowerCase() ===
+      "true",
     twilioWebhookBaseUrl: process.env.TWILIO_WEBHOOK_BASE_URL ?? "",
     stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
     stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
