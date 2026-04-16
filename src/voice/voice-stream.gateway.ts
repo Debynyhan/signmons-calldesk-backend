@@ -14,6 +14,7 @@ import { VoiceStreamSpeechRuntime } from "./voice-stream-speech.runtime";
 import { VoiceStreamStartRuntime } from "./voice-stream-start.runtime";
 import { VoiceStreamTurnExecutionRuntime } from "./voice-stream-turn-execution.runtime";
 import { VoiceStreamTurnRuntime } from "./voice-stream-turn.runtime";
+import { VoiceStreamHangupRuntime } from "./voice-stream-hangup.runtime";
 import {
   VoiceStreamTransportRuntime,
   type TwilioStreamMedia,
@@ -32,6 +33,7 @@ export class VoiceStreamGateway
   private readonly sessionRuntime: VoiceStreamSessionRuntime;
   private readonly speechRuntime: VoiceStreamSpeechRuntime;
   private readonly startRuntime: VoiceStreamStartRuntime;
+  private readonly hangupRuntime: VoiceStreamHangupRuntime;
   private readonly turnExecutionRuntime: VoiceStreamTurnExecutionRuntime;
   private readonly turnRuntime: VoiceStreamTurnRuntime;
   private readonly transportRuntime: VoiceStreamTransportRuntime;
@@ -64,6 +66,8 @@ export class VoiceStreamGateway
     this.turnRuntime = new VoiceStreamTurnRuntime(
       this.config,
       this.googleTtsService,
+    );
+    this.hangupRuntime = new VoiceStreamHangupRuntime(
       this.voiceCallService,
       this.loggingService,
     );
@@ -81,7 +85,10 @@ export class VoiceStreamGateway
         normalizeTranscriptForDeduplication: (value) =>
           this.normalizeTranscriptForDeduplication(value),
         scheduleForcedHangupIfNeeded: (session, closingText) =>
-          this.scheduleForcedHangupIfNeeded(session, closingText),
+          this.hangupRuntime.scheduleForcedHangupIfNeeded(
+            session,
+            closingText,
+          ),
         shouldUseGoogleTtsForText: (text, options) =>
           this.shouldUseGoogleTtsForText(text, options),
         computeTotalTurnMs: (params) => this.computeTotalTurnMs(params),
@@ -293,13 +300,6 @@ export class VoiceStreamGateway
 
   private cleanupSession(client: WebSocket) {
     this.sessionRuntime.cleanupSession(client);
-  }
-
-  private scheduleForcedHangupIfNeeded(
-    session: VoiceStreamSession,
-    closingText: string,
-  ): void {
-    this.turnRuntime.scheduleForcedHangupIfNeeded(session, closingText);
   }
 
   private shouldUseGoogleTts(): boolean {

@@ -1,9 +1,6 @@
 import { createHash } from "crypto";
 import type { AppConfig } from "../config/app.config";
 import { GoogleTtsService } from "../google/google-tts.service";
-import { LoggingService } from "../logging/logging.service";
-import { VoiceCallService } from "./voice-call.service";
-import type { VoiceStreamSession } from "./voice-stream.types";
 
 type TurnTotalMsParams = {
   sttFinalMs: number | null;
@@ -28,12 +25,8 @@ type GoogleTtsPlaybackResult = {
 };
 
 export class VoiceStreamTurnRuntime {
-  private static readonly LOG_SOURCE = "VoiceStreamGateway";
   private static readonly TTS_SIGNED_URL_SKEW_MS = 5_000;
   private static readonly TTS_SIGNED_URL_CACHE_MAX = 200;
-  private static readonly HANGUP_FORCE_CLOSE_MIN_DELAY_MS = 12_000;
-  private static readonly HANGUP_FORCE_CLOSE_MAX_DELAY_MS = 30_000;
-  private static readonly HANGUP_FORCE_CLOSE_BUFFER_MS = 3_000;
   private static readonly TURN_TOTAL_WARN_MS = 4_500;
   private static readonly TURN_STT_WARN_MS = 1_800;
   private static readonly TURN_AI_WARN_MS = 1_800;
@@ -49,8 +42,6 @@ export class VoiceStreamTurnRuntime {
   constructor(
     private readonly config: AppConfig,
     private readonly googleTtsService: GoogleTtsService,
-    private readonly voiceCallService: VoiceCallService,
-    private readonly loggingService: LoggingService,
   ) {}
 
   isFillerTranscript(transcript: string): boolean {
@@ -98,78 +89,6 @@ export class VoiceStreamTurnRuntime {
       .replace(/[^a-z0-9]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  }
-
-  scheduleForcedHangupIfNeeded(
-    session: VoiceStreamSession,
-    closingText: string,
-  ): void {
-    if (session.closed || session.forceHangupScheduled) {
-      return;
-    }
-    session.forceHangupScheduled = true;
-    const delayMs = this.estimateHangupForceDelayMs(closingText);
-    session.forceHangupDelayMs = delayMs;
-    this.loggingService.log(
-      {
-        event: "voice.stream.hangup_force_scheduled",
-        callSid: session.callSid,
-        streamSid: session.streamSid,
-        hangup_requested_at: session.hangupRequestedAtMs
-          ? new Date(session.hangupRequestedAtMs).toISOString()
-          : null,
-        force_delay_ms: delayMs,
-      },
-      VoiceStreamTurnRuntime.LOG_SOURCE,
-    );
-    const timer = setTimeout(() => {
-      if (session.closed) {
-        return;
-      }
-      const now = Date.now();
-      const hangupRequestedAt = session.hangupRequestedAtMs ?? now;
-      const elapsedMs = Math.max(0, now - hangupRequestedAt);
-      void this.voiceCallService
-        .completeCall(session.callSid)
-        .then((completed) => {
-          this.loggingService.log(
-            {
-              event: "voice.stream.hangup_force_result",
-              callSid: session.callSid,
-              streamSid: session.streamSid,
-              completed,
-              hangup_requested_at: new Date(hangupRequestedAt).toISOString(),
-              force_attempted_at: new Date(now).toISOString(),
-              hangup_to_force_attempt_ms: elapsedMs,
-              force_delay_ms: delayMs,
-            },
-            VoiceStreamTurnRuntime.LOG_SOURCE,
-          );
-        })
-        .catch((error: unknown) => {
-          this.loggingService.warn(
-            {
-              event: "voice.stream.hangup_force_result",
-              callSid: session.callSid,
-              streamSid: session.streamSid,
-              completed: false,
-              reason: error instanceof Error ? error.message : String(error),
-              hangup_requested_at: new Date(hangupRequestedAt).toISOString(),
-              force_attempted_at: new Date(now).toISOString(),
-              hangup_to_force_attempt_ms: elapsedMs,
-              force_delay_ms: delayMs,
-            },
-            VoiceStreamTurnRuntime.LOG_SOURCE,
-          );
-        })
-        .finally(() => {
-          session.forceHangupScheduled = false;
-          session.forceHangupDelayMs = undefined;
-        });
-    }, delayMs);
-    if (typeof (timer as NodeJS.Timeout).unref === "function") {
-      (timer as NodeJS.Timeout).unref();
-    }
   }
 
   shouldUseGoogleTts(): boolean {
@@ -312,21 +231,6 @@ export class VoiceStreamTurnRuntime {
       playback: { url: signedUrl, objectPath },
       cacheHit: false,
     };
-  }
-
-  private estimateHangupForceDelayMs(text: string): number {
-    const normalized = text.replace(/\s+/g, " ").trim();
-    if (!normalized) {
-      return VoiceStreamTurnRuntime.HANGUP_FORCE_CLOSE_MIN_DELAY_MS;
-    }
-    const wordCount = normalized.split(" ").filter(Boolean).length;
-    const speechMs = Math.round((wordCount / 2.4) * 1000);
-    const withBuffer =
-      speechMs + VoiceStreamTurnRuntime.HANGUP_FORCE_CLOSE_BUFFER_MS;
-    return Math.min(
-      VoiceStreamTurnRuntime.HANGUP_FORCE_CLOSE_MAX_DELAY_MS,
-      Math.max(VoiceStreamTurnRuntime.HANGUP_FORCE_CLOSE_MIN_DELAY_MS, withBuffer),
-    );
   }
 
   private normalizeTtsCacheText(text: string): string {
