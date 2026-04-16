@@ -21,7 +21,11 @@ import { VoiceSmsPhoneSlotService } from "./voice-sms-phone-slot.service";
 import { VoiceUrgencySlotService } from "./voice-urgency-slot.service";
 import { PaymentsModule } from "../payments/payments.module";
 import { VoiceAddressPromptService } from "./voice-address-prompt.service";
+import { VoiceTurnAiDependencies } from "./voice-turn-ai.dependencies";
+import { VoiceTurnCoreDependencies } from "./voice-turn-core.dependencies";
 import { VoiceTurnDependencies } from "./voice-turn.dependencies";
+import { VoiceTurnHandoffDependencies } from "./voice-turn-handoff.dependencies";
+import { VoiceTurnStateDependencies } from "./voice-turn-state.dependencies";
 import { VoiceStreamDependencies } from "./voice-stream.dependencies";
 import { VoiceUtteranceService } from "./voice-utterance.service";
 import { VoiceWebhookParserService } from "./voice-webhook-parser.service";
@@ -70,6 +74,10 @@ import {
     VoiceWebhookParserService,
     VoiceUrgencySlotService,
     VoiceAddressPromptService,
+    VoiceTurnStateDependencies,
+    VoiceTurnCoreDependencies,
+    VoiceTurnAiDependencies,
+    VoiceTurnHandoffDependencies,
     VoiceTurnDependencies,
     VoiceStreamDependencies,
     VoiceConsentAudioService,

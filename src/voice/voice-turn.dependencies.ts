@@ -1,59 +1,95 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { AiService } from "../ai/ai.service";
-import { LoggingService } from "../logging/logging.service";
-import { SanitizationService } from "../sanitization/sanitization.service";
-import {
-  VOICE_ADDRESS_SLOT_SERVICE,
-  type IVoiceAddressSlot,
-} from "./voice-address-slot.service.interface";
-import { VoiceAddressPromptService } from "./voice-address-prompt.service";
-import { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
-import {
-  VOICE_NAME_SLOT_SERVICE,
-  type IVoiceNameSlot,
-} from "./voice-name-slot.service.interface";
-import { VoicePromptComposerService } from "./voice-prompt-composer.service";
-import { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
-import {
-  VOICE_SMS_SLOT_SERVICE,
-  type IVoiceSmsSlot,
-} from "./voice-sms-slot.service.interface";
-import { VoiceTurnPolicyService } from "./voice-turn-policy.service";
-import {
-  VOICE_TRANSCRIPT_STATE_SERVICE,
-  type IVoiceTranscriptState,
-} from "./voice-transcript-state.service.interface";
-import {
-  VOICE_TURN_ORCHESTRATION_SERVICE,
-  type IVoiceTurnOrchestration,
-} from "./voice-turn-orchestration.service.interface";
-import { VoiceUtteranceService } from "./voice-utterance.service";
-import { VoiceResponseService } from "./voice-response.service";
-import { VoiceListeningWindowService } from "./voice-listening-window.service";
+import { Injectable } from "@nestjs/common";
+import type { IVoiceAddressSlot } from "./voice-address-slot.service.interface";
+import type { IVoiceNameSlot } from "./voice-name-slot.service.interface";
+import type { IVoiceSmsSlot } from "./voice-sms-slot.service.interface";
+import type { IVoiceTranscriptState } from "./voice-transcript-state.service.interface";
+import type { IVoiceTurnOrchestration } from "./voice-turn-orchestration.service.interface";
+import { VoiceTurnAiDependencies } from "./voice-turn-ai.dependencies";
+import { VoiceTurnCoreDependencies } from "./voice-turn-core.dependencies";
+import { VoiceTurnHandoffDependencies } from "./voice-turn-handoff.dependencies";
+import { VoiceTurnStateDependencies } from "./voice-turn-state.dependencies";
+import type { AiService } from "../ai/ai.service";
+import type { LoggingService } from "../logging/logging.service";
+import type { SanitizationService } from "../sanitization/sanitization.service";
+import type { VoiceAddressPromptService } from "./voice-address-prompt.service";
+import type { VoiceHandoffPolicyService } from "./voice-handoff-policy.service";
+import type { VoicePromptComposerService } from "./voice-prompt-composer.service";
+import type { VoiceSmsHandoffService } from "./voice-sms-handoff.service";
+import type { VoiceTurnPolicyService } from "./voice-turn-policy.service";
+import type { VoiceUtteranceService } from "./voice-utterance.service";
+import type { VoiceResponseService } from "./voice-response.service";
+import type { VoiceListeningWindowService } from "./voice-listening-window.service";
 
 @Injectable()
 export class VoiceTurnDependencies {
   constructor(
-    @Inject(VOICE_TRANSCRIPT_STATE_SERVICE)
-    public readonly voiceTranscriptState: IVoiceTranscriptState,
-    @Inject(VOICE_NAME_SLOT_SERVICE)
-    public readonly voiceNameSlot: IVoiceNameSlot,
-    @Inject(VOICE_ADDRESS_SLOT_SERVICE)
-    public readonly voiceAddressSlot: IVoiceAddressSlot,
-    @Inject(VOICE_SMS_SLOT_SERVICE)
-    public readonly voiceSmsSlot: IVoiceSmsSlot,
-    @Inject(VOICE_TURN_ORCHESTRATION_SERVICE)
-    public readonly voiceTurnOrchestration: IVoiceTurnOrchestration,
-    public readonly aiService: AiService,
-    public readonly loggingService: LoggingService,
-    public readonly sanitizationService: SanitizationService,
-    public readonly voicePromptComposer: VoicePromptComposerService,
-    public readonly voiceHandoffPolicy: VoiceHandoffPolicyService,
-    public readonly voiceSmsHandoffService: VoiceSmsHandoffService,
-    public readonly voiceTurnPolicyService: VoiceTurnPolicyService,
-    public readonly voiceUtteranceService: VoiceUtteranceService,
-    public readonly voiceAddressPromptService: VoiceAddressPromptService,
-    public readonly voiceResponseService: VoiceResponseService,
-    public readonly voiceListeningWindowService: VoiceListeningWindowService,
+    private readonly stateDeps: VoiceTurnStateDependencies,
+    private readonly coreDeps: VoiceTurnCoreDependencies,
+    private readonly aiDeps: VoiceTurnAiDependencies,
+    private readonly handoffDeps: VoiceTurnHandoffDependencies,
   ) {}
+
+  get voiceTranscriptState(): IVoiceTranscriptState {
+    return this.stateDeps.voiceTranscriptState;
+  }
+
+  get voiceNameSlot(): IVoiceNameSlot {
+    return this.stateDeps.voiceNameSlot;
+  }
+
+  get voiceAddressSlot(): IVoiceAddressSlot {
+    return this.stateDeps.voiceAddressSlot;
+  }
+
+  get voiceSmsSlot(): IVoiceSmsSlot {
+    return this.stateDeps.voiceSmsSlot;
+  }
+
+  get voiceTurnOrchestration(): IVoiceTurnOrchestration {
+    return this.stateDeps.voiceTurnOrchestration;
+  }
+
+  get aiService(): AiService {
+    return this.aiDeps.aiService;
+  }
+
+  get loggingService(): LoggingService {
+    return this.coreDeps.loggingService;
+  }
+
+  get sanitizationService(): SanitizationService {
+    return this.coreDeps.sanitizationService;
+  }
+
+  get voicePromptComposer(): VoicePromptComposerService {
+    return this.coreDeps.voicePromptComposer;
+  }
+
+  get voiceHandoffPolicy(): VoiceHandoffPolicyService {
+    return this.handoffDeps.voiceHandoffPolicy;
+  }
+
+  get voiceSmsHandoffService(): VoiceSmsHandoffService {
+    return this.handoffDeps.voiceSmsHandoffService;
+  }
+
+  get voiceTurnPolicyService(): VoiceTurnPolicyService {
+    return this.coreDeps.voiceTurnPolicyService;
+  }
+
+  get voiceUtteranceService(): VoiceUtteranceService {
+    return this.coreDeps.voiceUtteranceService;
+  }
+
+  get voiceAddressPromptService(): VoiceAddressPromptService {
+    return this.coreDeps.voiceAddressPromptService;
+  }
+
+  get voiceResponseService(): VoiceResponseService {
+    return this.coreDeps.voiceResponseService;
+  }
+
+  get voiceListeningWindowService(): VoiceListeningWindowService {
+    return this.coreDeps.voiceListeningWindowService;
+  }
 }
