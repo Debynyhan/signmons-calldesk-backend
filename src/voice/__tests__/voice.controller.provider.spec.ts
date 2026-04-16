@@ -26,6 +26,7 @@ describe("VoiceInboundUseCase provider selection", () => {
 
   let tenantsService: {
     resolveTenantByPhone: jest.Mock;
+    getActiveTenantSubscription: jest.Mock;
   };
   let conversationsService: {
     ensureVoiceConsentConversation: jest.Mock;
@@ -67,6 +68,10 @@ describe("VoiceInboundUseCase provider selection", () => {
   beforeEach(() => {
     tenantsService = {
       resolveTenantByPhone: jest.fn().mockResolvedValue(tenant),
+      getActiveTenantSubscription: jest.fn().mockResolvedValue({
+        id: "sub-1",
+        status: "ACTIVE",
+      }),
     };
     conversationsService = {
       ensureVoiceConsentConversation: jest

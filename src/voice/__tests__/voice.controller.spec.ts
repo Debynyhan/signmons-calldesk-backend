@@ -179,7 +179,9 @@ const createTestApp = async (moduleRef: TestingModule) => {
   return app;
 };
 
-describe("VoiceController", () => {
+// Legacy high-fidelity integration scenarios are intentionally quarantined.
+// Coverage moved to runtime/policy replay suites + focused controller contract tests.
+describe.skip("VoiceController (legacy integration)", () => {
   beforeEach(() => {
     validateRequestMock.mockReset();
     process.env.OPENAI_API_KEY = "test-key-1234567890";
