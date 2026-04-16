@@ -8,7 +8,7 @@ import { ConversationLifecycleService } from "../../conversations/conversation-l
 import { ConversationsService } from "../../conversations/conversations.service";
 import { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
 import { TENANTS_SERVICE } from "../../tenants/tenants.constants";
-import { AiService } from "../../ai/ai.service";
+import { AI_SERVICE } from "../../ai/ai.service.interface";
 import { SmsService } from "../sms.service";
 import { ToolRegistryModule } from "../../ai/tools/tool-registry.module";
 
@@ -53,7 +53,7 @@ describe("SmsController", () => {
         resolveTenantByPhone: jest.fn(),
         getActiveTenantSubscription: jest.fn(),
       })
-      .overrideProvider(AiService)
+      .overrideProvider(AI_SERVICE)
       .useValue({ triage: jest.fn() })
       .overrideProvider(SmsService)
       .useValue({ sendMessage: jest.fn() })
@@ -126,7 +126,7 @@ describe("SmsController", () => {
         resolveTenantByPhone: jest.fn(),
         getActiveTenantSubscription: jest.fn(),
       })
-      .overrideProvider(AiService)
+      .overrideProvider(AI_SERVICE)
       .useValue({ triage: jest.fn() })
       .overrideProvider(SmsService)
       .useValue({ sendMessage: jest.fn() })
@@ -196,7 +196,7 @@ describe("SmsController", () => {
         resolveTenantByPhone: jest.fn(),
         getActiveTenantSubscription: jest.fn(),
       })
-      .overrideProvider(AiService)
+      .overrideProvider(AI_SERVICE)
       .useValue({ triage: jest.fn() })
       .overrideProvider(SmsService)
       .useValue({ sendMessage: jest.fn() })
@@ -273,7 +273,7 @@ describe("SmsController", () => {
       })
       .overrideProvider(TENANTS_SERVICE)
       .useValue({ resolveTenantByPhone, getActiveTenantSubscription })
-      .overrideProvider(AiService)
+      .overrideProvider(AI_SERVICE)
       .useValue({ triage })
       .overrideProvider(SmsService)
       .useValue({ sendMessage })

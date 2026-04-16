@@ -3,6 +3,7 @@ import type { CommunicationChannel } from "@prisma/client";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { AiErrorHandler } from "./ai-error.handler";
 import { AiExtractionService } from "./ai-extraction.service";
+import type { AiAddressCandidate, IAiService } from "./ai.service.interface";
 import {
   TriageOrchestratorService,
   type TriageOrchestratorResult,
@@ -10,7 +11,7 @@ import {
 import { TriageContextBuilderService } from "./triage-context-builder.service";
 
 @Injectable()
-export class AiService {
+export class AiService implements IAiService {
   constructor(
     private readonly errorHandler: AiErrorHandler,
     private readonly sanitizationService: SanitizationService,
@@ -64,15 +65,7 @@ export class AiService {
   extractAddressCandidate(
     tenantId: string,
     transcript: string,
-  ): Promise<{
-    address: string | null;
-    confidence?: number;
-    houseNumber?: string | null;
-    street?: string | null;
-    city?: string | null;
-    state?: string | null;
-    zip?: string | null;
-  } | null> {
+  ): Promise<AiAddressCandidate | null> {
     return this.aiExtractionService.extractAddressCandidate(tenantId, transcript);
   }
 }

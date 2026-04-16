@@ -14,7 +14,7 @@ import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
 import { CONVERSATIONS_SERVICE, type IConversationsService } from "../conversations/conversations.service.interface";
-import { AiService } from "../ai/ai.service";
+import { AI_SERVICE, type IAiService } from "../ai/ai.service.interface";
 import { LoggingService } from "../logging/logging.service";
 import { SanitizationService } from "../sanitization/sanitization.service";
 import { VOICE_NAME_SLOT_SERVICE, type IVoiceNameSlot } from "../voice/voice-name-slot.service.interface";
@@ -40,7 +40,7 @@ export class SmsInboundUseCase {
     @Inject(CONVERSATIONS_SERVICE) private readonly conversationsService: IConversationsService,
     @Inject(VOICE_NAME_SLOT_SERVICE) private readonly voiceNameSlot: IVoiceNameSlot,
     @Inject(VOICE_ADDRESS_SLOT_SERVICE) private readonly voiceAddressSlot: IVoiceAddressSlot,
-    private readonly aiService: AiService,
+    @Inject(AI_SERVICE) private readonly aiService: IAiService,
     private readonly loggingService: LoggingService,
     private readonly sanitizationService: SanitizationService,
     private readonly smsService: SmsService,

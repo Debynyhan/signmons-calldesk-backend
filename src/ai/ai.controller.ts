@@ -1,12 +1,13 @@
 import {
   Body,
   Controller,
+  Inject,
   Post,
   UnauthorizedException,
   UseGuards,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { AiService } from "./ai.service";
+import { AI_SERVICE, type IAiService } from "./ai.service.interface";
 import { TriageDto } from "./dto/triage.dto";
 import { RequestAuthGuard } from "../auth/request-auth.guard";
 import { TenantGuard } from "../common/guards/tenant.guard";
@@ -15,7 +16,10 @@ import { getRequestContext } from "../common/context/request-context";
 @Controller("ai")
 @UseGuards(RequestAuthGuard, TenantGuard)
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    @Inject(AI_SERVICE)
+    private readonly aiService: IAiService,
+  ) {}
 
   @Post("triage")
   @Throttle({ default: { limit: 15, ttl: 60 } })

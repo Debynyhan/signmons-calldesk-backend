@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
 import { AiController } from "./ai.controller";
 import { AiService } from "./ai.service";
+import { AI_SERVICE } from "./ai.service.interface";
 import {
   AI_COMPLETION_PROVIDER,
   AI_PROVIDER,
@@ -74,7 +75,17 @@ import { ToolDispatchService } from "./tool-dispatch.service";
     TriageOrchestratorService,
     TriageContextBuilderService,
     AiService,
+    {
+      provide: AI_SERVICE,
+      useExisting: AiService,
+    },
   ],
-  exports: [AiExtractionService, ToolDispatchService, TriageOrchestratorService, AiService],
+  exports: [
+    AiExtractionService,
+    ToolDispatchService,
+    TriageOrchestratorService,
+    AI_SERVICE,
+    AiService,
+  ],
 })
 export class AiModule {}

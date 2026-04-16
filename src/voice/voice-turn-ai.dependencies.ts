@@ -1,7 +1,10 @@
-import { Injectable } from "@nestjs/common";
-import { AiService } from "../ai/ai.service";
+import { Inject, Injectable } from "@nestjs/common";
+import { AI_SERVICE, type IAiService } from "../ai/ai.service.interface";
 
 @Injectable()
 export class VoiceTurnAiDependencies {
-  constructor(public readonly aiService: AiService) {}
+  constructor(
+    @Inject(AI_SERVICE)
+    public readonly aiService: IAiService,
+  ) {}
 }

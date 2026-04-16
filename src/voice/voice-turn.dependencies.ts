@@ -8,7 +8,7 @@ import { VoiceTurnAiDependencies } from "./voice-turn-ai.dependencies";
 import { VoiceTurnCoreDependencies } from "./voice-turn-core.dependencies";
 import { VoiceTurnHandoffDependencies } from "./voice-turn-handoff.dependencies";
 import { VoiceTurnStateDependencies } from "./voice-turn-state.dependencies";
-import type { AiService } from "../ai/ai.service";
+import type { IAiService } from "../ai/ai.service.interface";
 import type { LoggingService } from "../logging/logging.service";
 import type { SanitizationService } from "../sanitization/sanitization.service";
 import type { VoiceAddressPromptService } from "./voice-address-prompt.service";
@@ -49,7 +49,7 @@ export class VoiceTurnDependencies {
     return this.stateDeps.voiceTurnOrchestration;
   }
 
-  get aiService(): AiService {
+  get aiService(): IAiService {
     return this.aiDeps.aiService;
   }
 
