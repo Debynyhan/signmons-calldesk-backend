@@ -22,14 +22,14 @@ import {
 } from "./voice-stream-transport.runtime";
 import type { VoiceStreamSession } from "./voice-stream.types";
 import { VoiceStreamDependencies } from "./voice-stream.dependencies";
+import { VoiceStreamSessionRuntime } from "./voice-stream-session.runtime";
 
 @WebSocketGateway({ path: VOICE_STREAM_PATH })
 export class VoiceStreamGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
-  private readonly sessions = new Map<WebSocket, VoiceStreamSession>();
-  private readonly callSessions = new Map<string, WebSocket>();
   private readonly callLifecycleRuntime: VoiceStreamCallLifecycleRuntime;
+  private readonly sessionRuntime: VoiceStreamSessionRuntime;
   private readonly speechRuntime: VoiceStreamSpeechRuntime;
   private readonly startRuntime: VoiceStreamStartRuntime;
   private readonly turnExecutionRuntime: VoiceStreamTurnExecutionRuntime;
@@ -49,6 +49,10 @@ export class VoiceStreamGateway
     this.speechRuntime = new VoiceStreamSpeechRuntime(
       this.googleSpeechService,
       this.loggingService,
+    );
+    this.sessionRuntime = new VoiceStreamSessionRuntime(
+      this.speechRuntime,
+      this.callLifecycleRuntime,
     );
     this.startRuntime = new VoiceStreamStartRuntime(
       this.config,
@@ -90,6 +94,14 @@ export class VoiceStreamGateway
     );
   }
 
+  private get sessions() {
+    return this.sessionRuntime.sessions;
+  }
+
+  private get callSessions() {
+    return this.sessionRuntime.callSessions;
+  }
+
   private get tenantsService() {
     return this.dependencies.tenantsService;
   }
@@ -129,14 +141,7 @@ export class VoiceStreamGateway
   }
 
   handleDisconnect(client: WebSocket) {
-    const session = this.sessions.get(client);
-    if (session) {
-      this.callLifecycleRuntime.recordCallEnded({
-        session,
-        source: "disconnect",
-      });
-    }
-    this.cleanupSession(client);
+    this.sessionRuntime.handleDisconnect(client);
   }
 
   private async handleMessage(client: WebSocket, data: RawData) {
@@ -171,14 +176,12 @@ export class VoiceStreamGateway
       client.close();
       return;
     }
-    const existingClient = this.callSessions.get(callSid);
-    if (existingClient && existingClient !== client) {
-      this.cleanupSession(existingClient);
-      try {
-        existingClient.close();
-      } catch {
-        // Best effort cleanup.
-      }
+    const existingClient = this.sessionRuntime.replaceExistingCallClient(
+      callSid,
+      client,
+    );
+    if (existingClient) {
+      this.sessionRuntime.closeClient(existingClient);
     }
 
     const session = await this.startRuntime.prepareStartSession({
@@ -191,8 +194,7 @@ export class VoiceStreamGateway
       return;
     }
 
-    this.sessions.set(client, session);
-    this.callSessions.set(callSid, client);
+    this.sessionRuntime.setSession(client, session);
     this.loggingService.log(
       {
         event: "voice.stream.started",
@@ -208,7 +210,7 @@ export class VoiceStreamGateway
   }
 
   private handleMedia(client: WebSocket, message: TwilioStreamMedia) {
-    const session = this.sessions.get(client);
+    const session = this.sessionRuntime.getSession(client);
     if (!session) {
       return;
     }
@@ -228,17 +230,10 @@ export class VoiceStreamGateway
   }
 
   private handleStop(client: WebSocket, message: TwilioStreamStop) {
-    const session = this.sessions.get(client);
-    if (!session) {
-      return;
-    }
-    this.callLifecycleRuntime.recordCallEnded({
-      session,
-      source: "stop",
+    this.sessionRuntime.handleStop(client, {
       callSid: message.stop.callSid,
       streamSid: message.stop.streamSid,
     });
-    this.cleanupSession(client);
   }
 
   private attachSpeechStreamHandlers(
@@ -255,12 +250,7 @@ export class VoiceStreamGateway
           this.handleSpeechData(activeSession, data);
         },
         onFatal: (fatalClient) => {
-          this.cleanupSession(fatalClient);
-          try {
-            fatalClient.close();
-          } catch {
-            // Best effort socket close.
-          }
+          this.sessionRuntime.handleFatalClient(fatalClient);
         },
       },
     );
@@ -302,15 +292,7 @@ export class VoiceStreamGateway
   }
 
   private cleanupSession(client: WebSocket) {
-    const session = this.sessions.get(client);
-    if (session) {
-      session.closed = true;
-      this.speechRuntime.closeSpeechStream(session.speechStream);
-      if (this.callSessions.get(session.callSid) === client) {
-        this.callSessions.delete(session.callSid);
-      }
-      this.sessions.delete(client);
-    }
+    this.sessionRuntime.cleanupSession(client);
   }
 
   private scheduleForcedHangupIfNeeded(
