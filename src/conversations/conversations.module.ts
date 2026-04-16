@@ -12,6 +12,11 @@ import { VOICE_NAME_SLOT_SERVICE } from "../voice/voice-name-slot.service.interf
 import { VOICE_ADDRESS_SLOT_SERVICE } from "../voice/voice-address-slot.service.interface";
 import { VOICE_SMS_SLOT_SERVICE } from "../voice/voice-sms-slot.service.interface";
 import { VOICE_TURN_ORCHESTRATION_SERVICE } from "../voice/voice-turn-orchestration.service.interface";
+import { VoiceTranscriptStateService } from "./voice-state/voice-transcript-state.service";
+import { VoiceNameSlotStateService } from "./voice-state/voice-name-slot-state.service";
+import { VoiceAddressSlotStateService } from "./voice-state/voice-address-slot-state.service";
+import { VoiceSmsSlotStateService } from "./voice-state/voice-sms-slot-state.service";
+import { VoiceTurnOrchestrationStateService } from "./voice-state/voice-turn-orchestration-state.service";
 
 @Module({
   providers: [
@@ -21,6 +26,11 @@ import { VOICE_TURN_ORCHESTRATION_SERVICE } from "../voice/voice-turn-orchestrat
     { provide: CONVERSATIONS_SERVICE, useExisting: ConversationsService },
     ConversationLifecycleService,
     { provide: CONVERSATION_LIFECYCLE_SERVICE, useExisting: ConversationLifecycleService },
+    VoiceTranscriptStateService,
+    VoiceNameSlotStateService,
+    VoiceAddressSlotStateService,
+    VoiceSmsSlotStateService,
+    VoiceTurnOrchestrationStateService,
     VoiceConversationStateService,
     { provide: VOICE_CONVERSATION_STATE_SERVICE, useExisting: VoiceConversationStateService },
     { provide: VOICE_TRANSCRIPT_STATE_SERVICE, useExisting: VoiceConversationStateService },

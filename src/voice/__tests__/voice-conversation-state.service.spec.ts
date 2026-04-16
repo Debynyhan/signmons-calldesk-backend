@@ -1,5 +1,10 @@
 import { SanitizationService } from "../../sanitization/sanitization.service";
 import { VoiceConversationStateService } from "../../conversations/voice-conversation-state.service";
+import { VoiceAddressSlotStateService } from "../../conversations/voice-state/voice-address-slot-state.service";
+import { VoiceNameSlotStateService } from "../../conversations/voice-state/voice-name-slot-state.service";
+import { VoiceSmsSlotStateService } from "../../conversations/voice-state/voice-sms-slot-state.service";
+import { VoiceTranscriptStateService } from "../../conversations/voice-state/voice-transcript-state.service";
+import { VoiceTurnOrchestrationStateService } from "../../conversations/voice-state/voice-turn-orchestration-state.service";
 
 describe("VoiceConversationStateService", () => {
   let repository: {
@@ -13,9 +18,24 @@ describe("VoiceConversationStateService", () => {
       findConversationFirst: jest.fn(),
       updateConversation: jest.fn(),
     };
-    service = new VoiceConversationStateService(
+    const transcriptState = new VoiceTranscriptStateService(
       repository as never,
       new SanitizationService(),
+    );
+    const nameSlotState = new VoiceNameSlotStateService(repository as never);
+    const addressSlotState = new VoiceAddressSlotStateService(
+      repository as never,
+    );
+    const smsSlotState = new VoiceSmsSlotStateService(repository as never);
+    const turnOrchestrationState = new VoiceTurnOrchestrationStateService(
+      repository as never,
+    );
+    service = new VoiceConversationStateService(
+      transcriptState,
+      nameSlotState,
+      addressSlotState,
+      smsSlotState,
+      turnOrchestrationState,
     );
   });
 
