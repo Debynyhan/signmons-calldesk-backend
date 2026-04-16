@@ -7,7 +7,9 @@ import {
   UseGuards,
   ValidationPipe,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
+import { TWILIO_WEBHOOK_THROTTLE } from "../common/throttle/twilio-webhook-throttle";
 import { VoiceInboundUseCase } from "./voice-inbound.use-case";
 import { TwilioSignatureGuard } from "./twilio-signature.guard";
 import { TwilioVoiceWebhookDto } from "./dto/twilio-voice-webhook.dto";
@@ -24,6 +26,7 @@ export class VoiceController {
   constructor(private readonly voiceInboundUseCase: VoiceInboundUseCase) {}
 
   @Post("inbound")
+  @Throttle(TWILIO_WEBHOOK_THROTTLE)
   async handleInbound(
     @Req() req: Request,
     @Res() res: Response,
@@ -42,6 +45,7 @@ export class VoiceController {
   }
 
   @Post("turn")
+  @Throttle(TWILIO_WEBHOOK_THROTTLE)
   async handleTurn(
     @Req() req: Request,
     @Res() res: Response,

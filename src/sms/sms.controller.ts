@@ -9,9 +9,11 @@ import {
   UseInterceptors,
   ValidationPipe,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { AdminApiGuard } from "../common/guards/admin-api.guard";
 import { AdminAuditInterceptor } from "../common/interceptors/admin-audit.interceptor";
+import { TWILIO_WEBHOOK_THROTTLE } from "../common/throttle/twilio-webhook-throttle";
 import { ConfirmFieldDto } from "./dto/confirm-field.dto";
 import { TwilioSmsWebhookDto } from "./dto/twilio-sms-webhook.dto";
 import { SmsInboundUseCase } from "./sms-inbound.use-case";
@@ -35,6 +37,7 @@ export class SmsController {
   }
 
   @Post("inbound")
+  @Throttle(TWILIO_WEBHOOK_THROTTLE)
   async handleInbound(
     @Req() req: Request,
     @Res() res: Response,
