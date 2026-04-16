@@ -1,5 +1,32 @@
 import * as Joi from "joi";
 
+const MIN_PRODUCTION_ADMIN_TOKEN_LENGTH = 24;
+const DISALLOWED_PRODUCTION_ADMIN_TOKENS = new Set([
+  "admin",
+  "admin-token",
+  "changeme-admin-token",
+  "dev-admin-token",
+  "test-admin-token",
+]);
+
+const isWeakProductionAdminToken = (token: string): boolean => {
+  const normalized = token.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  if (normalized.length < MIN_PRODUCTION_ADMIN_TOKEN_LENGTH) {
+    return true;
+  }
+  if (DISALLOWED_PRODUCTION_ADMIN_TOKENS.has(normalized)) {
+    return true;
+  }
+  return (
+    normalized.includes("changeme") ||
+    normalized.includes("dev-admin") ||
+    normalized.includes("test-admin")
+  );
+};
+
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid("development", "production", "test")
@@ -135,6 +162,15 @@ export const envValidationSchema = Joi.object({
   ) {
     return helpers.error("any.invalid", {
       message: "DEV_AUTH_ENABLED cannot be true in production.",
+    });
+  }
+  if (
+    values.NODE_ENV === "production" &&
+    isWeakProductionAdminToken(String(values.ADMIN_API_TOKEN ?? ""))
+  ) {
+    return helpers.error("any.invalid", {
+      message:
+        "ADMIN_API_TOKEN must be a strong non-default secret (>=24 chars) in production.",
     });
   }
   if (String(values.VOICE_ENABLED).toLowerCase() === "true") {
