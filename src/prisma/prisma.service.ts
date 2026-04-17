@@ -16,6 +16,9 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly pool: Pool;
+  private poolClosed = false;
+
   constructor(
     @Inject(appConfig.KEY)
     private readonly config: ConfigType<typeof appConfig>,
@@ -30,6 +33,8 @@ export class PrismaService
       adapter: new PrismaPg(pool),
       log: ["warn", "error"],
     });
+
+    this.pool = pool;
   }
 
   async onModuleInit() {
@@ -38,6 +43,10 @@ export class PrismaService
 
   async onModuleDestroy() {
     await this.$disconnect();
+    if (!this.poolClosed) {
+      this.poolClosed = true;
+      await this.pool.end();
+    }
   }
 
   enableShutdownHooks(app: INestApplication) {

@@ -7,26 +7,19 @@ Last Updated: 2026-04-17
 ## Current Context
 
 - Branch: `codex/next-task`
-- Active ticket (`Now`): `R6-4 Latency and open-handle stabilization`
+- Active ticket (`Now`): `R6-5 Architecture governance lock-in`
 - Source plan: `REFACTOR6.md`
 
 ---
 
 ## Completed This Session
 
-- Completed `R6-3 Tenant-isolation assertions at inbound boundaries` with fail-closed mismatch behavior:
-  - Added global SID-tenant lookups:
-    - `ConversationLifecycleService.findVoiceConversationTenantByCallSid`
-    - `ConversationsService.findConversationTenantBySmsSid`
-  - Enforced voice inbound mismatch guard in `VoiceInboundUseCase` for:
-    - `/api/voice/inbound`
-    - `/api/voice/demo-inbound`
-    - `/api/voice/turn`
-    - `/api/voice/fallback`
-  - Enforced SMS inbound mismatch guard in `SmsInboundUseCase` by checking `SmsSid` ownership before processing.
-- Verified mismatch paths are covered:
-  - `src/voice/__tests__/voice.controller.provider.spec.ts` (voice mismatch fail-closed) ✅
-  - `src/sms/__tests__/sms.controller.spec.ts` (SMS mismatch fail-closed) ✅
+- Completed `R6-4 Latency and open-handle stabilization` by hardening DB adapter teardown:
+  - Updated `PrismaService` to retain the `pg` pool instance and close it during `onModuleDestroy`.
+  - Added idempotent guard (`poolClosed`) to prevent double-ending the pool during repeated shutdown paths.
+- Validation outcomes:
+  - Full `npm test -- --runInBand` now exits cleanly without the prior Jest open-handle warning.
+  - Existing latency instrumentation coverage remains green (including stream timing persistence and SLA warning assertions in `voice-stream.gateway.spec.ts`).
 - Required gates run:
   - `npm run -s build` ✅
   - `npm test -- --runInBand` ✅
@@ -36,8 +29,8 @@ Last Updated: 2026-04-17
 
 ## Next Actions
 
-1. Start `R6-4` latency and open-handle stabilization.
-2. Identify persistent async handles in test/runtime lifecycle and close them deterministically.
+1. Start `R6-5` architecture governance lock-in.
+2. Add ADR coverage and architecture gate enforcement updates.
 3. Keep WIP limit at one ticket and repeat full gates.
 
 ---
@@ -55,5 +48,5 @@ npm run -s arch:check
 
 ## Open Risks / Notes
 
-- Full test gate still reports a Jest open-handle notice after completion; suites pass but cleanup should be handled in `R6-4`.
+- Open-handle warning from full Jest run is resolved after pool teardown hardening.
 - Repo contains unrelated in-progress doc/workstream files; do not include them in focused ticket commits unless explicitly scoped.
