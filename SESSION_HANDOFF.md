@@ -7,21 +7,22 @@ Last Updated: 2026-04-17
 ## Current Context
 
 - Branch: `codex/next-task`
-- Active ticket (`Now`): `R6-P0-1 SMS Twilio signature guard parity` (completed in working tree, pending commit/push)
+- Active ticket (`Now`): `R6-P0-4 Payments presentation boundary extraction` (completed in working tree, pending commit/push)
 - Source plan: `REFACTOR6.md`
 
 ---
 
 ## Completed This Session
 
-- Implemented `R6-P0-1` SMS Twilio signature guard parity:
-  - Added `TwilioSmsSignatureGuard` and wired it to `POST /api/sms/inbound`.
-  - Removed Twilio signature verification transport/auth logic from `SmsInboundUseCase`.
-  - Added SMS guard unit coverage and expanded SMS controller inbound coverage for:
-    - valid signature,
-    - missing signature,
-    - invalid signature,
-    - explicit development local-bypass.
+- Pushed `R6-P0-1` commit (`a31a87b`) to `origin/codex/next-task`.
+- Implemented `R6-P0-4` payments presentation boundary extraction:
+  - Added `PaymentsPageRendererService` for intake/success/cancel HTML rendering.
+  - Refactored `PaymentsController` to delegate page rendering concerns to renderer service.
+  - Registered renderer service in `PaymentsModule`.
+  - Added route-level controller tests to validate:
+    - intake page rendering and HTML escaping,
+    - checkout redirect behavior,
+    - success/cancel page outcomes.
 - Required gates run:
   - `npm run -s build` ✅
   - `npm test -- --runInBand` ✅
@@ -31,8 +32,8 @@ Last Updated: 2026-04-17
 
 ## Next Actions
 
-1. Commit/push focused `R6-P0-1` patch.
-2. Move to `R6-P0-2` from `REFACTOR6.md` / `EXECUTION_BOARD.md`.
+1. Commit/push focused `R6-P0-4` patch.
+2. Move to `R6-P0-5` from `REFACTOR6.md` / `EXECUTION_BOARD.md`.
 3. Keep WIP limit at one ticket and repeat full gates.
 
 ---

@@ -13,6 +13,7 @@ import { VoiceIntakeSmsService } from "./voice-intake-sms.service";
 import { IntakeCheckoutOrchestratorService } from "./intake-checkout-orchestrator.service";
 import { PaymentsService } from "./payments.service";
 import { PaymentsController } from "./payments.controller";
+import { PaymentsPageRendererService } from "./payments-page-renderer.service";
 
 @Module({
   imports: [
@@ -25,7 +26,15 @@ import { PaymentsController } from "./payments.controller";
     ConversationsModule,
   ],
   controllers: [PaymentsController],
-  providers: [IntakeLinkService, IntakeFeeCalculatorService, StripeEventProcessorService, VoiceIntakeSmsService, IntakeCheckoutOrchestratorService, PaymentsService],
+  providers: [
+    IntakeLinkService,
+    IntakeFeeCalculatorService,
+    StripeEventProcessorService,
+    VoiceIntakeSmsService,
+    IntakeCheckoutOrchestratorService,
+    PaymentsPageRendererService,
+    PaymentsService,
+  ],
   exports: [IntakeLinkService, VoiceIntakeSmsService, PaymentsService],
 })
 export class PaymentsModule {}
