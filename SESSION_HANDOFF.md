@@ -7,19 +7,24 @@ Last Updated: 2026-04-17
 ## Current Context
 
 - Branch: `codex/next-task`
-- Active ticket (`Now`): `R6-5 Architecture governance lock-in`
-- Source plan: `REFACTOR6.md`
+- Active ticket (`Now`): `FE-1001 Marketing Homepage`
+- Source plan: `MVP_BACKLOG.md`
 
 ---
 
 ## Completed This Session
 
-- Completed `R6-4 Latency and open-handle stabilization` by hardening DB adapter teardown:
-  - Updated `PrismaService` to retain the `pg` pool instance and close it during `onModuleDestroy`.
-  - Added idempotent guard (`poolClosed`) to prevent double-ending the pool during repeated shutdown paths.
+- Completed `R6-5 Architecture governance lock-in`:
+  - Added ADR baseline documents under `docs/adr`:
+    - `ADR-0001-inbound-webhook-boundary-controls.md`
+    - `ADR-0002-voice-turn-runtime-pipeline.md`
+    - `ADR-0003-architecture-gate-governance.md`
+  - Extended `scripts/arch-check.ts` with governance enforcement:
+    - new Gate 6 validates required ADR files and mandatory ADR sections,
+    - npm audit critical check moved to Gate 7.
 - Validation outcomes:
-  - Full `npm test -- --runInBand` now exits cleanly without the prior Jest open-handle warning.
-  - Existing latency instrumentation coverage remains green (including stream timing persistence and SLA warning assertions in `voice-stream.gateway.spec.ts`).
+  - Architecture checks now enforce documentation/governance alongside code boundaries.
+  - CI/local gate behavior remains green.
 - Required gates run:
   - `npm run -s build` ✅
   - `npm test -- --runInBand` ✅
@@ -29,8 +34,8 @@ Last Updated: 2026-04-17
 
 ## Next Actions
 
-1. Start `R6-5` architecture governance lock-in.
-2. Add ADR coverage and architecture gate enforcement updates.
+1. Start `FE-1001 Marketing Homepage` from `MVP_BACKLOG.md`.
+2. Map implementation to `SCR-PUB-001` and validate frontend acceptance criteria.
 3. Keep WIP limit at one ticket and repeat full gates.
 
 ---

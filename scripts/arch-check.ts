@@ -9,6 +9,8 @@
  *   4. Manual new      — no `this.<field> = new SomeClass(...)` in *.service.ts constructors
  *   5. Module boundary — cross-module imports in services/controllers must use
  *                        interface/constants seams or approved allowlist entries
+ *   6. ADR governance  — required ADR files and section structure must exist
+ *   7. npm audit       — no critical severity vulnerabilities in prod dependencies
  *
  * Run: ts-node --transpile-only scripts/arch-check.ts
  */
@@ -25,6 +27,7 @@ import { execSync } from "child_process";
 
 const ROOT = path.resolve(__dirname, "..");
 const SRC_ROOT = path.join(ROOT, "src");
+const ADR_ROOT = path.join(ROOT, "docs", "adr");
 const SRC_GLOB = "src/**/*.ts";
 const MODULE_GLOB = "src/**/*.module.ts";
 const SPEC_PATTERN = /\.spec\.ts$|\.e2e\.spec\.ts$/;
@@ -94,6 +97,32 @@ const MODULE_BOUNDARY_ALLOWED_TARGET_FILES: ReadonlyArray<{
     reason: "Shared tenant fee-policy helper",
   },
 ];
+
+const REQUIRED_ADR_FILES: ReadonlyArray<{
+  file: string;
+  reason: string;
+}> = [
+  {
+    file: "ADR-0001-inbound-webhook-boundary-controls.md",
+    reason: "Fail-closed inbound boundary security decisions",
+  },
+  {
+    file: "ADR-0002-voice-turn-runtime-pipeline.md",
+    reason: "Voice orchestration and runtime decomposition decisions",
+  },
+  {
+    file: "ADR-0003-architecture-gate-governance.md",
+    reason: "Architecture gate governance and allowlist policy",
+  },
+];
+
+const REQUIRED_ADR_SECTIONS = [
+  "## Status",
+  "## Date",
+  "## Context",
+  "## Decision",
+  "## Consequences",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -596,6 +625,64 @@ function checkModuleBoundaries(allSourceFiles: string[]): Violation[] {
 }
 
 // ---------------------------------------------------------------------------
+// Gate 6 — ADR governance
+// ---------------------------------------------------------------------------
+
+function firstNonEmptyLine(content: string): string {
+  return (
+    content
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
+}
+
+function checkAdrGovernance(): Violation[] {
+  const violations: Violation[] = [];
+
+  if (!fs.existsSync(ADR_ROOT) || !fs.statSync(ADR_ROOT).isDirectory()) {
+    violations.push({
+      file: "docs/adr",
+      message: "ADR directory is missing",
+    });
+    return violations;
+  }
+
+  for (const required of REQUIRED_ADR_FILES) {
+    const abs = path.join(ADR_ROOT, required.file);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      violations.push({
+        file: path.posix.join("docs/adr", required.file),
+        message: `required ADR missing (${required.reason})`,
+      });
+    }
+  }
+
+  const adrFiles = glob("docs/adr/*.md", { cwd: ROOT, absolute: true });
+  for (const adrFile of adrFiles) {
+    const content = fs.readFileSync(adrFile, "utf8");
+    const rel = relPath(adrFile);
+    const title = firstNonEmptyLine(content);
+    if (!/^# ADR-\d{4}/.test(title)) {
+      violations.push({
+        file: rel,
+        message: "ADR title must start with '# ADR-0000'",
+      });
+    }
+    for (const section of REQUIRED_ADR_SECTIONS) {
+      if (!content.includes(section)) {
+        violations.push({
+          file: rel,
+          message: `missing required section '${section}'`,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+// ---------------------------------------------------------------------------
 // Gate 6 — npm audit (no critical severity prod dependencies)
 // ---------------------------------------------------------------------------
 
@@ -686,7 +773,11 @@ function main(): void {
       violations: checkModuleBoundaries(allSourceFiles),
     },
     {
-      name: "Gate 6 — No critical severity prod dependencies (npm audit)",
+      name: "Gate 6 — ADR governance (required ADR files/sections)",
+      violations: checkAdrGovernance(),
+    },
+    {
+      name: "Gate 7 — No critical severity prod dependencies (npm audit)",
       violations: checkNpmAudit(),
     },
   ];

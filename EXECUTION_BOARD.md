@@ -34,16 +34,16 @@ Canonical screen inventory: `SCREEN_INVENTORY.md`.
 
 ## Now (WIP Limit: 1)
 
-- [ ] R6-5 Architecture governance lock-in
-  - Source: `REFACTOR6.md`
+- [ ] FE-1001 Marketing Homepage
+  - Source: `MVP_BACKLOG.md`
   - Owner: You + coding agent
-  - Evidence required: ADR coverage + enforceable architecture gate rules
+  - Evidence required: implemented `SCR-PUB-001` acceptance criteria + frontend gate evidence
 
 ---
 
 ## Next (Top 5)
 
-- [ ] FE-1001 Marketing Homepage
+- (empty)
 
 ---
 
@@ -80,6 +80,7 @@ Canonical screen inventory: `SCREEN_INVENTORY.md`.
 - [x] R6-2 Voice turn orchestration decomposition
 - [x] R6-3 Tenant-isolation assertions at inbound boundaries
 - [x] R6-4 Latency and open-handle stabilization
+- [x] R6-5 Architecture governance lock-in
 - [x] REFACTOR5 completed (see `refactor5.md`)
 
 ---
