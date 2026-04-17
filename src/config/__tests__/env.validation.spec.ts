@@ -68,4 +68,22 @@ describe("envValidationSchema security rules", () => {
     });
     expect(error).toBeUndefined();
   });
+
+  it("rejects Stripe insecure-local bypass outside development", () => {
+    const { error } = validateEnv({
+      NODE_ENV: "test",
+      STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL: "true",
+    });
+    expect(
+      hasCustomErrorMessage(error, "STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL"),
+    ).toBe(true);
+  });
+
+  it("allows Stripe insecure-local bypass in development", () => {
+    const { error } = validateEnv({
+      NODE_ENV: "development",
+      STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL: "true",
+    });
+    expect(error).toBeUndefined();
+  });
 });

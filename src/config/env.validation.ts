@@ -240,5 +240,14 @@ export const envValidationSchema = Joi.object({
         "TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL can only be true in development.",
     });
   }
+  if (
+    values.NODE_ENV !== "development" &&
+    String(values.STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL).toLowerCase() === "true"
+  ) {
+    return helpers.error("any.invalid", {
+      message:
+        "STRIPE_WEBHOOK_ALLOW_INSECURE_LOCAL can only be true in development.",
+    });
+  }
   return values;
 });
