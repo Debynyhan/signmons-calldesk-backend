@@ -34,16 +34,15 @@ Canonical screen inventory: `SCREEN_INVENTORY.md`.
 
 ## Now (WIP Limit: 1)
 
-- [ ] R6-1 Forced-hangup scheduler extraction
+- [ ] R6-2 Voice turn orchestration decomposition
   - Source: `REFACTOR6.md`
   - Owner: You + coding agent
-  - Evidence required: isolated scheduling interface + stream lifecycle tests remain green
+  - Evidence required: orchestration split into focused runtime units + replay/runtime suites remain green
 
 ---
 
 ## Next (Top 5)
 
-- [ ] R6-2 Voice turn orchestration decomposition
 - [ ] R6-3 Tenant-isolation assertions at inbound boundaries
 - [ ] R6-4 Latency and open-handle stabilization
 - [ ] R6-5 Architecture governance lock-in
@@ -80,6 +79,7 @@ Canonical screen inventory: `SCREEN_INVENTORY.md`.
 - [x] R6-P0-3 Exception diagnostic redaction policy
 - [x] R6-P0-4 Payments presentation boundary extraction
 - [x] R6-P0-5 Legacy voice controller suite replacement
+- [x] R6-1 Forced-hangup scheduler extraction
 - [x] REFACTOR5 completed (see `refactor5.md`)
 
 ---
