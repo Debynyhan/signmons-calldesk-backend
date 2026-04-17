@@ -7,20 +7,24 @@ Last Updated: 2026-04-17
 ## Current Context
 
 - Branch: `codex/next-task`
-- Active ticket (`Now`): `R6-1 Forced-hangup scheduler extraction` (validated and completed in working tree, pending commit/push)
+- Active ticket (`Now`): `R6-3 Tenant-isolation assertions at inbound boundaries`
 - Source plan: `REFACTOR6.md`
 
 ---
 
 ## Completed This Session
 
-- Validated `R6-1` forced-hangup scheduler extraction is isolated in dedicated runtime/service boundaries:
-  - `VoiceStreamHangupRuntime` owns forced-hangup delay estimation, scheduling, and completion attempt logging.
-  - `VoiceStreamTurnExecutionRuntime` delegates hangup scheduling through `scheduleForcedHangupIfNeeded` policy hook and remains turn-processing focused.
-  - `VoiceStreamGateway` wires the hangup runtime into turn execution policy adapters.
-- Verified stream lifecycle coverage remains green:
-  - `src/voice/__tests__/voice-stream-hangup.runtime.spec.ts` ✅
-  - `src/voice/__tests__/voice-stream.gateway.spec.ts` ✅
+- Completed `R6-2 Voice turn orchestration decomposition` by splitting prelude/context wiring from `VoiceTurnPreludeContextFactory` into dedicated runtime builder units:
+  - Added `src/voice/voice-turn-prelude-context.runtime-builders.ts` with focused builders:
+    - `createTurnPreludeRuntime`
+    - `createTurnContextRuntime`
+    - `createTurnEarlyRoutingRuntime`
+    - `createTurnExpectedFieldRuntime`
+  - Reduced `VoiceTurnPreludeContextFactory` to orchestration-only composition/wiring.
+- Verified focused orchestration suites remain green:
+  - `src/voice/__tests__/voice-turn-runtime.factory.spec.ts` ✅
+  - `src/voice/__tests__/voice-turn-pipeline.service.spec.ts` ✅
+  - `src/voice/__tests__/voice-turn.service.spec.ts` ✅
 - Required gates run:
   - `npm run -s build` ✅
   - `npm test -- --runInBand` ✅
@@ -30,8 +34,8 @@ Last Updated: 2026-04-17
 
 ## Next Actions
 
-1. Commit/push focused `R6-1` completion patch.
-2. Move to `R6-2` from `REFACTOR6.md` / `EXECUTION_BOARD.md`.
+1. Start `R6-3` inbound tenant-isolation assertions in voice/SMS boundaries.
+2. Add fail-closed mismatch handling and integration coverage for mismatch paths.
 3. Keep WIP limit at one ticket and repeat full gates.
 
 ---
