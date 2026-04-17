@@ -7,22 +7,25 @@ Last Updated: 2026-04-17
 ## Current Context
 
 - Branch: `codex/next-task`
-- Active ticket (`Now`): `R6-P0-4 Payments presentation boundary extraction` (completed in working tree, pending commit/push)
+- Active ticket (`Now`): `R6-P0-5 Legacy voice controller suite replacement` (completed in working tree, pending commit/push)
 - Source plan: `REFACTOR6.md`
 
 ---
 
 ## Completed This Session
 
-- Pushed `R6-P0-1` commit (`a31a87b`) to `origin/codex/next-task`.
-- Implemented `R6-P0-4` payments presentation boundary extraction:
-  - Added `PaymentsPageRendererService` for intake/success/cancel HTML rendering.
-  - Refactored `PaymentsController` to delegate page rendering concerns to renderer service.
-  - Registered renderer service in `PaymentsModule`.
-  - Added route-level controller tests to validate:
-    - intake page rendering and HTML escaping,
-    - checkout redirect behavior,
-    - success/cancel page outcomes.
+- Replaced legacy skipped voice controller integration suite:
+  - Removed `src/voice/__tests__/voice.controller.spec.ts` (`describe.skip` legacy quarantine).
+  - Added `src/voice/__tests__/voice.controller.routes.spec.ts` with focused, enforced route integration tests for:
+    - inbound delegation when signature checks are disabled,
+    - missing signature rejection,
+    - invalid signature rejection,
+    - valid signature acceptance,
+    - explicit development local bypass acceptance.
+- Retained and enforced focused non-skipped controller suites:
+  - `voice.controller.contract.spec.ts`,
+  - `voice.controller.provider.spec.ts`,
+  - new `voice.controller.routes.spec.ts`.
 - Required gates run:
   - `npm run -s build` ✅
   - `npm test -- --runInBand` ✅
@@ -32,8 +35,8 @@ Last Updated: 2026-04-17
 
 ## Next Actions
 
-1. Commit/push focused `R6-P0-4` patch.
-2. Move to `R6-P0-5` from `REFACTOR6.md` / `EXECUTION_BOARD.md`.
+1. Commit/push focused `R6-P0-5` patch.
+2. Move to `R6-1` from `REFACTOR6.md` / `EXECUTION_BOARD.md`.
 3. Keep WIP limit at one ticket and repeat full gates.
 
 ---
@@ -51,5 +54,5 @@ npm run -s arch:check
 
 ## Open Risks / Notes
 
-- Full test gate still reports a Jest open-handle notice after completion; suites pass but handle cleanup should remain on the reliability queue.
+- Full test gate still reports a Jest open-handle notice after completion; suites pass but cleanup should be handled in `R6-4`.
 - Repo contains unrelated in-progress doc/workstream files; do not include them in focused ticket commits unless explicitly scoped.

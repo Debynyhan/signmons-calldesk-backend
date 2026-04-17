@@ -34,19 +34,19 @@ Canonical screen inventory: `SCREEN_INVENTORY.md`.
 
 ## Now (WIP Limit: 1)
 
-- [ ] R6-P0-5 Legacy voice controller suite replacement
+- [ ] R6-1 Forced-hangup scheduler extraction
   - Source: `REFACTOR6.md`
   - Owner: You + coding agent
-  - Evidence required: focused non-skipped suite coverage for critical voice controller behavior
+  - Evidence required: isolated scheduling interface + stream lifecycle tests remain green
 
 ---
 
 ## Next (Top 5)
 
-- [ ] R6-1 Forced-hangup scheduler extraction
 - [ ] R6-2 Voice turn orchestration decomposition
 - [ ] R6-3 Tenant-isolation assertions at inbound boundaries
 - [ ] R6-4 Latency and open-handle stabilization
+- [ ] R6-5 Architecture governance lock-in
 - [ ] FE-1001 Marketing Homepage
 
 ---
@@ -79,6 +79,7 @@ Canonical screen inventory: `SCREEN_INVENTORY.md`.
 - [x] R6-P0-2 Stripe local-bypass env validation parity
 - [x] R6-P0-3 Exception diagnostic redaction policy
 - [x] R6-P0-4 Payments presentation boundary extraction
+- [x] R6-P0-5 Legacy voice controller suite replacement
 - [x] REFACTOR5 completed (see `refactor5.md`)
 
 ---
