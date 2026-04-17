@@ -1,7 +1,15 @@
 # Signmons MVP Backlog (Epics + Tickets + Acceptance Criteria)
 
 ## How To Use
-- Use this file as the single execution board for MVP.
+- Use this file as the master product backlog for MVP scope.
+- Use `EXECUTION_BOARD.md` as the single active execution queue.
+- Use `SCREEN_INVENTORY.md` as the canonical screen/route map.
+- Use `AI_WORKFLOW_RULES.md` for chatbot-agnostic coding/process rules.
+- Use `SESSION_HANDOFF.md` to resume work after breaks.
+- Before any public claim is marked `Shipped`, ensure it has:
+  - FE ticket pointer,
+  - `SCR-*` screen pointer (or explicit API-only rationale),
+  - acceptance evidence.
 - Each ticket has a unique ID, scope, and testable acceptance criteria.
 - Status checkboxes are kept here for fast progress tracking.
 
@@ -247,6 +255,12 @@ Acceptance Criteria:
 - [ ] Accessibility pass on key flows (keyboard + labels + contrast).
 - [ ] Telemetry events verified in staging.
 - [ ] Security review complete for auth/payment/admin surfaces.
+- [ ] Marketing claim alignment check completed against `SCREEN_INVENTORY.md` and `marketing-features.md`.
+
+## Explicitly Deferred (Post-MVP)
+- ServiceTitan integration adapters and two-way sync.
+- Website intake (forms/chat) pipeline.
+- Authenticated in-app web chat experience.
 
 ## Suggested Delivery Order
 1. EPIC-0

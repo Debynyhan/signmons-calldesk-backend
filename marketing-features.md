@@ -3,6 +3,41 @@
 Trades-first messaging for a marketing site. Plain language, revenue-focused,
 and centered on control, money, and reliability.
 
+## Delivery Truth Model
+
+To keep messaging aligned with actual product state:
+- Source of active execution truth: `EXECUTION_BOARD.md`
+- Source of planned product scope: `MVP_BACKLOG.md`
+- Source of backend hardening phases: `REFACTOR6.md`
+- Source of canonical screen/route coverage: `SCREEN_INVENTORY.md`
+
+Status labels for every claim in this doc:
+- `Shipped`: available in current release.
+- `Beta`: implemented but still operationally limited.
+- `Planned`: not yet implemented.
+
+Rule: do not present a `Planned` feature as `Shipped` in public copy.
+
+## Feature Claim Registry (Backlog-Aligned)
+
+Every outward claim must map to:
+- one backlog ticket (`MVP_BACKLOG.md`) and
+- one screen/route surface (`SCREEN_INVENTORY.md`) where applicable.
+
+| Claim | Status | Backlog Pointer | Screen/API Pointer |
+| --- | --- | --- | --- |
+| 24/7 inbound voice intake | Beta | Backend voice track + FE-2002/FE-2003 | `src/voice/voice.controller.ts` |
+| 24/7 inbound SMS handling | Beta | FE-3001..FE-3005 | `src/sms/sms.controller.ts` |
+| SMS intake + Stripe checkout links | Beta | FE-3001..FE-3005 | `src/payments/payments.controller.ts` |
+| Outbound demo calls | Shipped | FE-1001/FE-1004 | `src/marketing/marketing.controller.ts` |
+| Tenant dashboards (ops/analytics) | Planned | FE-2001..FE-2004, FE-5001..FE-5002 | `SCREEN_INVENTORY.md` (`SCR-TEN-*`) |
+| Tenant settings studio | Planned | FE-5003 | `SCR-TEN-011` |
+| Super admin panel | Planned | FE-5004 | `SCR-ADM-*` |
+| Feature flags UI | Planned | FE-5005 | `SCR-TEN-012`, `SCR-ADM-005` |
+| ServiceTitan integration | Planned | Post-MVP integration track | N/A (no shipped adapter) |
+| Website intake forms/chat routing | Planned | Add ticket before claiming shipped | `SCR-PUB-008` |
+| Authenticated web chat | Planned | Add ticket before claiming shipped | `SCR-TEN-013` |
+
 ## 1. Core Message
 
 ### Plain-English Positioning
@@ -14,8 +49,9 @@ We make sure every call turns into the right job.
 
 ## 2. Hero Section (Above the Fold)
 - Headline: Never Miss Another Job - Day or Night
-- Subheadline: Signmons handles your calls, texts, and website requests like a
-  professional dispatcher - prioritizing emergencies and booking real work.
+- Subheadline: Signmons handles your calls and texts like a professional
+  dispatcher - prioritizing emergencies and booking real work. Website intake
+  is on the roadmap.
 - CTA: See How It Works / Get a Demo
 
 ## 3. The Real Problem (Their Reality)
@@ -29,7 +65,7 @@ Reinforcement: If the phone rings and no one answers, the customer calls someone
 
 ## 4. What Signmons Does (Feature -> Outcome)
 
-### Answers Calls, Texts, and Website Requests
+### Answers Calls and Texts 24/7 (Now)
 What it does:
 - Answers customers instantly.
 - Works 24/7, including nights and weekends.
@@ -38,6 +74,8 @@ What that means for you:
 - No missed leads.
 - More booked jobs.
 - Less stress on you and your staff.
+
+Website intake forms/chat are planned and not yet part of shipped MVP.
 
 ### Knows When It's an Emergency
 What it does:
@@ -72,7 +110,7 @@ What that means for you:
 
 ## 5. Works With Your Existing Systems
 
-### ServiceTitan Integration
+### ServiceTitan Integration (Planned)
 What it does:
 - Connects with ServiceTitan.
 - Sends qualified jobs directly into your workflow.
@@ -160,7 +198,7 @@ Line: If you roll trucks, Signmons works for you.
 - Headline: Stop Missing Calls. Start Booking More Jobs.
 - CTA: Schedule a Demo / See Signmons in Action
 
-## 10a. Owner and Admin Control Center
+## 10a. Owner and Admin Control Center (Planned)
 - Set company details, pricing rules, and routing preferences.
 - Manage users and roles across locations.
 - Calendar and dispatch visibility (coming soon).
@@ -170,16 +208,17 @@ Line: If you roll trucks, Signmons works for you.
 ### Available Now
 - 24/7 call answering (voice).
 - 24/7 text answering (SMS).
-- Website intake (forms/chat) routed into Signmons.
-- Authenticated web chat inside the Signmons app.
 - Step-by-step voice intake (name, address, issue capture).
 - Emergency prioritization.
 - Consistent pricing and policy disclosures.
 - Outbound demo calls for marketing leads.
 - Call outcome logging and basic performance tracking (internal).
-- Company-specific settings for greetings and fees.
+- Intake link + payment flow for voice/SMS handoff.
 
 ### Coming Soon
+- Website intake (forms/chat) routed into Signmons.
+- Authenticated web chat inside the Signmons app.
+- Company-specific settings studio for prompt/fee/routing controls.
 - Automated SMS confirmations for identity and fees.
 - Custom brand personality and tone per company.
 - Voice selection to match your brand.
