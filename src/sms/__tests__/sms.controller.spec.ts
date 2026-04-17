@@ -12,13 +12,92 @@ import { AI_SERVICE } from "../../ai/ai.service.interface";
 import { SmsService } from "../sms.service";
 import { ToolRegistryModule } from "../../ai/tools/tool-registry.module";
 
+const validateRequestMock = jest.fn();
+
+jest.mock("twilio", () => ({
+  validateRequest: (...args: unknown[]) => validateRequestMock(...args),
+}));
+
 describe("SmsController", () => {
   beforeEach(() => {
     process.env.ADMIN_API_TOKEN = "test-admin-token";
     process.env.NODE_ENV = "test";
     process.env.OPENAI_API_KEY = "test-openai-key";
     process.env.TWILIO_SIGNATURE_CHECK = "false";
+    process.env.TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL = "false";
+    process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.ngrok.io";
+    validateRequestMock.mockReset();
   });
+
+  const buildInboundHarness = async () => {
+    const getConversationById = jest.fn();
+    const promoteNameFromSms = jest.fn();
+    const promoteAddressFromSms = jest.fn();
+    const getConversationBySmsSid = jest.fn().mockResolvedValue(null);
+    const ensureSmsConversation = jest.fn().mockResolvedValue({
+      conversation: { id: "conversation-1" },
+      sessionId: "session-1",
+    });
+    const resolveTenantByPhone = jest.fn().mockResolvedValue({
+      id: "tenant-1",
+      name: "leizurely_hvac",
+    });
+    const getActiveTenantSubscription = jest.fn().mockResolvedValue({
+      id: "sub-1",
+      status: "ACTIVE",
+      currentPeriodEnd: new Date(Date.now() + 60_000),
+    });
+    const triage = jest.fn().mockResolvedValue({
+      status: "reply",
+      reply: "Thanks for texting.",
+    });
+    const sendMessage = jest.fn().mockResolvedValue("SM123");
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          cache: true,
+          load: [appConfig],
+          validationSchema: envValidationSchema,
+          ignoreEnvFile: true,
+        }),
+        ToolRegistryModule,
+        SmsModule,
+      ],
+    })
+      .overrideProvider(ConversationsService)
+      .useValue({
+        getConversationById,
+        getConversationBySmsSid,
+      })
+      .overrideProvider(VoiceConversationStateService)
+      .useValue({ promoteNameFromSms, promoteAddressFromSms })
+      .overrideProvider(ConversationLifecycleService)
+      .useValue({
+        ensureSmsConversation,
+      })
+      .overrideProvider(TENANTS_SERVICE)
+      .useValue({ resolveTenantByPhone, getActiveTenantSubscription })
+      .overrideProvider(AI_SERVICE)
+      .useValue({ triage })
+      .overrideProvider(SmsService)
+      .useValue({ sendMessage })
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
+
+    return {
+      app,
+      httpServer,
+      resolveTenantByPhone,
+      ensureSmsConversation,
+      triage,
+      sendMessage,
+    };
+  };
 
   it("confirms name via SMS", async () => {
     const promoteNameFromSms = jest.fn();
@@ -224,67 +303,14 @@ describe("SmsController", () => {
   });
 
   it("routes inbound SMS through AI and replies", async () => {
-    const getConversationById = jest.fn();
-    const promoteNameFromSms = jest.fn();
-    const promoteAddressFromSms = jest.fn();
-    const getConversationBySmsSid = jest.fn().mockResolvedValue(null);
-    const ensureSmsConversation = jest.fn().mockResolvedValue({
-      conversation: { id: "conversation-1" },
-      sessionId: "session-1",
-    });
-    const resolveTenantByPhone = jest.fn().mockResolvedValue({
-      id: "tenant-1",
-      name: "leizurely_hvac",
-    });
-    const getActiveTenantSubscription = jest.fn().mockResolvedValue({
-      id: "sub-1",
-      status: "ACTIVE",
-      currentPeriodEnd: new Date(Date.now() + 60_000),
-    });
-    const triage = jest.fn().mockResolvedValue({
-      status: "reply",
-      reply: "Thanks for texting.",
-    });
-    const sendMessage = jest.fn().mockResolvedValue("SM123");
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [
-        ConfigModule.forRoot({
-          isGlobal: true,
-          cache: true,
-          load: [appConfig],
-          validationSchema: envValidationSchema,
-          ignoreEnvFile: true,
-        }),
-        ToolRegistryModule,
-        SmsModule,
-      ],
-    })
-      .overrideProvider(ConversationsService)
-      .useValue({
-        getConversationById,
-        getConversationBySmsSid,
-      })
-      .overrideProvider(VoiceConversationStateService)
-      .useValue({ promoteNameFromSms, promoteAddressFromSms })
-      .overrideProvider(ConversationLifecycleService)
-      .useValue({
-        ensureSmsConversation,
-      })
-      .overrideProvider(TENANTS_SERVICE)
-      .useValue({ resolveTenantByPhone, getActiveTenantSubscription })
-      .overrideProvider(AI_SERVICE)
-      .useValue({ triage })
-      .overrideProvider(SmsService)
-      .useValue({ sendMessage })
-      .compile();
-
-    const app = moduleRef.createNestApplication();
-    await app.init();
-    const httpServer = app.getHttpServer() as Parameters<typeof request>[0];
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    validateRequestMock.mockReturnValue(true);
+    const { app, httpServer, resolveTenantByPhone, ensureSmsConversation, triage, sendMessage } =
+      await buildInboundHarness();
 
     await request(httpServer)
       .post("/api/sms/inbound")
+      .set("x-twilio-signature", "good-sig")
       .send({
         From: "+12025550100",
         To: "+12025550199",
@@ -318,6 +344,84 @@ describe("SmsController", () => {
         conversationId: "conversation-1",
       }),
     );
+    expect(validateRequestMock).toHaveBeenCalledWith(
+      expect.any(String),
+      "good-sig",
+      "https://example.ngrok.io/api/sms/inbound",
+      expect.objectContaining({ SmsSid: "SM123" }),
+    );
+
+    await app.close();
+  });
+
+  it("rejects inbound SMS when Twilio signature is missing", async () => {
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    const { app, httpServer, ensureSmsConversation, sendMessage, triage } =
+      await buildInboundHarness();
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "Hello",
+        SmsSid: "SM123",
+      })
+      .expect(401);
+
+    expect(validateRequestMock).not.toHaveBeenCalled();
+    expect(ensureSmsConversation).not.toHaveBeenCalled();
+    expect(triage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rejects inbound SMS when Twilio signature is invalid", async () => {
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    validateRequestMock.mockReturnValue(false);
+    const { app, httpServer, ensureSmsConversation, sendMessage, triage } =
+      await buildInboundHarness();
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .set("x-twilio-signature", "bad-sig")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "Hello",
+        SmsSid: "SM123",
+      })
+      .expect(401);
+
+    expect(validateRequestMock).toHaveBeenCalled();
+    expect(ensureSmsConversation).not.toHaveBeenCalled();
+    expect(triage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("allows explicit local bypass in development for inbound SMS", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    process.env.TWILIO_SIGNATURE_ALLOW_INSECURE_LOCAL = "true";
+    const { app, httpServer, ensureSmsConversation, sendMessage } =
+      await buildInboundHarness();
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "Hello",
+        SmsSid: "SM123",
+      })
+      .expect(204);
+
+    expect(validateRequestMock).not.toHaveBeenCalled();
+    expect(ensureSmsConversation).toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalled();
 
     await app.close();
   });

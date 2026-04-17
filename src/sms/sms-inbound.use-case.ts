@@ -3,13 +3,10 @@ import {
   Injectable,
   Inject,
   NotFoundException,
-  UnauthorizedException,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
-import { validateRequest } from "twilio";
 import { CommunicationChannel } from "@prisma/client";
-import appConfig, { type AppConfig } from "../config/app.config";
 import { TENANTS_SERVICE } from "../tenants/tenants.constants";
 import type { TenantsService } from "../tenants/interfaces/tenants-service.interface";
 import { CONVERSATION_LIFECYCLE_SERVICE, type IConversationLifecycleService } from "../conversations/conversation-lifecycle.service.interface";
@@ -29,11 +26,7 @@ import { SmsService } from "./sms.service";
 
 @Injectable()
 export class SmsInboundUseCase {
-  private insecureBypassWarned = false;
-
   constructor(
-    @Inject(appConfig.KEY)
-    private readonly config: AppConfig,
     @Inject(TENANTS_SERVICE)
     private readonly tenantsService: TenantsService,
     @Inject(CONVERSATION_LIFECYCLE_SERVICE) private readonly conversationLifecycleService: IConversationLifecycleService,
@@ -95,8 +88,6 @@ export class SmsInboundUseCase {
   }
 
   async handleInbound(req: Request, res: Response) {
-    this.verifySignature(req);
-
     const smsBody = (req.body ?? {}) as TwilioSmsWebhookDto;
     const toNumber = this.extractToNumber(smsBody);
     const fromNumber = this.extractFromNumber(smsBody);
@@ -233,54 +224,5 @@ export class SmsInboundUseCase {
       }
     }
     return "Thanks - we'll follow up shortly.";
-  }
-
-  private shouldVerifySignature(): boolean {
-    if (!this.config.twilioSignatureCheck) {
-      return false;
-    }
-    const insecureLocalBypassEnabled =
-      this.config.environment === "development" &&
-      this.config.twilioSignatureAllowInsecureLocal;
-    if (insecureLocalBypassEnabled && !this.insecureBypassWarned) {
-      this.loggingService.warn(
-        {
-          event: "sms.twilio_signature_bypass_enabled",
-        },
-        SmsInboundUseCase.name,
-      );
-      this.insecureBypassWarned = true;
-      return false;
-    }
-    return !insecureLocalBypassEnabled;
-  }
-
-  private verifySignature(req: Request) {
-    if (!this.shouldVerifySignature()) {
-      return;
-    }
-
-    const signature = req.header("x-twilio-signature");
-    if (!signature) {
-      throw new UnauthorizedException("Missing Twilio signature.");
-    }
-
-    const baseUrl = this.config.twilioWebhookBaseUrl;
-    if (!baseUrl) {
-      throw new UnauthorizedException("Webhook base URL not configured.");
-    }
-
-    const url = `${baseUrl.replace(/\/$/, "")}${req.originalUrl}`;
-    const params = (req.body ?? {}) as Record<string, unknown>;
-    const isValid = validateRequest(
-      this.config.twilioAuthToken,
-      signature,
-      url,
-      params,
-    );
-
-    if (!isValid) {
-      throw new UnauthorizedException("Invalid Twilio signature.");
-    }
   }
 }

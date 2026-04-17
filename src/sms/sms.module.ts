@@ -10,6 +10,7 @@ import { AiModule } from "../ai/ai.module";
 import { TenantsModule } from "../tenants/tenants.module";
 import { LoggingModule } from "../logging/logging.module";
 import { SmsInboundUseCase } from "./sms-inbound.use-case";
+import { TwilioSmsSignatureGuard } from "./twilio-sms-signature.guard";
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SmsInboundUseCase } from "./sms-inbound.use-case";
     SmsService,
     AdminApiGuard,
     AdminAuditInterceptor,
+    TwilioSmsSignatureGuard,
     SmsInboundUseCase,
   ],
   exports: [SmsService],

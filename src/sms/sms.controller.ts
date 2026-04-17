@@ -17,6 +17,7 @@ import { TWILIO_WEBHOOK_THROTTLE } from "../common/throttle/twilio-webhook-throt
 import { ConfirmFieldDto } from "./dto/confirm-field.dto";
 import { TwilioSmsWebhookDto } from "./dto/twilio-sms-webhook.dto";
 import { SmsInboundUseCase } from "./sms-inbound.use-case";
+import { TwilioSmsSignatureGuard } from "./twilio-sms-signature.guard";
 
 const twilioBodyPipe = new ValidationPipe({
   whitelist: true,
@@ -38,6 +39,7 @@ export class SmsController {
 
   @Post("inbound")
   @Throttle(TWILIO_WEBHOOK_THROTTLE)
+  @UseGuards(TwilioSmsSignatureGuard)
   async handleInbound(
     @Req() req: Request,
     @Res() res: Response,
