@@ -5,6 +5,10 @@ export const CONVERSATION_LIFECYCLE_SERVICE = "CONVERSATION_LIFECYCLE_SERVICE";
 export interface IConversationLifecycleService {
   ensureConversation(tenantId: string, sessionId: string): Promise<Conversation>;
 
+  findVoiceConversationTenantByCallSid(params: {
+    callSid: string;
+  }): Promise<{ id: string; tenantId: string } | null>;
+
   ensureSmsConversation(params: {
     tenantId: string;
     fromNumber: string;

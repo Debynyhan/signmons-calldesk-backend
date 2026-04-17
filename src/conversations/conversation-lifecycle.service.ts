@@ -83,6 +83,13 @@ export class ConversationLifecycleService {
     });
   }
 
+  async findVoiceConversationTenantByCallSid(params: { callSid: string }) {
+    return this.repository.findConversationFirst({
+      where: { twilioCallSid: params.callSid },
+      select: { id: true, tenantId: true },
+    });
+  }
+
   async ensureSmsConversation(params: {
     tenantId: string;
     fromNumber: string;

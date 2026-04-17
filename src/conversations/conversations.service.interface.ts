@@ -17,6 +17,10 @@ export interface IConversationsService {
     callSid: string;
   }): Promise<Conversation | null>;
 
+  findConversationTenantBySmsSid(params: {
+    smsSid: string;
+  }): Promise<{ id: string; tenantId: string } | null>;
+
   getConversationBySmsSid(params: {
     tenantId: string;
     smsSid: string;

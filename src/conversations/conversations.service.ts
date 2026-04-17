@@ -38,6 +38,13 @@ export class ConversationsService {
     });
   }
 
+  async findConversationTenantBySmsSid(params: { smsSid: string }) {
+    return this.repository.findConversationFirst({
+      where: { twilioSmsSid: params.smsSid },
+      select: { id: true, tenantId: true },
+    });
+  }
+
   async getConversationBySmsSid(params: { tenantId: string; smsSid: string }) {
     return this.repository.findConversationFirst({
       where: {

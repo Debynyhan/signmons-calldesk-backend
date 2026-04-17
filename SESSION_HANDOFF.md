@@ -7,24 +7,26 @@ Last Updated: 2026-04-17
 ## Current Context
 
 - Branch: `codex/next-task`
-- Active ticket (`Now`): `R6-3 Tenant-isolation assertions at inbound boundaries`
+- Active ticket (`Now`): `R6-4 Latency and open-handle stabilization`
 - Source plan: `REFACTOR6.md`
 
 ---
 
 ## Completed This Session
 
-- Completed `R6-2 Voice turn orchestration decomposition` by splitting prelude/context wiring from `VoiceTurnPreludeContextFactory` into dedicated runtime builder units:
-  - Added `src/voice/voice-turn-prelude-context.runtime-builders.ts` with focused builders:
-    - `createTurnPreludeRuntime`
-    - `createTurnContextRuntime`
-    - `createTurnEarlyRoutingRuntime`
-    - `createTurnExpectedFieldRuntime`
-  - Reduced `VoiceTurnPreludeContextFactory` to orchestration-only composition/wiring.
-- Verified focused orchestration suites remain green:
-  - `src/voice/__tests__/voice-turn-runtime.factory.spec.ts` ✅
-  - `src/voice/__tests__/voice-turn-pipeline.service.spec.ts` ✅
-  - `src/voice/__tests__/voice-turn.service.spec.ts` ✅
+- Completed `R6-3 Tenant-isolation assertions at inbound boundaries` with fail-closed mismatch behavior:
+  - Added global SID-tenant lookups:
+    - `ConversationLifecycleService.findVoiceConversationTenantByCallSid`
+    - `ConversationsService.findConversationTenantBySmsSid`
+  - Enforced voice inbound mismatch guard in `VoiceInboundUseCase` for:
+    - `/api/voice/inbound`
+    - `/api/voice/demo-inbound`
+    - `/api/voice/turn`
+    - `/api/voice/fallback`
+  - Enforced SMS inbound mismatch guard in `SmsInboundUseCase` by checking `SmsSid` ownership before processing.
+- Verified mismatch paths are covered:
+  - `src/voice/__tests__/voice.controller.provider.spec.ts` (voice mismatch fail-closed) ✅
+  - `src/sms/__tests__/sms.controller.spec.ts` (SMS mismatch fail-closed) ✅
 - Required gates run:
   - `npm run -s build` ✅
   - `npm test -- --runInBand` ✅
@@ -34,8 +36,8 @@ Last Updated: 2026-04-17
 
 ## Next Actions
 
-1. Start `R6-3` inbound tenant-isolation assertions in voice/SMS boundaries.
-2. Add fail-closed mismatch handling and integration coverage for mismatch paths.
+1. Start `R6-4` latency and open-handle stabilization.
+2. Identify persistent async handles in test/runtime lifecycle and close them deterministically.
 3. Keep WIP limit at one ticket and repeat full gates.
 
 ---

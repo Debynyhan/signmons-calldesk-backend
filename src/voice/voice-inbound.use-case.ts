@@ -74,6 +74,20 @@ export class VoiceInboundUseCase {
         reason: "missing_call_sid",
       });
     }
+    if (
+      !(await this.assertVoiceTenantIsolation({
+        tenantId: tenant.id,
+        callSid,
+        route: "inbound",
+      }))
+    ) {
+      return this.voiceResponse.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "tenant_isolation_mismatch",
+      });
+    }
     const requestId = this.voiceWebhookParser.getRequestId(req);
     const callerPhone =
       this.voiceWebhookParser.extractFromNumber(body) ?? undefined;
@@ -186,6 +200,20 @@ export class VoiceInboundUseCase {
         reason: "missing_call_sid",
       });
     }
+    if (
+      !(await this.assertVoiceTenantIsolation({
+        tenantId: tenant.id,
+        callSid,
+        route: "demo-inbound",
+      }))
+    ) {
+      return this.voiceResponse.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "tenant_isolation_mismatch",
+      });
+    }
 
     const requestId =
       typeof req.query.leadId === "string" ? req.query.leadId : undefined;
@@ -276,6 +304,20 @@ export class VoiceInboundUseCase {
         reason: "missing_call_sid",
       });
     }
+    if (
+      !(await this.assertVoiceTenantIsolation({
+        tenantId: tenant.id,
+        callSid,
+        route: "turn",
+      }))
+    ) {
+      return this.voiceResponse.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "tenant_isolation_mismatch",
+      });
+    }
     const speechResult = this.voiceWebhookParser.extractSpeechResult(turnBody);
     const confidence = this.voiceWebhookParser.extractConfidence(turnBody);
     const requestId = this.voiceWebhookParser.getRequestId(req);
@@ -306,6 +348,22 @@ export class VoiceInboundUseCase {
       ? this.voiceTurnPolicy.getTenantDisplayName(tenant)
       : undefined;
     const callSid = this.voiceWebhookParser.extractCallSid(fallbackBody) ?? undefined;
+    if (
+      tenant &&
+      callSid &&
+      !(await this.assertVoiceTenantIsolation({
+        tenantId: tenant.id,
+        callSid,
+        route: "fallback",
+      }))
+    ) {
+      return this.voiceResponse.replyWithNoHandoff({
+        res,
+        tenantId: tenant.id,
+        callSid,
+        reason: "tenant_isolation_mismatch",
+      });
+    }
     const payload = (req.body ?? {}) as Record<string, unknown>;
     const errorCode =
       typeof payload.ErrorCode === "string" ? payload.ErrorCode : undefined;
@@ -346,5 +404,33 @@ export class VoiceInboundUseCase {
 
   private voiceBody(req: Request): TwilioVoiceWebhookDto {
     return (req.body ?? {}) as TwilioVoiceWebhookDto;
+  }
+
+  private async assertVoiceTenantIsolation(params: {
+    tenantId: string;
+    callSid: string;
+    route: "inbound" | "demo-inbound" | "turn" | "fallback";
+  }): Promise<boolean> {
+    const existing =
+      await this.conversationLifecycleService.findVoiceConversationTenantByCallSid(
+        {
+          callSid: params.callSid,
+        },
+      );
+    if (!existing || existing.tenantId === params.tenantId) {
+      return true;
+    }
+    this.loggingService.warn(
+      {
+        event: "voice.tenant_isolation_mismatch",
+        route: params.route,
+        callSid: params.callSid,
+        resolvedTenantId: params.tenantId,
+        conversationTenantId: existing.tenantId,
+        conversationId: existing.id,
+      },
+      VoiceInboundUseCase.name,
+    );
+    return false;
   }
 }

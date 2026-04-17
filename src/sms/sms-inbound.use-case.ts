@@ -134,11 +134,25 @@ export class SmsInboundUseCase {
 
     const smsSid = this.extractSmsSid(smsBody);
     if (smsSid) {
-      const existing = await this.conversationsService.getConversationBySmsSid({
-        tenantId: tenant.id,
-        smsSid,
-      });
+      const existing =
+        await this.conversationsService.findConversationTenantBySmsSid({
+          smsSid,
+        });
       if (existing) {
+        if (existing.tenantId !== tenant.id) {
+          this.loggingService.warn(
+            {
+              event: "sms.inbound_tenant_isolation_mismatch",
+              smsSid,
+              toNumber,
+              fromNumber,
+              resolvedTenantId: tenant.id,
+              conversationTenantId: existing.tenantId,
+              conversationId: existing.id,
+            },
+            SmsInboundUseCase.name,
+          );
+        }
         return res.status(204).send();
       }
     }

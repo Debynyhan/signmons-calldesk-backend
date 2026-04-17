@@ -33,7 +33,7 @@ describe("SmsController", () => {
     const getConversationById = jest.fn();
     const promoteNameFromSms = jest.fn();
     const promoteAddressFromSms = jest.fn();
-    const getConversationBySmsSid = jest.fn().mockResolvedValue(null);
+    const findConversationTenantBySmsSid = jest.fn().mockResolvedValue(null);
     const ensureSmsConversation = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1" },
       sessionId: "session-1",
@@ -69,7 +69,7 @@ describe("SmsController", () => {
       .overrideProvider(ConversationsService)
       .useValue({
         getConversationById,
-        getConversationBySmsSid,
+        findConversationTenantBySmsSid,
       })
       .overrideProvider(VoiceConversationStateService)
       .useValue({ promoteNameFromSms, promoteAddressFromSms })
@@ -93,6 +93,7 @@ describe("SmsController", () => {
       app,
       httpServer,
       resolveTenantByPhone,
+      findConversationTenantBySmsSid,
       ensureSmsConversation,
       triage,
       sendMessage,
@@ -305,8 +306,14 @@ describe("SmsController", () => {
   it("routes inbound SMS through AI and replies", async () => {
     process.env.TWILIO_SIGNATURE_CHECK = "true";
     validateRequestMock.mockReturnValue(true);
-    const { app, httpServer, resolveTenantByPhone, ensureSmsConversation, triage, sendMessage } =
-      await buildInboundHarness();
+    const {
+      app,
+      httpServer,
+      resolveTenantByPhone,
+      ensureSmsConversation,
+      triage,
+      sendMessage,
+    } = await buildInboundHarness();
 
     await request(httpServer)
       .post("/api/sms/inbound")
@@ -350,6 +357,40 @@ describe("SmsController", () => {
       "https://example.ngrok.io/api/sms/inbound",
       expect.objectContaining({ SmsSid: "SM123" }),
     );
+
+    await app.close();
+  });
+
+  it("fails closed when inbound SmsSid belongs to a different tenant", async () => {
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    validateRequestMock.mockReturnValue(true);
+    const {
+      app,
+      httpServer,
+      findConversationTenantBySmsSid,
+      ensureSmsConversation,
+      triage,
+      sendMessage,
+    } = await buildInboundHarness();
+    findConversationTenantBySmsSid.mockResolvedValue({
+      id: "conversation-foreign",
+      tenantId: "tenant-foreign",
+    });
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .set("x-twilio-signature", "good-sig")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "Hello",
+        SmsSid: "SM123",
+      })
+      .expect(204);
+
+    expect(ensureSmsConversation).not.toHaveBeenCalled();
+    expect(triage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
 
     await app.close();
   });

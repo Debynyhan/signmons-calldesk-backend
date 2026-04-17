@@ -30,9 +30,11 @@ describe("VoiceInboundUseCase provider selection", () => {
   };
   let conversationsService: {
     ensureVoiceConsentConversation: jest.Mock;
+    findVoiceConversationTenantByCallSid: jest.Mock;
   };
   let conversationLifecycleService: {
     ensureVoiceConsentConversation: jest.Mock;
+    findVoiceConversationTenantByCallSid: jest.Mock;
   };
   let voiceWebhookParser: {
     extractToNumber: jest.Mock;
@@ -77,10 +79,13 @@ describe("VoiceInboundUseCase provider selection", () => {
       ensureVoiceConsentConversation: jest
         .fn()
         .mockResolvedValue({ id: "conversation-1" }),
+      findVoiceConversationTenantByCallSid: jest.fn().mockResolvedValue(null),
     };
     conversationLifecycleService = {
       ensureVoiceConsentConversation:
         conversationsService.ensureVoiceConsentConversation,
+      findVoiceConversationTenantByCallSid:
+        conversationsService.findVoiceConversationTenantByCallSid,
     };
     voiceWebhookParser = {
       extractToNumber: jest.fn().mockReturnValue("+12167448929"),
@@ -196,6 +201,78 @@ describe("VoiceInboundUseCase provider selection", () => {
     expect(voiceResponse.replyWithTwiml).toHaveBeenCalledWith(
       expect.anything(),
       "<Response><Say>Fallback consent.</Say></Response>",
+    );
+  });
+
+  it("fails closed when inbound callSid maps to a different tenant", async () => {
+    conversationsService.findVoiceConversationTenantByCallSid.mockResolvedValue({
+      id: "conversation-foreign",
+      tenantId: "tenant-foreign",
+    });
+    const useCase = new VoiceInboundUseCase(
+      buildConfig(),
+      tenantsService as never,
+      conversationLifecycleService as never,
+      voiceWebhookParser as never,
+      voiceTurnService as never,
+      voiceConsentAudioService as never,
+      voicePromptComposer as never,
+      voiceTurnPolicy as never,
+      voiceResponse as never,
+      loggingService as never,
+    );
+
+    await useCase.handleInbound({} as Request, {} as Response);
+
+    expect(
+      conversationsService.ensureVoiceConsentConversation,
+    ).not.toHaveBeenCalled();
+    expect(voiceResponse.replyWithNoHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        callSid: "CA123",
+        reason: "tenant_isolation_mismatch",
+      }),
+    );
+    expect(loggingService.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "voice.tenant_isolation_mismatch",
+        callSid: "CA123",
+        resolvedTenantId: "tenant-1",
+        conversationTenantId: "tenant-foreign",
+      }),
+      VoiceInboundUseCase.name,
+    );
+  });
+
+  it("fails closed on turn when callSid maps to a different tenant", async () => {
+    conversationsService.findVoiceConversationTenantByCallSid.mockResolvedValue({
+      id: "conversation-foreign",
+      tenantId: "tenant-foreign",
+    });
+    voiceTurnService.handleTurn.mockResolvedValue(undefined);
+    const useCase = new VoiceInboundUseCase(
+      buildConfig(),
+      tenantsService as never,
+      conversationLifecycleService as never,
+      voiceWebhookParser as never,
+      voiceTurnService as never,
+      voiceConsentAudioService as never,
+      voicePromptComposer as never,
+      voiceTurnPolicy as never,
+      voiceResponse as never,
+      loggingService as never,
+    );
+
+    await useCase.handleTurn({} as Request, {} as Response);
+
+    expect(voiceTurnService.handleTurn).not.toHaveBeenCalled();
+    expect(voiceResponse.replyWithNoHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: "tenant-1",
+        callSid: "CA123",
+        reason: "tenant_isolation_mismatch",
+      }),
     );
   });
 });
