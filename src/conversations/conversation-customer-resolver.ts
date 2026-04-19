@@ -86,16 +86,6 @@ export class ConversationCustomerResolver {
         },
       });
       if (existing) {
-        if (!existing.consentToText) {
-          return this.repository.updateCustomer({
-            where: { id: existing.id },
-            data: {
-              consentToText: true,
-              consentToTextAt: new Date(),
-              updatedAt: new Date(),
-            },
-          });
-        }
         return existing;
       }
       try {
@@ -105,8 +95,8 @@ export class ConversationCustomerResolver {
             tenantId: params.tenantId,
             phone: params.normalizedPhone,
             fullName: "Unknown Caller",
-            consentToText: true,
-            consentToTextAt: new Date(),
+            consentToText: false,
+            consentToTextAt: null,
             aiMetadata: {
               source: "SMS",
               status: "PROSPECT",
@@ -142,8 +132,8 @@ export class ConversationCustomerResolver {
         tenantId: params.tenantId,
         phone: placeholderPhone,
         fullName: "Unknown Caller",
-        consentToText: true,
-        consentToTextAt: new Date(),
+        consentToText: false,
+        consentToTextAt: null,
         aiMetadata: {
           source: "SMS",
           status: "PROSPECT",

@@ -23,6 +23,12 @@ import {
 import { ConfirmFieldDto } from "./dto/confirm-field.dto";
 import type { TwilioSmsWebhookDto } from "./dto/twilio-sms-webhook.dto";
 import { SmsService } from "./sms.service";
+import {
+  buildSmsKeywordReply,
+  isTwilioManagedKeyword,
+  resolveSmsKeywordIntent,
+  type SmsKeywordIntent,
+} from "./sms-keyword-policy";
 
 @Injectable()
 export class SmsInboundUseCase {
@@ -91,14 +97,16 @@ export class SmsInboundUseCase {
     const smsBody = (req.body ?? {}) as TwilioSmsWebhookDto;
     const toNumber = this.extractToNumber(smsBody);
     const fromNumber = this.extractFromNumber(smsBody);
+    const keywordIntent = resolveSmsKeywordIntent(smsBody);
     const messageBody = this.extractMessageBody(smsBody);
-    if (!toNumber || !fromNumber || !messageBody) {
+    if (!toNumber || !fromNumber || (!messageBody && keywordIntent === "none")) {
       this.loggingService.warn(
         {
           event: "sms.inbound_missing_fields",
           toNumber,
           fromNumber,
           hasBody: Boolean(messageBody),
+          keywordIntent,
         },
         SmsInboundUseCase.name,
       );
@@ -155,6 +163,76 @@ export class SmsInboundUseCase {
         }
         return res.status(204).send();
       }
+    }
+
+    if (keywordIntent !== "none") {
+      await this.applyKeywordIntent({
+        tenantId: tenant.id,
+        fromNumber,
+        intent: keywordIntent,
+      });
+
+      const twilioManagedKeyword = isTwilioManagedKeyword(smsBody);
+      if (!twilioManagedKeyword) {
+        const keywordReply = buildSmsKeywordReply(
+          keywordIntent,
+          this.getTenantLabel(tenant),
+        );
+        if (keywordReply) {
+          await this.smsService.sendMessage({
+            to: fromNumber,
+            from: toNumber,
+            body: keywordReply,
+            tenantId: tenant.id,
+          });
+        }
+      }
+
+      this.loggingService.log(
+        {
+          event: "sms.keyword_handled",
+          tenantId: tenant.id,
+          fromNumber,
+          toNumber,
+          smsSid: smsSid ?? null,
+          keywordIntent,
+          twilioManagedKeyword,
+        },
+        SmsInboundUseCase.name,
+      );
+      return res.status(204).send();
+    }
+
+    const consentToText = await this.conversationsService.getSmsConsentByPhone({
+      tenantId: tenant.id,
+      phone: fromNumber,
+    });
+    if (consentToText === false) {
+      this.loggingService.log(
+        {
+          event: "sms.inbound_opted_out_suppressed",
+          tenantId: tenant.id,
+          fromNumber,
+          toNumber,
+          smsSid: smsSid ?? null,
+        },
+        SmsInboundUseCase.name,
+      );
+      return res.status(204).send();
+    }
+
+    if (!messageBody) {
+      this.loggingService.warn(
+        {
+          event: "sms.inbound_missing_body",
+          tenantId: tenant.id,
+          fromNumber,
+          toNumber,
+          smsSid: smsSid ?? null,
+        },
+        SmsInboundUseCase.name,
+      );
+      return res.status(204).send();
     }
 
     const { conversation, sessionId } =
@@ -238,5 +316,38 @@ export class SmsInboundUseCase {
       }
     }
     return "Thanks - we'll follow up shortly.";
+  }
+
+  private async applyKeywordIntent(params: {
+    tenantId: string;
+    fromNumber: string;
+    intent: SmsKeywordIntent;
+  }) {
+    if (params.intent === "opt_in") {
+      await this.conversationsService.setSmsConsentByPhone({
+        tenantId: params.tenantId,
+        phone: params.fromNumber,
+        consent: true,
+      });
+      return;
+    }
+    if (params.intent === "opt_out") {
+      await this.conversationsService.setSmsConsentByPhone({
+        tenantId: params.tenantId,
+        phone: params.fromNumber,
+        consent: false,
+      });
+    }
+  }
+
+  private getTenantLabel(tenant: { name: string; settings?: unknown }): string {
+    const settings = tenant.settings;
+    if (settings && typeof settings === "object") {
+      const displayName = (settings as Record<string, unknown>).displayName;
+      if (typeof displayName === "string" && displayName.trim()) {
+        return displayName.trim();
+      }
+    }
+    return "Signmons";
   }
 }

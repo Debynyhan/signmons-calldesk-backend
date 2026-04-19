@@ -34,6 +34,8 @@ describe("SmsController", () => {
     const promoteNameFromSms = jest.fn();
     const promoteAddressFromSms = jest.fn();
     const findConversationTenantBySmsSid = jest.fn().mockResolvedValue(null);
+    const getSmsConsentByPhone = jest.fn().mockResolvedValue(null);
+    const setSmsConsentByPhone = jest.fn().mockResolvedValue(undefined);
     const ensureSmsConversation = jest.fn().mockResolvedValue({
       conversation: { id: "conversation-1" },
       sessionId: "session-1",
@@ -70,6 +72,8 @@ describe("SmsController", () => {
       .useValue({
         getConversationById,
         findConversationTenantBySmsSid,
+        getSmsConsentByPhone,
+        setSmsConsentByPhone,
       })
       .overrideProvider(VoiceConversationStateService)
       .useValue({ promoteNameFromSms, promoteAddressFromSms })
@@ -94,6 +98,8 @@ describe("SmsController", () => {
       httpServer,
       resolveTenantByPhone,
       findConversationTenantBySmsSid,
+      getSmsConsentByPhone,
+      setSmsConsentByPhone,
       ensureSmsConversation,
       triage,
       sendMessage,
@@ -310,6 +316,7 @@ describe("SmsController", () => {
       app,
       httpServer,
       resolveTenantByPhone,
+      getSmsConsentByPhone,
       ensureSmsConversation,
       triage,
       sendMessage,
@@ -327,6 +334,10 @@ describe("SmsController", () => {
       .expect(204);
 
     expect(resolveTenantByPhone).toHaveBeenCalledWith("+12025550199");
+    expect(getSmsConsentByPhone).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      phone: "+12025550100",
+    });
     expect(ensureSmsConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: "tenant-1",
@@ -357,6 +368,119 @@ describe("SmsController", () => {
       "https://example.ngrok.io/api/sms/inbound",
       expect.objectContaining({ SmsSid: "SM123" }),
     );
+
+    await app.close();
+  });
+
+  it("handles STOP keyword and suppresses AI routing", async () => {
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    validateRequestMock.mockReturnValue(true);
+    const {
+      app,
+      httpServer,
+      setSmsConsentByPhone,
+      getSmsConsentByPhone,
+      triage,
+      ensureSmsConversation,
+      sendMessage,
+    } = await buildInboundHarness();
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .set("x-twilio-signature", "good-sig")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "STOP",
+        SmsSid: "SMSTOP",
+      })
+      .expect(204);
+
+    expect(setSmsConsentByPhone).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      phone: "+12025550100",
+      consent: false,
+    });
+    expect(getSmsConsentByPhone).not.toHaveBeenCalled();
+    expect(ensureSmsConversation).not.toHaveBeenCalled();
+    expect(triage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "+12025550100",
+        from: "+12025550199",
+      }),
+    );
+
+    await app.close();
+  });
+
+  it("does not send duplicate reply when Twilio already handled keyword", async () => {
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    validateRequestMock.mockReturnValue(true);
+    const {
+      app,
+      httpServer,
+      setSmsConsentByPhone,
+      triage,
+      ensureSmsConversation,
+      sendMessage,
+    } = await buildInboundHarness();
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .set("x-twilio-signature", "good-sig")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "STOP",
+        SmsSid: "SMSTOP2",
+        OptOutType: "STOP",
+      })
+      .expect(204);
+
+    expect(setSmsConsentByPhone).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      phone: "+12025550100",
+      consent: false,
+    });
+    expect(ensureSmsConversation).not.toHaveBeenCalled();
+    expect(triage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("suppresses non-keyword SMS when contact is opted out", async () => {
+    process.env.TWILIO_SIGNATURE_CHECK = "true";
+    validateRequestMock.mockReturnValue(true);
+    const {
+      app,
+      httpServer,
+      getSmsConsentByPhone,
+      triage,
+      ensureSmsConversation,
+      sendMessage,
+    } = await buildInboundHarness();
+    getSmsConsentByPhone.mockResolvedValue(false);
+
+    await request(httpServer)
+      .post("/api/sms/inbound")
+      .set("x-twilio-signature", "good-sig")
+      .send({
+        From: "+12025550100",
+        To: "+12025550199",
+        Body: "I need service now",
+        SmsSid: "SM333",
+      })
+      .expect(204);
+
+    expect(getSmsConsentByPhone).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      phone: "+12025550100",
+    });
+    expect(ensureSmsConversation).not.toHaveBeenCalled();
+    expect(triage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
 
     await app.close();
   });

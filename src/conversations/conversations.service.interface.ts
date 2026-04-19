@@ -31,6 +31,17 @@ export interface IConversationsService {
     conversationId: string;
   }): Promise<Conversation | null>;
 
+  getSmsConsentByPhone(params: {
+    tenantId: string;
+    phone: string;
+  }): Promise<boolean | null>;
+
+  setSmsConsentByPhone(params: {
+    tenantId: string;
+    phone: string;
+    consent: boolean;
+  }): Promise<void>;
+
   setAiRouteIntent(params: {
     tenantId: string;
     conversationId: string;

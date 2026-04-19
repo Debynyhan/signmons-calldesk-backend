@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import {
   Prisma,
 } from "@prisma/client";
+import { randomUUID } from "crypto";
 import {
   buildAiRouteState,
   type AiRouteIntent,
@@ -62,6 +63,65 @@ export class ConversationsService {
       where: {
         tenantId: params.tenantId,
         id: params.conversationId,
+      },
+    });
+  }
+
+  async getSmsConsentByPhone(params: { tenantId: string; phone: string }) {
+    const customer = await this.repository.findCustomerFirst({
+      where: {
+        tenantId: params.tenantId,
+        phone: params.phone,
+      },
+      select: {
+        consentToText: true,
+      },
+    });
+    return customer ? customer.consentToText : null;
+  }
+
+  async setSmsConsentByPhone(params: {
+    tenantId: string;
+    phone: string;
+    consent: boolean;
+  }) {
+    const existing = await this.repository.findCustomerFirst({
+      where: {
+        tenantId: params.tenantId,
+        phone: params.phone,
+      },
+      select: {
+        id: true,
+        consentToText: true,
+        consentToTextAt: true,
+      },
+    });
+
+    if (existing) {
+      if (existing.consentToText === params.consent) {
+        return;
+      }
+      await this.repository.updateCustomer({
+        where: { id: existing.id },
+        data: {
+          consentToText: params.consent,
+          consentToTextAt: params.consent
+            ? new Date()
+            : existing.consentToTextAt ?? null,
+          updatedAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    await this.repository.createCustomer({
+      data: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        phone: params.phone,
+        fullName: "Unknown Caller",
+        consentToText: params.consent,
+        consentToTextAt: params.consent ? new Date() : null,
       },
     });
   }
